@@ -1,0 +1,128 @@
+/* webAwanna — Claymorphism fallback CSS (digunakan saat Vite belum di-build) */
+:root {
+    --color-primary: #FF6B6B;
+    --color-primary-light: #FF9A9A;
+    --color-secondary: #4ECDC4;
+    --color-accent: #FFE66D;
+    --color-purple: #A78BFA;
+    --color-pink: #F472B6;
+    --color-orange: #FB923C;
+    --color-green: #34D399;
+    --color-bg-base: #FFF5F5;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+    background: var(--color-bg-base);
+    color: #1e1b2e;
+    min-height: 100vh;
+    margin: 0;
+}
+
+/* ─── Clay Card ─────────────────────────────────────────── */
+.clay-card {
+    background: #ffffff;
+    border-radius: 20px;
+    box-shadow: 8px 8px 0px 0px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9);
+    border: 2px solid rgba(0,0,0,0.06);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.clay-card:hover { transform: translateY(-2px); box-shadow: 10px 10px 0px 0px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.9); }
+.clay-card-sm { background: #ffffff; border-radius: 14px; box-shadow: 5px 5px 0px 0px rgba(0,0,0,0.07); border: 2px solid rgba(0,0,0,0.05); }
+.clay-sidebar { background: #ffffff; border-right: 2px solid rgba(0,0,0,0.05); box-shadow: 4px 0 20px rgba(0,0,0,0.05); }
+
+/* ─── Buttons ────────────────────────────────────────────── */
+.clay-btn { border-radius: 12px; font-weight: 600; padding: 10px 20px; border: 2px solid transparent; cursor: pointer; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-size: 0.875rem; }
+.clay-btn-primary { background: var(--color-primary); color: #fff; border-color: #e05555; box-shadow: 0 4px 0 #e05555; }
+.clay-btn-primary:hover { transform: translateY(2px); box-shadow: 0 2px 0 #e05555; }
+.clay-btn-secondary { background: var(--color-secondary); color: #fff; border-color: #3ab8b0; box-shadow: 0 4px 0 #3ab8b0; }
+.clay-btn-secondary:hover { transform: translateY(2px); box-shadow: 0 2px 0 #3ab8b0; }
+.clay-btn-outline { background: #fff; color: #374151; border-color: rgba(0,0,0,0.12); box-shadow: 0 4px 0 rgba(0,0,0,0.08); }
+.clay-btn-outline:hover { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.08); }
+.clay-btn-danger { background: #FEE2E2; color: #DC2626; border-color: #fca5a5; box-shadow: 0 4px 0 #fca5a5; }
+.clay-btn-danger:hover { transform: translateY(2px); box-shadow: 0 2px 0 #fca5a5; }
+
+/* ─── Input ──────────────────────────────────────────────── */
+.clay-input { width: 100%; padding: 10px 14px; border-radius: 12px; border: 2px solid rgba(0,0,0,0.08); background: #fafafa; font-size: 0.9rem; color: #1e1b2e; transition: border-color 0.2s, box-shadow 0.2s; outline: none; font-family: inherit; }
+.clay-input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 4px rgba(255,107,107,0.12); background: #fff; }
+.clay-input::placeholder { color: #9ca3af; }
+
+/* ─── Badge ──────────────────────────────────────────────── */
+.clay-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; border: 1.5px solid transparent; }
+.clay-badge-green  { background: #d1fae5; color: #059669; border-color: #6ee7b7; }
+.clay-badge-red    { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+.clay-badge-yellow { background: #fef9c3; color: #b45309; border-color: #fde68a; }
+.clay-badge-blue   { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
+.clay-badge-purple { background: #ede9fe; color: #7c3aed; border-color: #c4b5fd; }
+.clay-badge-gray   { background: #f3f4f6; color: #6b7280; border-color: #d1d5db; }
+
+/* ─── Table ──────────────────────────────────────────────── */
+.clay-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.clay-table thead th { background: #fafafa; padding: 12px 16px; text-align: left; font-weight: 700; font-size: 0.78rem; letter-spacing: 0.05em; text-transform: uppercase; color: #6b7280; border-bottom: 2px solid rgba(0,0,0,0.06); }
+.clay-table tbody tr:hover { background: #fffbfb; }
+.clay-table tbody td { padding: 13px 16px; font-size: 0.875rem; border-bottom: 1px solid rgba(0,0,0,0.04); color: #374151; }
+
+/* ─── Nav ────────────────────────────────────────────────── */
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; font-weight: 500; font-size: 0.875rem; color: #6b7280; transition: all 0.15s ease; text-decoration: none; width: 100%; }
+.nav-item:hover { background: #FFF5F5; color: var(--color-primary); }
+.nav-item.active { background: linear-gradient(135deg, rgba(255,107,107,0.08), rgba(255,154,154,0.12)); color: var(--color-primary); font-weight: 700; border: 1.5px solid rgba(255,107,107,0.2); }
+.nav-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+.nav-item.active .nav-icon { background: var(--color-primary); box-shadow: 0 3px 0 #e05555; }
+
+/* ─── Stat Card ──────────────────────────────────────────── */
+.stat-card { border-radius: 20px; padding: 22px; border: 2px solid transparent; position: relative; overflow: hidden; transition: transform 0.2s ease; }
+.stat-card:hover { transform: translateY(-3px); }
+.stat-card-1 { background: linear-gradient(135deg, #FF6B6B, #FF9A9A); box-shadow: 6px 6px 0 #e05555; border-color: #e05555; color: white; }
+.stat-card-2 { background: linear-gradient(135deg, #4ECDC4, #88DED8); box-shadow: 6px 6px 0 #3ab8b0; border-color: #3ab8b0; color: white; }
+.stat-card-3 { background: linear-gradient(135deg, #A78BFA, #C4B5FD); box-shadow: 6px 6px 0 #7c5cf5; border-color: #7c5cf5; color: white; }
+.stat-card-4 { background: linear-gradient(135deg, #FB923C, #FBB07C); box-shadow: 6px 6px 0 #ea7c20; border-color: #ea7c20; color: white; }
+
+/* ─── Alert ──────────────────────────────────────────────── */
+.clay-alert { border-radius: 14px; padding: 14px 18px; border: 2px solid transparent; display: flex; align-items: center; gap: 10px; font-size: 0.875rem; font-weight: 500; }
+.clay-alert-success { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+.clay-alert-error   { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.clay-alert-warning { background: #fef9c3; color: #92400e; border-color: #fde68a; }
+
+/* ─── Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f9fafb; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+
+/* ─── Font weight helpers ────────────────────────────────── */
+.font-700 { font-weight: 700; }
+.font-800 { font-weight: 800; }
+.font-600 { font-weight: 600; }
+
+/* ─── form-grid ──────────────────────────────────────────── */
+.form-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:18px; }
+.form-grid .col-span-2 { grid-column:span 2; }
+@media (max-width:600px) {
+    .form-grid { grid-template-columns:1fr; }
+    .form-grid .col-span-2 { grid-column:span 1; }
+}
+
+/* ─── table-scroll ───────────────────────────────────────── */
+.table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+/* ─── grid-stats/2col/3col ───────────────────────────────── */
+.grid-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:20px; }
+.grid-2col  { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-bottom:20px; }
+.grid-3col  { display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:20px; }
+@media (max-width:1023px) {
+    .grid-stats { grid-template-columns:repeat(2,1fr); gap:12px; }
+    .grid-3col  { grid-template-columns:1fr; }
+}
+@media (max-width:767px) {
+    .grid-stats { grid-template-columns:repeat(2,1fr); gap:10px; }
+    .grid-2col  { grid-template-columns:1fr; gap:12px; }
+}
+@media (max-width:479px) {
+    .stat-card { padding:14px; }
+}
+
+/* ─── filter bar mobile ──────────────────────────────────── */
+@media (max-width:600px) {
+    .topbar-date, .topbar-subtitle { display:none; }
+}
