@@ -4,12 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\Dashboard;
 use App\Models\KirimanActual;
+use App\Models\PaketTracking;
 use App\Models\PembelianBarang;
 use App\Models\Product;
 use App\Models\StockMovement;
 use App\Models\StockRecap;
 use App\Models\Supplier;
-use Carbon\Carbon;
+use App\Services\KirimanImportService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -266,16 +268,17 @@ class GudangController extends Controller
         $dashboards = $this->getDashboards();
         $selectedDashboard = $request->filled('dashboard') ? $request->dashboard : null;
 
-        // Daily recap — per-dashboard tables with TF/COD breakdown
-        $recapRaw = KirimanActual::whereYear('tanggal', $year)
+        // Barang (product qty) totals per kiriman — load once
+        $allKiriman = KirimanActual::whereYear('tanggal', $year)
             ->whereMonth('tanggal', $month)
-            ->selectRaw('tanggal, dashboard, jenis, SUM(jumlah_resi) as total_resi, SUM(value_resi) as total_value')
-            ->groupBy('tanggal', 'dashboard', 'jenis')
-            ->orderBy('tanggal')
+            ->with('products')
             ->get();
+
+        $recapRaw = $allKiriman->groupBy(fn ($k) => $k->tanggal->format('Y-m-d'));
 
         $recapByDashboard = [];
         $grandTotalResi = 0;
+        $grandTotalBarang = 0;
         $grandTotalValue = 0;
 
         if ($selectedDashboard) {
@@ -285,50 +288,66 @@ class GudangController extends Controller
         }
 
         foreach ($targetDashboards as $db) {
-            $rows = $recapRaw->where('dashboard', $db);
-            $grouped = $rows->groupBy(fn ($item) => $item->tanggal instanceof Carbon ? $item->tanggal->format('Y-m-d') : $item->tanggal);
+            $dbKiriman = $allKiriman->where('dashboard', $db);
+            $grouped = $dbKiriman->groupBy(fn ($item) => $item->tanggal->format('Y-m-d'));
             $daily = [];
-            $dbTotals = ['tf_resi' => 0, 'tf_value' => 0, 'cod_resi' => 0, 'cod_value' => 0];
+            $dbTotals = ['tf_resi' => 0, 'tf_barang' => 0, 'tf_value' => 0, 'cod_resi' => 0, 'cod_barang' => 0, 'cod_value' => 0];
             $maxDay = (int) date('t', strtotime($bulan.'-01'));
 
             for ($d = 1; $d <= $maxDay; $d++) {
                 $dateStr = sprintf('%s-%02d', $bulan, $d);
-                $byDate = $grouped->get($dateStr);
-                $tf = $byDate?->firstWhere('jenis', 'TF');
-                $cod = $byDate?->firstWhere('jenis', 'COD');
+                $byDate = $grouped->get($dateStr, collect());
+                $tf = $byDate->where('jenis', 'TF');
+                $cod = $byDate->where('jenis', 'COD');
+                $tfResi = $tf->sum('jumlah_resi');
+                $tfValue = $tf->sum('value_resi');
+                $tfBarang = $tf->flatMap->products->sum('jumlah');
+                $codResi = $cod->sum('jumlah_resi');
+                $codValue = $cod->sum('value_resi');
+                $codBarang = $cod->flatMap->products->sum('jumlah');
                 $day = [
                     'date' => $dateStr,
-                    'tf_resi' => $tf ? (int) $tf->total_resi : 0,
-                    'tf_value' => $tf ? (float) $tf->total_value : 0,
-                    'cod_resi' => $cod ? (int) $cod->total_resi : 0,
-                    'cod_value' => $cod ? (float) $cod->total_value : 0,
+                    'tf_resi' => $tfResi,
+                    'tf_barang' => $tfBarang,
+                    'tf_value' => $tfValue,
+                    'cod_resi' => $codResi,
+                    'cod_barang' => $codBarang,
+                    'cod_value' => $codValue,
                 ];
-                $day['total_resi'] = $day['tf_resi'] + $day['cod_resi'];
-                $day['total_value'] = $day['tf_value'] + $day['cod_value'];
+                $day['total_resi'] = $tfResi + $codResi;
+                $day['total_barang'] = $tfBarang + $codBarang;
+                $day['total_value'] = $tfValue + $codValue;
                 $daily[] = $day;
-                $dbTotals['tf_resi'] += $day['tf_resi'];
-                $dbTotals['tf_value'] += $day['tf_value'];
-                $dbTotals['cod_resi'] += $day['cod_resi'];
-                $dbTotals['cod_value'] += $day['cod_value'];
+                $dbTotals['tf_resi'] += $tfResi;
+                $dbTotals['tf_barang'] += $tfBarang;
+                $dbTotals['tf_value'] += $tfValue;
+                $dbTotals['cod_resi'] += $codResi;
+                $dbTotals['cod_barang'] += $codBarang;
+                $dbTotals['cod_value'] += $codValue;
             }
 
             $recapByDashboard[] = [
                 'dashboard' => $db,
                 'daily' => $daily,
                 'tf_resi' => $dbTotals['tf_resi'],
+                'tf_barang' => $dbTotals['tf_barang'],
                 'tf_value' => $dbTotals['tf_value'],
                 'cod_resi' => $dbTotals['cod_resi'],
+                'cod_barang' => $dbTotals['cod_barang'],
                 'cod_value' => $dbTotals['cod_value'],
                 'total_resi' => $dbTotals['tf_resi'] + $dbTotals['cod_resi'],
+                'total_barang' => $dbTotals['tf_barang'] + $dbTotals['cod_barang'],
                 'total_value' => $dbTotals['tf_value'] + $dbTotals['cod_value'],
             ];
             $grandTotalResi += $dbTotals['tf_resi'] + $dbTotals['cod_resi'];
+            $grandTotalBarang += $dbTotals['tf_barang'] + $dbTotals['cod_barang'];
             $grandTotalValue += $dbTotals['tf_value'] + $dbTotals['cod_value'];
         }
 
         $allDashboards = Dashboard::orderBy('name')->get();
+        $products = Product::orderBy('nama_produk')->get();
 
-        return view('gudang.kiriman', compact('recapByDashboard', 'grandTotalResi', 'grandTotalValue', 'bulan', 'allDashboards', 'selectedDashboard', 'dashboards'));
+        return view('gudang.kiriman', compact('recapByDashboard', 'grandTotalResi', 'grandTotalBarang', 'grandTotalValue', 'bulan', 'allDashboards', 'selectedDashboard', 'dashboards', 'products'));
     }
 
     public function kirimanStore(Request $request): RedirectResponse
@@ -338,29 +357,59 @@ class GudangController extends Controller
 
         $data = $request->validate([
             'tanggal' => 'required|date',
-            'jenis' => 'required|array',
-            'jenis.*' => 'required|in:COD,TF',
-            'dashboard' => 'required|array',
-            'dashboard.*' => 'required|'.$inDashboards,
-            'jumlah_resi' => 'required|array',
-            'jumlah_resi.*' => 'required|integer|min:0',
-            'value_resi' => 'required|array',
-            'value_resi.*' => 'required|numeric|min:0',
+            'rows' => 'required|array|min:1',
+            'rows.*.jenis' => 'required|in:COD,TF',
+            'rows.*.dashboard' => 'required|'.$inDashboards,
+            'rows.*.jumlah_resi' => 'required|integer|min:1',
+            'rows.*.products' => 'required|array|min:1',
+            'rows.*.products.*.product_id' => 'required|exists:products,id',
+            'rows.*.products.*.jumlah' => 'required|integer|min:1',
         ]);
 
-        $count = count($data['jenis']);
-        for ($i = 0; $i < $count; $i++) {
-            if (empty($data['jenis'][$i]) || empty($data['dashboard'][$i])) {
-                continue;
+        DB::transaction(function () use ($data) {
+            $allProductIds = collect($data['rows'])
+                ->flatMap(fn ($row) => collect($row['products'])->pluck('product_id'))
+                ->unique()->values()->toArray();
+
+            $products = Product::whereIn('id', $allProductIds)->get()->keyBy('id');
+
+            foreach ($data['rows'] as $row) {
+                $totalValue = 0;
+
+                foreach ($row['products'] as $prod) {
+                    $product = $products->get($prod['product_id']);
+                    $totalValue += $product->harga_jual * $prod['jumlah'];
+                }
+
+                $kiriman = KirimanActual::create([
+                    'tanggal' => $data['tanggal'],
+                    'jenis' => $row['jenis'],
+                    'dashboard' => $row['dashboard'],
+                    'jumlah_resi' => $row['jumlah_resi'],
+                    'value_resi' => $totalValue,
+                ]);
+
+                foreach ($row['products'] as $prod) {
+                    $product = $products->get($prod['product_id']);
+
+                    $kiriman->products()->create([
+                        'product_id' => $prod['product_id'],
+                        'jumlah' => $prod['jumlah'],
+                    ]);
+
+                    StockMovement::create([
+                        'product_id' => $prod['product_id'],
+                        'gudang' => 'GUDANG KUNINGAN',
+                        'tanggal' => $data['tanggal'],
+                        'barang_keluar' => $prod['jumlah'],
+                        'catatan' => 'Kiriman '.$row['jenis'].' '.$row['dashboard'],
+                        'kiriman_actual_id' => $kiriman->id,
+                    ]);
+
+                    Product::where('id', $prod['product_id'])->decrement('stok', $prod['jumlah']);
+                }
             }
-            KirimanActual::create([
-                'tanggal' => $data['tanggal'],
-                'jenis' => $data['jenis'][$i],
-                'dashboard' => $data['dashboard'][$i],
-                'jumlah_resi' => (int) ($data['jumlah_resi'][$i] ?? 0),
-                'value_resi' => (float) ($data['value_resi'][$i] ?? 0),
-            ]);
-        }
+        });
 
         return redirect()->route('gudang.kiriman')->with('success', 'Data kiriman berhasil ditambahkan.');
     }
@@ -368,8 +417,10 @@ class GudangController extends Controller
     public function kirimanEdit(KirimanActual $kiriman): View
     {
         $dashboards = $this->getDashboards();
+        $kiriman->load('products.product');
+        $products = Product::orderBy('nama_produk')->get();
 
-        return view('gudang.kiriman-edit', compact('kiriman', 'dashboards'));
+        return view('gudang.kiriman-edit', compact('kiriman', 'dashboards', 'products'));
     }
 
     public function kirimanUpdate(Request $request, KirimanActual $kiriman): RedirectResponse
@@ -380,18 +431,73 @@ class GudangController extends Controller
             'tanggal' => 'required|date',
             'jenis' => 'required|in:COD,TF',
             'dashboard' => 'required|'.$inDashboards,
-            'jumlah_resi' => 'required|integer|min:0',
-            'value_resi' => 'required|numeric|min:0',
+            'jumlah_resi' => 'required|integer|min:1',
+            'products' => 'required|array|min:1',
+            'products.*.product_id' => 'required|exists:products,id',
+            'products.*.jumlah' => 'required|integer|min:1',
         ]);
 
-        $kiriman->update($data);
+        DB::transaction(function () use ($data, $kiriman) {
+            // Reverse old stock movements
+            foreach ($kiriman->stockMovements as $sm) {
+                Product::where('id', $sm->product_id)->increment('stok', $sm->barang_keluar);
+                $sm->delete();
+            }
+
+            // Load products for pricing
+            $allProductIds = collect($data['products'])->pluck('product_id')->unique()->values()->toArray();
+            $products = Product::whereIn('id', $allProductIds)->get()->keyBy('id');
+
+            $totalValue = 0;
+            foreach ($data['products'] as $prod) {
+                $product = $products->get($prod['product_id']);
+                $totalValue += $product->harga_jual * $prod['jumlah'];
+            }
+
+            $kiriman->update([
+                'tanggal' => $data['tanggal'],
+                'jenis' => $data['jenis'],
+                'dashboard' => $data['dashboard'],
+                'jumlah_resi' => $data['jumlah_resi'],
+                'value_resi' => $totalValue,
+            ]);
+
+            // Replace products
+            $kiriman->products()->delete();
+            foreach ($data['products'] as $prod) {
+                $product = $products->get($prod['product_id']);
+
+                $kiriman->products()->create([
+                    'product_id' => $prod['product_id'],
+                    'jumlah' => $prod['jumlah'],
+                ]);
+
+                StockMovement::create([
+                    'product_id' => $prod['product_id'],
+                    'gudang' => 'GUDANG KUNINGAN',
+                    'tanggal' => $data['tanggal'],
+                    'barang_keluar' => $prod['jumlah'],
+                    'catatan' => 'Kiriman '.$data['jenis'].' '.$data['dashboard'],
+                    'kiriman_actual_id' => $kiriman->id,
+                ]);
+
+                Product::where('id', $prod['product_id'])->decrement('stok', $prod['jumlah']);
+            }
+        });
 
         return redirect()->route('gudang.kiriman')->with('success', 'Data kiriman berhasil diperbarui.');
     }
 
     public function kirimanDestroy(KirimanActual $kiriman): RedirectResponse
     {
-        $kiriman->delete();
+        DB::transaction(function () use ($kiriman) {
+            foreach ($kiriman->stockMovements as $sm) {
+                Product::where('id', $sm->product_id)->increment('stok', $sm->barang_keluar);
+                $sm->delete();
+            }
+
+            $kiriman->delete();
+        });
 
         return redirect()->route('gudang.kiriman')->with('success', 'Data kiriman berhasil dihapus.');
     }
@@ -412,6 +518,153 @@ class GudangController extends Controller
         $dashboard->delete();
 
         return redirect()->route('gudang.kiriman')->with('success', 'Dashboard berhasil dihapus.');
+    }
+
+    // ─── Kiriman Actual — Excel Import ────────────────────────────
+
+    public function kirimanExcelPreview(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+            'tanggal' => ['nullable', 'date'],
+        ]);
+
+        try {
+            $importService = app(KirimanImportService::class);
+            $result = $importService->parseExcel($request->file('file')->getPathname());
+
+            if ($request->filled('tanggal')) {
+                $tgl = $request->input('tanggal');
+                foreach ($result['data'] as &$row) {
+                    $row['tanggal'] = $tgl;
+                    $row['detail']['tanggal_pembuatan'] = $tgl;
+                }
+                foreach ($result['groups'] as &$group) {
+                    $group['tanggal'] = $tgl;
+                }
+            }
+
+            if ($result['total'] === 0 && ! empty($request->file('file'))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Format file tidak dikenal atau tidak memiliki data yang bisa dibaca. Gunakan file dari dashboard FLIK, SPX, atau SICEPAT.',
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'groups' => $result['groups'],
+                    'total' => $result['total'],
+                ],
+                'errors' => $result['errors'],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memproses file: '.$e->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function kirimanExcelImport(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+            'tanggal' => ['nullable', 'date'],
+        ]);
+
+        try {
+            $importService = app(KirimanImportService::class);
+            $result = $importService->parseExcel($request->file('file')->getPathname());
+
+            if ($request->filled('tanggal')) {
+                $tgl = $request->input('tanggal');
+                foreach ($result['data'] as &$row) {
+                    $row['tanggal'] = $tgl;
+                }
+                foreach ($result['groups'] as &$group) {
+                    $group['tanggal'] = $tgl;
+                }
+            }
+
+            if (! empty($result['errors'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Terdapat '.count($result['errors']).' error. Perbaiki dan upload ulang.',
+                    'errors' => $result['errors'],
+                ], 422);
+            }
+
+            if (empty($result['groups'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak ada data valid untuk diimport.',
+                ], 422);
+            }
+
+            $products = $result['matched_products'];
+
+            DB::transaction(function () use ($result, $products) {
+                foreach ($result['groups'] as $group) {
+                    $kiriman = KirimanActual::create([
+                        'tanggal' => $group['tanggal'],
+                        'jenis' => $group['jenis'],
+                        'dashboard' => $group['dashboard'],
+                        'jumlah_resi' => $group['jumlah_resi'],
+                        'value_resi' => $group['total_value'],
+                    ]);
+
+                    foreach ($group['products'] as $prod) {
+                        $product = $products[$prod['product_id']] ?? null;
+                        if (! $product) {
+                            continue;
+                        }
+
+                        $kiriman->products()->create([
+                            'product_id' => $prod['product_id'],
+                            'jumlah' => $prod['jumlah'],
+                        ]);
+
+                        StockMovement::create([
+                            'product_id' => $prod['product_id'],
+                            'gudang' => 'GUDANG KUNINGAN',
+                            'tanggal' => $group['tanggal'],
+                            'barang_keluar' => $prod['jumlah'],
+                            'catatan' => 'Kiriman '.$group['jenis'].' '.$group['dashboard'],
+                            'kiriman_actual_id' => $kiriman->id,
+                        ]);
+
+                        Product::where('id', $prod['product_id'])->decrement('stok', $prod['jumlah']);
+                    }
+
+                    foreach ($result['data'] as $row) {
+                        if ($row['tanggal'] !== $group['tanggal']
+                            || $row['dashboard'] !== $group['dashboard']
+                            || $row['kurir'] !== $group['kurir']
+                            || $row['jenis'] !== $group['jenis']) {
+                            continue;
+                        }
+
+                        PaketTracking::create(array_merge(
+                            $row['detail'],
+                            ['kiriman_actual_id' => $kiriman->id]
+                        ));
+                    }
+                }
+            });
+
+            return response()->json([
+                'success' => true,
+                'imported' => $result['total'],
+                'message' => 'Berhasil import '.$result['total'].' data kiriman.',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal import: '.$e->getMessage(),
+            ], 500);
+        }
     }
 
     // ─── Rincian Stok ────────────────────────────────────────────

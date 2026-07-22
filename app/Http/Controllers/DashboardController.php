@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PaketTracking;
 use App\Models\Product;
-use App\Models\SpendingHarian;
-use App\Models\Supplier;
 use App\Models\User;
-use App\Models\Whitelist;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
@@ -122,27 +122,144 @@ class DashboardController extends Controller
 
     private function dashboardAdmin($user): View
     {
-        $stats = [
-            'total_supplier' => Supplier::aktif()->count(),
-            'total_produk' => Product::aktif()->count(),
-            'total_user' => User::where('is_active', true)->count(),
-            'stok_kritis' => Product::where('stok', '<=', 10)->count(),
+        $source = request()->query('source', 'all');
+        $paketStats = $this->getPaketStats($source);
+
+        $stokKritis = Product::where('stok', '<=', 10)->count();
+
+        return view('dashboard.admin', compact('paketStats', 'stokKritis', 'source'));
+    }
+
+    public function paketDetail(Request $request): JsonResponse
+    {
+        $kategori = $request->query('kategori');
+        $source = $request->query('source', 'all');
+
+        $query = PaketTracking::orderByDesc('id')->limit(100);
+
+        if ($source !== 'all') {
+            $query = $query->whereHas('kirimanActual', fn ($q) => $q->where('dashboard', strtoupper($source)));
+        }
+
+        if ($kategori !== 'total_paket') {
+            $statuses = $this->getStatusesForKategori($kategori);
+            if (empty($statuses)) {
+                return response()->json([
+                    'success' => true,
+                    'kategori' => $kategori,
+                    'records' => [],
+                    'total' => 0,
+                ]);
+            }
+            $query = $query->whereIn('status', $statuses);
+        }
+
+        $records = $query->get()->map(fn ($pt) => [
+                'awb' => $pt->awb,
+                'kurir' => $pt->kurir,
+                'status' => $pt->status,
+                'tanggal' => $pt->tanggal_pembuatan?->format('d/m/Y'),
+                'nama_produk' => $pt->nama_produk,
+                'nama_shopper' => $pt->nama_shopper,
+                'kota' => $pt->kota,
+                'harga' => $pt->harga_setelah_diskon,
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'kategori' => $kategori,
+            'records' => $records,
+            'total' => count($records),
+        ]);
+    }
+
+    private function getPaketStats(string $source = 'all'): array
+    {
+        $kategoris = [
+            'total_paket' => ['label' => 'Total Paket', 'icon' => '📦', 'color' => '#3b82f6'],
+            'proses_retur' => ['label' => 'Proses Retur', 'icon' => '🔄', 'color' => '#f59e0b'],
+            'retur' => ['label' => 'Retur', 'icon' => '↩️', 'color' => '#ef4444'],
+            'proses_kirim' => ['label' => 'Proses Pengiriman', 'icon' => '🚚', 'color' => '#06b6d4'],
+            'terkirim' => ['label' => 'Terkirim', 'icon' => '✅', 'color' => '#10b981'],
+            'bermasalah' => ['label' => 'Bermasalah', 'icon' => '⛔', 'color' => '#dc2626'],
         ];
 
-        $recentUsers = User::with('roles')->latest()->limit(5)->get();
+        $query = PaketTracking::query();
+        if ($source !== 'all') {
+            $query = $query->whereHas('kirimanActual', fn ($q) => $q->where('dashboard', strtoupper($source)));
+        }
+        $allStatuses = (clone $query)
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
 
-        $produkStokRendah = Product::with('supplier')
-            ->where('stok', '<=', 10)->orderBy('stok')->limit(8)->get();
+        $stats = [];
+        foreach ($kategoris as $key => $meta) {
+            $stats[$key] = [
+                'label' => $meta['label'],
+                'icon' => $meta['icon'],
+                'color' => $meta['color'],
+                'total' => 0,
+            ];
+        }
+        $stats['total_paket']['total'] = $allStatuses->sum();
 
-        // Summary spending bulan ini
-        $spendingBulanIni = SpendingHarian::whereYear('tanggal', now()->year)
-            ->whereMonth('tanggal', now()->month)
-            ->selectRaw('SUM(spending) as total_spending, SUM(lead) as total_lead, SUM(paid) as total_paid')
-            ->first();
+        foreach ($allStatuses as $status => $count) {
+            $cat = $this->categorizeStatus($status);
+            if (isset($stats[$cat])) {
+                $stats[$cat]['total'] += $count;
+            }
+        }
 
-        return view('dashboard.admin', compact(
-            'stats', 'recentUsers', 'produkStokRendah', 'spendingBulanIni'
-        ));
+        return $stats;
+    }
+
+    private function categorizeStatus(string $status): string
+    {
+        $s = strtolower(trim($status));
+
+        if (in_array($s, ['retur', 'diretur', 'return', 'return to sender', 'rts'])) {
+            return 'retur';
+        }
+        if (str_contains($s, 'retur') && ! str_contains($s, 'selesai')) {
+            return 'proses_retur';
+        }
+        if (str_contains($s, 'terkirim')
+            || str_contains($s, 'diterima')
+            || str_contains($s, 'selesai')
+            || $s === 'delivered'
+        ) {
+            return 'terkirim';
+        }
+        if (str_contains($s, 'kirim')
+            || str_contains($s, 'pengiriman')
+            || str_contains($s, 'pickup')
+            || str_contains($s, 'konfirmasi')
+            || str_contains($s, 'confirmed')
+            || str_contains($s, 'pending')
+            || $s === 'proses'
+            || $s === 'dikirim'
+            || $s === 'menunggu pickup'
+        ) {
+            return 'proses_kirim';
+        }
+        if (str_contains($s, 'gagal')
+            || str_contains($s, 'batal')
+            || str_contains($s, 'cancel')
+            || str_contains($s, 'bermasalah')
+            || str_contains($s, 'error')
+        ) {
+            return 'bermasalah';
+        }
+
+        return 'proses_kirim';
+    }
+
+    private function getStatusesForKategori(string $kategori): array
+    {
+        $allStatuses = PaketTracking::select('status')->distinct()->pluck('status');
+
+        return $allStatuses->filter(fn ($s) => $this->categorizeStatus($s) === $kategori)->values()->toArray();
     }
 
     // ─── 4. Keuangan ───────────────────────────────────────────

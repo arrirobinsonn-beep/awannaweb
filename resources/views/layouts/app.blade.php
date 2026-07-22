@@ -392,6 +392,13 @@
                 <span class="sidebar-label">Pembelian Barang</span>
             </a>
 
+            <a href="{{ route('gudang.kiriman') }}"
+               class="nav-item {{ request()->routeIs('gudang.kiriman*') ? 'active' : '' }}"
+               data-page-link data-tip="Kiriman Actual">
+                <span class="nav-icon">🚚</span>
+                <span class="sidebar-label">Kiriman Actual</span>
+            </a>
+
             <a href="{{ route('gudang.stok-rincian') }}"
                class="nav-item {{ request()->routeIs('gudang.stok-rincian*') ? 'active' : '' }}"
                data-page-link data-tip="Rincian Stok">
@@ -399,11 +406,11 @@
                 <span class="sidebar-label">Rincian Stok</span>
             </a>
 
-            <a href="{{ route('gudang.stok') }}"
-               class="nav-item {{ request()->routeIs('gudang.stok') ? 'active' : '' }}"
-               data-page-link data-tip="Stok Gudang">
-                <span class="nav-icon">🏪</span>
-                <span class="sidebar-label">Stok Gudang</span>
+            <a href="{{ route('gudang.rekap-stok') }}"
+               class="nav-item {{ request()->routeIs('gudang.rekap-stok*') ? 'active' : '' }}"
+               data-page-link data-tip="Rekap Stok Gudang">
+                <span class="nav-icon">📊</span>
+                <span class="sidebar-label">Rekap Stok</span>
             </a>
 
             <a href="{{ route('gudang.rts-per-hari') }}"
@@ -413,18 +420,11 @@
                 <span class="sidebar-label">RTS per Hari</span>
             </a>
 
-            <a href="{{ route('gudang.kiriman') }}"
-               class="nav-item {{ request()->routeIs('gudang.kiriman*') ? 'active' : '' }}"
-               data-page-link data-tip="Kiriman Actual">
-                <span class="nav-icon">🚚</span>
-                <span class="sidebar-label">Kiriman Actual</span>
-            </a>
-
-            <a href="{{ route('gudang.rekap-stok') }}"
-               class="nav-item {{ request()->routeIs('gudang.rekap-stok*') ? 'active' : '' }}"
-               data-page-link data-tip="Rekap Stok Gudang">
-                <span class="nav-icon">📊</span>
-                <span class="sidebar-label">Rekap Stok</span>
+            <a href="{{ route('gudang.stok') }}"
+               class="nav-item {{ request()->routeIs('gudang.stok') ? 'active' : '' }}"
+               data-page-link data-tip="Stok Gudang">
+                <span class="nav-icon">🏪</span>
+                <span class="sidebar-label">Stok Gudang</span>
             </a>
             @endif
 

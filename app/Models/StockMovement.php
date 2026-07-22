@@ -17,6 +17,7 @@ class StockMovement extends Model
         'barang_rusak',
         'barang_keluar',
         'catatan',
+        'kiriman_actual_id',
     ];
 
     protected $casts = [
@@ -31,5 +32,10 @@ class StockMovement extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function kirimanActual(): BelongsTo
+    {
+        return $this->belongsTo(KirimanActual::class);
     }
 }

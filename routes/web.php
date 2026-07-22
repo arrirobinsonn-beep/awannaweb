@@ -37,6 +37,7 @@ Route::middleware('auth')->group(function () {
 
         // Dashboard
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+        Route::get('/dashboard/paket-detail', [DashboardController::class, 'paketDetail'])->name('dashboard.paket-detail');
 
         // Profil
         Route::get('/profil', [ProfileController::class, 'show'])->name('profile.show');
@@ -110,6 +111,8 @@ Route::middleware('auth')->group(function () {
         // Kiriman Actual
         Route::get('/gudang/kiriman', [GudangController::class, 'kiriman'])->name('gudang.kiriman');
         Route::post('/gudang/kiriman', [GudangController::class, 'kirimanStore'])->name('gudang.kiriman.store');
+        Route::post('/gudang/kiriman/excel-preview', [GudangController::class, 'kirimanExcelPreview'])->name('gudang.kiriman.excel-preview');
+        Route::post('/gudang/kiriman/excel-import', [GudangController::class, 'kirimanExcelImport'])->name('gudang.kiriman.excel-import');
         Route::get('/gudang/kiriman/{kiriman}/edit', [GudangController::class, 'kirimanEdit'])->name('gudang.kiriman.edit');
         Route::put('/gudang/kiriman/{kiriman}', [GudangController::class, 'kirimanUpdate'])->name('gudang.kiriman.update');
         Route::delete('/gudang/kiriman/{kiriman}', [GudangController::class, 'kirimanDestroy'])->name('gudang.kiriman.destroy');
