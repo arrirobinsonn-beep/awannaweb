@@ -143,4 +143,5 @@
     <a href="{{ route('spending.index') }}" class="clay-btn clay-btn-outline" style="margin-top:12px;font-size:.8rem;" data-page-link>Lihat Semua Spending →</a>
 </div>
 @endif
+
 @endsection

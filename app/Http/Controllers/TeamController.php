@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\OrderOnlineContact;
 use App\Models\RegionalCsStat;
 use App\Models\User;
 use Carbon\Carbon;
@@ -171,6 +172,34 @@ class TeamController extends Controller
             'sampai',
             'user',
         ));
+    }
+
+    /**
+     * Daftar nomor telepon per CS — data dari Order Online Contact.
+     */
+    public function phoneList(Request $request): View
+    {
+        $user = auth()->user();
+
+        if ($user->hasRole('cs')) {
+            $advertiser = $user->advertiser;
+            $advertiserId = $advertiser?->id;
+            $csName = $user->panggilan ?? $user->nama;
+        } else {
+            $advertiserId = $user->id;
+            $csName = null;
+        }
+
+        $phoneList = collect();
+        if ($advertiserId) {
+            $query = OrderOnlineContact::where('advertiser_id', $advertiserId);
+            if ($csName) {
+                $query->where('cs_name', $csName);
+            }
+            $phoneList = $query->orderBy('cs_name')->orderBy('phone_normalized')->get();
+        }
+
+        return view('team.phone-list', compact('phoneList', 'csName'));
     }
 
     /**

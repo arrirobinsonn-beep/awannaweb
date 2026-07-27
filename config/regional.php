@@ -1,9 +1,5 @@
 <?php
 
-const ACEH = 'NANGGROE ACEH DARUSSALAM (NAD)';
-const YOGYA = 'DI YOGYAKARTA';
-const JAKARTA = 'DKI JAKARTA';
-
 return [
 
     /*
@@ -14,13 +10,13 @@ return [
     | untuk menampilkan tabel regional (sticky column).
     */
     'master_provinces' => [
-        ACEH,
+        'NANGGROE ACEH DARUSSALAM (NAD)',
         'BALI',
         'BANGKA BELITUNG',
         'BANTEN',
         'BENGKULU',
-        YOGYA,
-        JAKARTA,
+        'DI YOGYAKARTA',
+        'DKI JAKARTA',
         'GORONTALO',
         'JAMBI',
         'JAWA BARAT',
@@ -58,13 +54,13 @@ return [
     | Key = variasi penulisan, Value = nama provinsi standar.
     */
     'province_mapping' => [
-        'ACEH' => ACEH,
-        'NAD' => ACEH,
-        'NANGGROE ACEH DARUSSALAM (NAD)' => ACEH,
-        'YOGYAKARTA' => YOGYA,
-        'JOGJA' => YOGYA,
-        'DIY' => YOGYA,
-        'JAKARTA' => JAKARTA,
+        'ACEH' => 'NANGGROE ACEH DARUSSALAM (NAD)',
+        'NAD' => 'NANGGROE ACEH DARUSSALAM (NAD)',
+        'NANGGROE ACEH DARUSSALAM (NAD)' => 'NANGGROE ACEH DARUSSALAM (NAD)',
+        'YOGYAKARTA' => 'DI YOGYAKARTA',
+        'JOGJA' => 'DI YOGYAKARTA',
+        'DIY' => 'DI YOGYAKARTA',
+        'JAKARTA' => 'DKI JAKARTA',
         'NTB' => 'NUSA TENGGARA BARAT (NTB)',
         'NTT' => 'NUSA TENGGARA TIMUR (NTT)',
         'KEP RIAU' => 'KEPULAUAN RIAU',

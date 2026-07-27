@@ -64,6 +64,7 @@ thead tr:nth-child(2) .cs-name-sticky {
     top: 38px;
 }
 tbody .cs-name-sticky { z-index: 2; }
+.text-right { text-align:right; }
 /* Bayangan */
 .cs-name-sticky::after {
     content: '';
@@ -298,5 +299,7 @@ tbody .cs-name-sticky { z-index: 2; }
             </div>
         </div>
     @endif
+
+
 </div>
 @endsection

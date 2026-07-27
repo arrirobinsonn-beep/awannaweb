@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Notification;
+use App\Models\OrderOnlineContact;
 use App\Models\RegionalCsStat;
 use App\Models\RegionalReport;
 use App\Models\SpendingHarian;
@@ -217,6 +218,7 @@ class RegionalController extends Controller
                 'data' => $preview,
                 'errors' => $result['errors'],
                 'total_raw_rows' => $result['total'],
+                'phone_contacts' => $result['phone_contacts'] ?? [],
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -244,13 +246,21 @@ class RegionalController extends Controller
             'cs_stats.*.lead' => ['required_with:cs_stats', 'integer', 'min:0'],
             'cs_stats.*.paid' => ['required_with:cs_stats', 'integer', 'min:0'],
 
+            // Phone → CS mapping dari file yang sama (opsional)
+            'phone_contacts' => ['nullable', 'array'],
+            'phone_contacts.*.phone_normalized' => ['required_with:phone_contacts', 'string', 'max:30'],
+            'phone_contacts.*.cs_name' => ['required_with:phone_contacts', 'string', 'max:100'],
+
             // CS bisa pilih target user
             'target_user_id' => ['nullable', 'integer', 'exists:users,id'],
         ]);
 
+        set_time_limit(120);
+
         $user = Auth::user();
         $items = $request->input('items');
         $csStats = $request->input('cs_stats', []);
+        $phoneContacts = $request->input('phone_contacts', []);
 
         // CS bisa menyimpan atas nama advertiser tertentu
         $targetUserId = $user->id;
@@ -263,7 +273,14 @@ class RegionalController extends Controller
             $updated = 0;
             $csSaved = 0;
 
-            DB::transaction(function () use ($items, $csStats, $targetUserId, &$imported, &$updated, &$csSaved) {
+            DB::transaction(function () use ($items, $csStats, $phoneContacts, $targetUserId, &$imported, &$updated, &$csSaved) {
+                // Batch-load existing records untuk dates + user ini
+                $dates = array_unique(array_column($items, 'tanggal'));
+                $existingMap = RegionalReport::where('user_id', $targetUserId)
+                    ->whereIn('tanggal', $dates)
+                    ->get()
+                    ->keyBy(fn ($r) => $r->tanggal->format('Y-m-d') . '|' . $r->province);
+
                 foreach ($items as $item) {
                     $data = [
                         'tanggal' => $item['tanggal'],
@@ -275,10 +292,8 @@ class RegionalController extends Controller
 
                     RegionalReport::computeRatio($data);
 
-                    $existing = RegionalReport::where('tanggal', $item['tanggal'])
-                        ->where('user_id', $targetUserId)
-                        ->where('province', $item['province'])
-                        ->first();
+                    $key = $item['tanggal'] . '|' . $item['province'];
+                    $existing = $existingMap[$key] ?? null;
 
                     if ($existing) {
                         $existing->update($data);
@@ -321,6 +336,30 @@ class RegionalController extends Controller
                             RegionalCsStat::create($data);
                         }
                         $csSaved++;
+                    }
+                }
+
+                // ─── Simpan phone → CS mapping ─────────────────
+                if (! empty($phoneContacts)) {
+                    // Reset dulu data lama untuk advertiser ini
+                    OrderOnlineContact::where('advertiser_id', $targetUserId)->delete();
+
+                    $now = now();
+                    $chunks = array_chunk($phoneContacts, 500);
+                    foreach ($chunks as $chunk) {
+                        $records = [];
+                        foreach ($chunk as $pc) {
+                            $records[] = [
+                                'advertiser_id' => $targetUserId,
+                                'phone_normalized' => $pc['phone_normalized'],
+                                'cs_name' => $pc['cs_name'],
+                                'order_id' => $pc['order_id'] ?? null,
+                                'buyer_name' => $pc['buyer_name'] ?? null,
+                                'created_at' => $now,
+                                'updated_at' => $now,
+                            ];
+                        }
+                        OrderOnlineContact::insert($records);
                     }
                 }
             });

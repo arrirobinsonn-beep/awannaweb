@@ -43,6 +43,7 @@ class RegionalImportService
 
         $parsed = [];
         $errors = [];
+        $phoneContacts = []; // data phone → CS mapping
 
         foreach ($rows as $idx => $row) {
             if ($idx === 0) {
@@ -92,12 +93,37 @@ class RegionalImportService
                 'is_paid' => $isPaid,
                 'handled_by' => $handledBy,
             ];
+
+            // ─── Ekstrak phone → CS mapping dari file yang sama ───
+            $phoneRaw = trim((string) ($row[4] ?? ''));
+            $csName = trim((string) ($row[33] ?? ''));
+            if (!empty($phoneRaw) && !empty($csName)) {
+                $phoneNormalized = OrderOnlineImportService::normalizePhone($phoneRaw);
+                if (!empty($phoneNormalized)) {
+                    $phoneContacts[] = [
+                        'phone_normalized' => $phoneNormalized,
+                        'cs_name' => $csName,
+                        'order_id' => trim((string) ($row[0] ?? '')),
+                        'buyer_name' => trim((string) ($row[2] ?? '')),
+                    ];
+                }
+            }
+        }
+
+        // Deduplikasi phone_contacts berdasarkan phone_normalized
+        $uniquePhones = [];
+        foreach ($phoneContacts as $pc) {
+            $key = $pc['phone_normalized'];
+            if (!isset($uniquePhones[$key])) {
+                $uniquePhones[$key] = $pc;
+            }
         }
 
         return [
             'data' => $parsed,
             'errors' => $errors,
             'total' => count($parsed),
+            'phone_contacts' => array_values($uniquePhones),
         ];
     }
 

@@ -216,18 +216,53 @@ class SpendingHarianController extends Controller
             ->orderBy('nama')
             ->get(['id', 'nama', 'panggilan', 'email', 'avatar']);
 
-        // Data per advertiser: group by tanggal → produk
+        if ($advertisers->isEmpty()) {
+            return view('spending.index-general', [
+                'dataPerAdvertiser' => [],
+                'advertisers' => $advertisers,
+                'activeTab' => null,
+                'dari' => $dari,
+                'sampai' => $sampai,
+            ]);
+        }
+
+        // ─── BATCH: Ambil semua spending untuk semua advertiser dalam 1 query ──
+        $allSpending = SpendingHarian::with(['product', 'whitelist'])
+            ->whereIn('user_id', $advertisers->pluck('id'))
+            ->whereBetween('tanggal', [$dari, $sampai])
+            ->orderByDesc('tanggal')
+            ->orderBy('product_id')
+            ->get()
+            ->groupBy('user_id');
+
+        // ─── BATCH: Ambil semua regional & spending totals untuk discrepancy ──
+        $advIds = $advertisers->pluck('id');
+
+        $regionalTotals = RegionalReport::whereIn('user_id', $advIds)
+            ->whereBetween('tanggal', [$dari, $sampai])
+            ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(lead),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->groupBy('user_id', 'tgl')
+            ->get()
+            ->groupBy('user_id');
+
+        $spendingTotals = SpendingHarian::whereIn('user_id', $advIds)
+            ->whereBetween('tanggal', [$dari, $sampai])
+            ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(lead),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->groupBy('user_id', 'tgl')
+            ->get()
+            ->groupBy('user_id');
+
+        // ─── BATCH: Proses semua advertiser ──
         $dataPerAdvertiser = [];
         foreach ($advertisers as $adv) {
-            $rows = SpendingHarian::with(['product', 'whitelist'])
-                ->where('user_id', $adv->id)
-                ->whereBetween('tanggal', [$dari, $sampai])
-                ->orderByDesc('tanggal')
-                ->orderBy('product_id')
-                ->get();
+            $rows = $allSpending->get($adv->id, collect());
 
-            // ─── Cek discrepancy per advertiser ─────────────────
-            $disc = $this->computeDiscrepancy($adv->id, $dari, $sampai);
+            // Hitung discrepancy dari batch data
+            $disc = $this->computeDiscrepancyBatch(
+                $adv->id, $dari, $sampai,
+                $regionalTotals->get($adv->id, collect()),
+                $spendingTotals->get($adv->id, collect())
+            );
 
             if ($rows->isEmpty()) {
                 $dataPerAdvertiser[$adv->id] = [
@@ -293,9 +328,46 @@ class SpendingHarianController extends Controller
         ));
     }
 
+    /**
+     * Batch version: hitung discrepancy dari data yang sudah di-batch.
+     */
+    private function computeDiscrepancyBatch(int $userId, string $dari, string $sampai, $regionalTotals, $spendingTotals): array
+    {
+        $regionalKeyed = $regionalTotals->keyBy('tgl');
+        $spendingKeyed = $spendingTotals->keyBy('tgl');
+
+        // Semua tanggal unik dari kedua sumber
+        $allDates = collect($regionalKeyed->keys()->merge($spendingKeyed->keys()))
+            ->unique()->sort()->values();
+
+        $hasDiscrepancy = false;
+        $discrepancies = [];
+        $discrepantDates = [];
+
+        foreach ($allDates as $date) {
+            $regLead = (int) ($regionalKeyed[$date]->total_lead ?? 0);
+            $regPaid = (int) ($regionalKeyed[$date]->total_paid ?? 0);
+            $spLead = (int) ($spendingKeyed[$date]->total_lead ?? 0);
+            $spPaid = (int) ($spendingKeyed[$date]->total_paid ?? 0);
+
+            if ($regLead !== $spLead || $regPaid !== $spPaid) {
+                $hasDiscrepancy = true;
+                $discrepancies[$date] = [
+                    'regional_lead' => $regLead,
+                    'regional_paid' => $regPaid,
+                    'spending_lead' => $spLead,
+                    'spending_paid' => $spPaid,
+                ];
+                $discrepantDates[$date] = true;
+            }
+        }
+
+        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates');
+    }
+
     // ─── Create ────────────────────────────────────────────────────
 
-    public function create(): View
+public function create(): View
     {
         $user = Auth::user();
 

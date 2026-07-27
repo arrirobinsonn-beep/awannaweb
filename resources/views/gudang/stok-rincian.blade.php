@@ -127,9 +127,18 @@
         @if($produk->movements->isEmpty())
             <div style="padding:16px;text-align:center;color:#9ca3af;font-size:.75rem;">Belum ada data.</div>
         @else
-            @php $dateGroups = $produk->movements->groupBy(fn($m) => $m->tanggal->format('Y-m-d')); @endphp
+            <form method="POST" action="{{ route('gudang.stok-rincian.bulk-delete') }}" id="bulk-delete-form-{{ \Illuminate\Support\Str::slug($gudang.'-'.$produk->nama_produk) }}" style="display:inline;">
+            @csrf
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                <button type="button" class="clay-btn clay-btn-xs clay-btn-danger" style="font-size:.6rem;padding:2px 8px;"
+                        onclick="selectAllInGroup('produk-{{ \Illuminate\Support\Str::slug($gudang.'-'.$produk->nama_produk) }}', true)">✔ Pilih</button>
+                <button type="button" class="clay-btn clay-btn-xs clay-btn-outline" style="font-size:.6rem;padding:2px 8px;"
+                        onclick="selectAllInGroup('produk-{{ \Illuminate\Support\Str::slug($gudang.'-'.$produk->nama_produk) }}', false)">✕ Batal</button>
+                <button type="submit" class="clay-btn clay-btn-xs clay-btn-danger" style="font-size:.6rem;padding:2px 8px;"
+                        onclick="return confirm('Hapus semua movement yang dipilih?')">🗑️ Hapus Terpilih</button>
+            </div>
             <div class="clay-card" style="padding:0;overflow-x:auto;margin-top:2px;margin-left:8px;">
-            @foreach($dateGroups as $tgl => $movementsByDate)
+            @foreach($produk->movements->groupBy(fn($m) => $m->tanggal->format('Y-m-d')) as $tgl => $movementsByDate)
             <div style="border-bottom:1px solid #f1f5f9;">
                 <div style="padding:6px 10px;background:#f8fafc;font-weight:600;font-size:.75rem;color:#475569;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;"
                      onclick="toggleGroup('tgl-{{ \Illuminate\Support\Str::slug($gudang.'-'.$produk->nama_produk.'-'.$tgl) }}', this)">
@@ -137,38 +146,59 @@
                         <span class="grp-arrow" style="font-size:.55rem;color:#94a3b8;">▶</span>
                         📅 {{ \Carbon\Carbon::parse($tgl)->format('d/m/Y') }}
                     </span>
-                    <span style="font-size:.65rem;color:#6b7280;">
-                        Stok akhir: {{ number_format($movementsByDate->last()->stock_akhir_hari) }}
-                        @if($movementsByDate->count() > 1)
-                            ({{ $movementsByDate->count() }} baris)
-                        @endif
+                    <span style="display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:.65rem;color:#6b7280;">
+                            Stok akhir: {{ number_format($movementsByDate->last()->stock_akhir_hari) }}
+                            @if($movementsByDate->count() > 1)
+                                ({{ $movementsByDate->count() }} baris)
+                            @endif
+                        </span>
+                        <form method="POST" action="{{ route('gudang.stok-rincian.delete-date') }}"
+                              onsubmit="return confirm('Hapus semua data tanggal {{ \Carbon\Carbon::parse($tgl)->format('d/m/Y') }} untuk {{ $produk->nama_produk }} di {{ $gudang }}?')"
+                              style="display:inline;">
+                            @csrf
+                            <input type="hidden" name="product_id" value="{{ $produk->id }}">
+                            <input type="hidden" name="gudang" value="{{ $gudang }}">
+                            <input type="hidden" name="tanggal" value="{{ $tgl }}">
+                            <button type="submit" class="clay-btn clay-btn-xs clay-btn-danger" style="font-size:.55rem;padding:1px 5px;cursor:pointer;">🗑️ Hapus Tanggal</button>
+                        </form>
                     </span>
                 </div>
                 <div id="tgl-{{ \Illuminate\Support\Str::slug($gudang.'-'.$produk->nama_produk.'-'.$tgl) }}" style="display:none;">
                 <table class="clay-table" style="font-size:.72rem;">
+                    <thead>
+                        <tr>
+                            <th style="padding:4px 6px;width:30px;">Pilih</th>
+                            <th style="padding:4px 8px;font-size:.65rem;color:#6b7280;">STOK AWAL</th>
+                            <th style="padding:4px 8px;font-size:.65rem;color:#6b7280;text-align:right;">BELANJA</th>
+                            <th style="padding:4px 8px;font-size:.65rem;color:#6b7280;text-align:right;">RTS</th>
+                            <th style="padding:4px 8px;font-size:.65rem;color:#6b7280;text-align:right;">REPAR</th>
+                            <th style="padding:4px 8px;font-size:.65rem;color:#6b7280;text-align:right;">RUSAK</th>
+                            <th style="padding:4px 8px;font-size:.65rem;color:#6b7280;text-align:right;">KELUAR</th>
+                            <th style="padding:4px 8px;font-size:.65rem;color:#6b7280;text-align:right;">AKHIR</th>
+                            <th style="padding:4px 8px;font-size:.65rem;color:#6b7280;">CATATAN</th>
+                            <th style="padding:4px 8px;width:60px;">Aksi</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         @foreach($movementsByDate as $m)
                         <tr>
-                            <td style="padding:4px 8px;font-size:.65rem;color:#6b7280;white-space:nowrap;">STOK AWAL</td>
-                            <td class="text-right" style="padding:4px 8px;">{{ number_format($m->stock_awal_hari) }}</td>
-                            <td style="padding:4px 8px;font-size:.65rem;color:#6b7280;white-space:nowrap;">BELANJA</td>
+                            <td style="padding:4px 6px;">
+                                <input type="checkbox" name="ids[]" value="{{ $m->id }}" class="bulk-delete-cb" style="width:14px;height:14px;">
+                            </td>
+                            <td class="text-right" style="padding:4px 8px;font-size:.65rem;color:#6b7280;white-space:nowrap;">{{ number_format($m->stock_awal_hari) }}</td>
                             <td class="text-right" style="padding:4px 8px;">{{ $m->masuk_belanja > 0 ? '+'.number_format($m->masuk_belanja) : '-' }}</td>
-                            <td style="padding:4px 8px;font-size:.65rem;color:#6b7280;white-space:nowrap;">RTS</td>
                             <td class="text-right" style="padding:4px 8px;">{{ $m->masuk_rts > 0 ? '+'.number_format($m->masuk_rts) : '-' }}</td>
-                            <td style="padding:4px 8px;font-size:.65rem;color:#6b7280;white-space:nowrap;">REPAIR</td>
                             <td class="text-right" style="padding:4px 8px;">{{ $m->masuk_repair > 0 ? '+'.number_format($m->masuk_repair) : '-' }}</td>
-                            <td style="padding:4px 8px;font-size:.65rem;color:#6b7280;white-space:nowrap;">RUSAK</td>
                             <td class="text-right" style="padding:4px 8px;{{ $m->barang_rusak > 0 ? 'color:#dc2626;' : '' }}">{{ $m->barang_rusak > 0 ? '-'.number_format($m->barang_rusak) : '-' }}</td>
-                            <td style="padding:4px 8px;font-size:.65rem;color:#6b7280;white-space:nowrap;">KELUAR</td>
                             <td class="text-right" style="padding:4px 8px;{{ $m->barang_keluar > 0 ? 'color:#dc2626;' : '' }}">{{ $m->barang_keluar > 0 ? '-'.number_format($m->barang_keluar) : '-' }}</td>
-                            <td style="padding:4px 8px;font-size:.65rem;color:#6b7280;white-space:nowrap;">STOK AKHIR</td>
                             <td class="text-right" style="padding:4px 8px;font-weight:700;">{{ number_format($m->stock_akhir_hari) }}</td>
-                            <td style="padding:4px 8px;font-size:.6rem;color:#6b7280;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ $m->catatan ?? '-' }}</td>
+                            <td style="padding:4px 8px;font-size:.6rem;color:#6b7280;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ $m->catatan ?? '-' }}</td>
                             <td style="padding:4px 8px;">
                                 <div style="display:flex;gap:4px;">
                                     <a href="{{ route('gudang.stok-rincian.edit',$m) }}" class="clay-btn clay-btn-xs clay-btn-outline" style="font-size:.55rem;padding:1px 5px;">Edit</a>
                                     <form method="POST" action="{{ route('gudang.stok-rincian.destroy',$m) }}"
-                                          onsubmit="return confirm('Hapus?')">
+                                          onsubmit="return confirm('Hapus data ini?')">
                                         @csrf @method('DELETE')
                                         <button class="clay-btn clay-btn-xs clay-btn-danger" style="font-size:.55rem;padding:1px 5px;">✕</button>
                                     </form>
@@ -181,7 +211,6 @@
                 </div>
             </div>
             @endforeach
-            {{-- Total baris --}}
             <div style="padding:6px 10px;background:#f1f5f9;font-weight:700;font-size:.7rem;display:flex;align-items:center;gap:12px;">
                 <span style="color:#6b7280;">Total</span>
                 <span style="color:#059669;">Belanja: {{ number_format($produk->movements->sum('masuk_belanja')) }}</span>
@@ -192,6 +221,7 @@
                 <span style="color:var(--color-primary,#FF6B6B);margin-left:auto;">Stok akhir: {{ number_format($produk->stock_akhir_bulan) }}</span>
             </div>
             </div>
+            </form>
         @endif
         </div>
     </div>
@@ -258,6 +288,13 @@ function bukaFormProduk(gudang, productId, productName) {
     document.getElementById('form-input').classList.remove('hidden');
     document.getElementById('form-input').scrollIntoView({behavior:'smooth', block:'start'});
     document.querySelector('input[name="tanggal"]').focus();
+}
+
+function selectAllInGroup(groupId, checked) {
+    var group = document.getElementById(groupId);
+    if (!group) return;
+    var checkboxes = group.querySelectorAll('.bulk-delete-cb');
+    checkboxes.forEach(function(cb) { cb.checked = checked; });
 }
 </script>
 @endsection

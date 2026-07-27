@@ -8,7 +8,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class KirimanImportService
 {
-    public function parseExcel(string $filePath): array
+    public function parseExcel(string $filePath, bool $autoCreateProducts = false): array
     {
         $spreadsheet = IOFactory::load($filePath);
         $worksheet = $spreadsheet->getActiveSheet();
@@ -21,12 +21,18 @@ class KirimanImportService
         $allProducts = Product::aktif()->get();
         $format = $this->detectFormat($rows);
 
-        return match ($format) {
-            'flik' => $this->parseFlik($rows, $allProducts),
-            'spx' => $this->parseSpx($rows, $allProducts),
-            'sicepat' => $this->parseSicepat($rows, $allProducts),
+        $result = match ($format) {
+            'flik' => $this->parseFlik($rows, $allProducts, $autoCreateProducts),
+            'spx' => $this->parseSpx($rows, $allProducts, $autoCreateProducts),
+            'sicepat' => $this->parseSicepat($rows, $allProducts, $autoCreateProducts),
             default => throw new \Exception('Format file tidak dikenali. Gunakan file dari FLIK, SPX, atau SICEPAT.'),
         };
+
+        if ($autoCreateProducts) {
+            $this->resolveMissingProducts($result['data'], $result['groups'], $result['matched_products']);
+        }
+
+        return $result;
     }
 
     // ─── Format detection ───────────────────────────────────────
@@ -57,7 +63,7 @@ class KirimanImportService
 
     // ─── FLIK parser ────────────────────────────────────────────
 
-    private function parseFlik(array $rows, Collection $allProducts): array
+    private function parseFlik(array $rows, Collection $allProducts, bool $autoCreateProducts = false): array
     {
         $headers = array_map(fn ($h) => strtolower(trim((string) $h)), $rows[0]);
         $colMap = $this->mapHeaders($headers);
@@ -96,7 +102,13 @@ class KirimanImportService
             }
             $product = null;
             if (! empty($cleanName)) $product = $this->matchProduct($cleanName, $allProducts);
-            if (! empty($namaProdukRaw) && ! $product) { $errors[] = 'Baris '.($idx + 1).': Produk "'.$namaProdukRaw.'" tidak ditemukan.'; continue; }
+            if (! empty($namaProdukRaw) && ! $product) {
+                if ($autoCreateProducts) {
+                    $product = $this->createMissingProduct($namaProdukRaw);
+                } else {
+                    $errors[] = 'Baris '.($idx + 1).': Produk "'.$namaProdukRaw.'" tidak ditemukan.'; continue;
+                }
+            }
 
             $hargaDiskon = 0;
             if (isset($colMap['harga_setelah_diskon'])) $hargaDiskon = $this->parseDecimal(trim((string) ($row[$colMap['harga_setelah_diskon']] ?? '0')));
@@ -112,7 +124,7 @@ class KirimanImportService
 
     // ─── SPX parser ─────────────────────────────────────────────
 
-    private function parseSpx(array $rows, Collection $allProducts): array
+    private function parseSpx(array $rows, Collection $allProducts, bool $autoCreateProducts = false): array
     {
         // Row 0 = metadata, Row 1 = actual headers, Row 2+ = data
         $headers = array_map(fn ($h) => strtolower(trim((string) $h)), $rows[1]);
@@ -157,7 +169,13 @@ class KirimanImportService
 
             $product = null;
             if (! empty($cleanName)) $product = $this->matchProduct($cleanName, $allProducts);
-            if (! empty($namaProdukRaw) && ! $product) { $errors[] = 'Baris '.($idx + 1).': Produk "'.$namaProdukRaw.'" tidak ditemukan.'; continue; }
+            if (! empty($namaProdukRaw) && ! $product) {
+                if ($autoCreateProducts) {
+                    $product = $this->createMissingProduct($namaProdukRaw);
+                } else {
+                    $errors[] = 'Baris '.($idx + 1).': Produk "'.$namaProdukRaw.'" tidak ditemukan.'; continue;
+                }
+            }
 
             // Price
             $hargaDiskon = 0;
@@ -178,6 +196,7 @@ class KirimanImportService
                 'alamat_lengkap' => trim((string) ($row[$colMap['alamat_lengkap']] ?? '')),
                 'nama_produk' => $namaProdukRaw,
                 'status' => trim((string) ($row[$colMap['status']] ?? '')),
+                'catatan_kurir' => trim((string) ($row[$colMap['catatan_kurir']] ?? '')),
                 'harga_setelah_diskon' => $hargaDiskon,
             ];
 
@@ -190,7 +209,7 @@ class KirimanImportService
 
     // ─── SICEPAT parser ─────────────────────────────────────────
 
-    private function parseSicepat(array $rows, Collection $allProducts): array
+    private function parseSicepat(array $rows, Collection $allProducts, bool $autoCreateProducts = false): array
     {
         $headers = array_map(fn ($h) => strtolower(trim((string) $h)), $rows[0]);
         $colMap = $this->mapHeadersSicepat($headers);
@@ -232,7 +251,13 @@ class KirimanImportService
 
             $product = null;
             if (! empty($cleanName)) $product = $this->matchProduct($cleanName, $allProducts);
-            if (! empty($namaProdukRaw) && ! $product) { $errors[] = 'Baris '.($idx + 1).': Produk "'.$namaProdukRaw.'" tidak ditemukan.'; continue; }
+            if (! empty($namaProdukRaw) && ! $product) {
+                if ($autoCreateProducts) {
+                    $product = $this->createMissingProduct($namaProdukRaw);
+                } else {
+                    $errors[] = 'Baris '.($idx + 1).': Produk "'.$namaProdukRaw.'" tidak ditemukan.'; continue;
+                }
+            }
 
             $hargaDiskon = 0;
             if (isset($colMap['harga_setelah_diskon'])) $hargaDiskon = $this->parseDecimal(trim((string) ($row[$colMap['harga_setelah_diskon']] ?? '0')));
@@ -383,6 +408,7 @@ class KirimanImportService
             'cod' => ['cod collection(y/n)', 'cod collection', 'cod', 'cod_yn'],
             'nominal_cod' => ['cod amount', 'cod_amount', 'nominal cod'],
             'harga_setelah_diskon' => ['parcel value', 'parcel value', 'harga', 'value', 'total'],
+            'catatan_kurir' => ['delivery failed reason', 'delivery failed', 'failed reason', 'alasan gagal', 'keterangan'],
         ];
 
         return $this->matchColMap($headers, $map);
@@ -539,6 +565,47 @@ class KirimanImportService
         return trim($nama);
     }
 
+    private function createMissingProduct(string $namaProduk): Product
+    {
+        return Product::create([
+            'nama_produk' => $namaProduk,
+            'status' => 'aktif',
+            'stok' => 0,
+            'satuan' => 'pcs',
+            'harga_jual' => 0,
+            'harga_beli' => 0,
+        ]);
+    }
+
+    private function resolveMissingProducts(array &$parsed, array &$groups, array &$matchedProducts): void
+    {
+        foreach ($parsed as &$row) {
+            if (! $row['product_id']) {
+                $name = $row['cleanName'] ?: $row['nama_produk'];
+                if (! $name) continue;
+                $product = $this->createMissingProduct($name);
+                $row['product_id'] = $product->id;
+                $matchedProducts[$product->id] = $product;
+            }
+        }
+
+        $nameToId = [];
+        foreach ($parsed as $row) {
+            if ($row['product_id']) {
+                $nameToId[$row['cleanName'] ?: $row['nama_produk']] = $row['product_id'];
+            }
+        }
+
+        foreach ($groups as &$group) {
+            foreach ($group['products'] as &$prod) {
+                if (! $prod['product_id'] && isset($nameToId[$prod['nama_produk']])) {
+                    $prod['product_id'] = $nameToId[$prod['nama_produk']];
+                }
+            }
+            $group['products'] = array_values($group['products']);
+        }
+    }
+
     private function matchProduct(string $excelName, Collection $products): ?Product
     {
         $excelName = strtolower(trim($excelName));
@@ -546,12 +613,17 @@ class KirimanImportService
         if ($exact) return $exact;
 
         $excelWords = $this->tokenize($excelName);
+        if (empty($excelWords)) return null;
+
+        $minRequired = min(2, count($excelWords));
         $bestScore = 0;
         $best = null;
         foreach ($products as $p) {
             $dbWords = $this->tokenize(strtolower(trim($p->nama_produk)));
             $common = array_intersect($excelWords, $dbWords);
             if (empty($common)) continue;
+            if (count($common) < $minRequired) continue;
+
             $score = count($common) + strlen($p->nama_produk) / 100;
             if ($score > $bestScore) { $bestScore = $score; $best = $p; }
         }

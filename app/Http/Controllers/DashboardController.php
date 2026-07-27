@@ -4,7 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\PaketTracking;
 use App\Models\Product;
+use App\Models\RegionalCsStat;
+use App\Models\SpendingHarian;
+use App\Models\Supplier;
 use App\Models\User;
+use App\Models\Whitelist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -26,6 +30,9 @@ class DashboardController extends Controller
         }
         if ($user->hasRole('keuangan')) {
             return $this->dashboardKeuangan($user);
+        }
+        if ($user->hasRole('cs')) {
+            return $this->dashboardCs(request());
         }
 
         return $this->dashboardGeneral($user);
@@ -123,19 +130,24 @@ class DashboardController extends Controller
     private function dashboardAdmin($user): View
     {
         $source = request()->query('source', 'all');
-        $paketStats = $this->getPaketStats($source);
+        $dari = request()->query('dari', now()->startOfMonth()->format('Y-m-d'));
+        $sampai = request()->query('sampai', now()->format('Y-m-d'));
+        $paketStats = $this->getPaketStats($source, $dari, $sampai);
 
         $stokKritis = Product::where('stok', '<=', 10)->count();
 
-        return view('dashboard.admin', compact('paketStats', 'stokKritis', 'source'));
+        return view('dashboard.admin', compact('paketStats', 'stokKritis', 'source', 'dari', 'sampai'));
     }
 
     public function paketDetail(Request $request): JsonResponse
     {
         $kategori = $request->query('kategori');
         $source = $request->query('source', 'all');
+        $dari = $request->query('dari', now()->startOfMonth()->format('Y-m-d'));
+        $sampai = $request->query('sampai', now()->format('Y-m-d'));
 
-        $query = PaketTracking::orderByDesc('id')->limit(100);
+        $query = PaketTracking::whereBetween('tanggal_pembuatan', [$dari, $sampai])
+            ->orderByDesc('id')->limit(100);
 
         if ($source !== 'all') {
             $query = $query->whereHas('kirimanActual', fn ($q) => $q->where('dashboard', strtoupper($source)));
@@ -158,6 +170,7 @@ class DashboardController extends Controller
                 'awb' => $pt->awb,
                 'kurir' => $pt->kurir,
                 'status' => $pt->status,
+                'catatan_kurir' => $pt->catatan_kurir,
                 'tanggal' => $pt->tanggal_pembuatan?->format('d/m/Y'),
                 'nama_produk' => $pt->nama_produk,
                 'nama_shopper' => $pt->nama_shopper,
@@ -173,7 +186,7 @@ class DashboardController extends Controller
         ]);
     }
 
-    private function getPaketStats(string $source = 'all'): array
+    private function getPaketStats(string $source = 'all', string $dari = null, string $sampai = null): array
     {
         $kategoris = [
             'total_paket' => ['label' => 'Total Paket', 'icon' => '📦', 'color' => '#3b82f6'],
@@ -187,6 +200,9 @@ class DashboardController extends Controller
         $query = PaketTracking::query();
         if ($source !== 'all') {
             $query = $query->whereHas('kirimanActual', fn ($q) => $q->where('dashboard', strtoupper($source)));
+        }
+        if ($dari && $sampai) {
+            $query = $query->whereBetween('tanggal_pembuatan', [$dari, $sampai]);
         }
         $allStatuses = (clone $query)
             ->selectRaw('status, COUNT(*) as total')
@@ -259,10 +275,157 @@ class DashboardController extends Controller
     {
         $allStatuses = PaketTracking::select('status')->distinct()->pluck('status');
 
-        return $allStatuses->filter(fn ($s) => $this->categorizeStatus($s) === $kategori)->values()->toArray();
+        $filtered = $allStatuses->filter(fn ($s) => $this->categorizeStatus($s) === $kategori);
+
+        // 'retur' also includes proses_retur status
+        if ($kategori === 'retur') {
+            $filtered = $filtered->merge(
+                $allStatuses->filter(fn ($s) => $this->categorizeStatus($s) === 'proses_retur')
+            );
+        }
+
+        return $filtered->values()->toArray();
     }
 
-    // ─── 4. Keuangan ───────────────────────────────────────────
+    // ─── 4. CS Dashboard ────────────────────────────────────────
+
+    public function dashboardCs(Request $request): View
+    {
+        $user = auth()->user();
+        $namaCs = $user->panggilan ?? $user->nama;
+        $advertiserId = $user->advertiser_id;
+        $search = $request->query('search');
+        $kategori = $request->query('kategori');
+        $bulanIni = now()->format('Y-m');
+
+        // Statistik per-CS dari RegionalCsStat (performa individu CS)
+        $csStats = (object) [
+            'total_lead' => 0,
+            'total_paid' => 0,
+        ];
+        if ($advertiserId && $namaCs) {
+            $s = RegionalCsStat::where('user_id', $advertiserId)
+                ->where('cs_panggilan', $namaCs)
+                ->whereYear('tanggal', now()->year)
+                ->whereMonth('tanggal', now()->month)
+                ->selectRaw('COALESCE(SUM(lead),0) as total_lead,
+                             COALESCE(SUM(paid),0) as total_paid')
+                ->first();
+            if ($s) $csStats = $s;
+        }
+        $paidRatio = $csStats->total_lead > 0
+            ? round(($csStats->total_paid / $csStats->total_lead) * 100, 1)
+            : 0;
+
+        // Status counts per CS: terkirim / bermasalah / return
+        $statusCounts = $this->getCsStatusCounts($namaCs);
+
+        $totalOrder = PaketTracking::where('handle_by', $namaCs)->count();
+
+        // Daftar order yang dihandle CS (pagination)
+        $dataList = PaketTracking::where('handle_by', $namaCs)
+            ->when($kategori, fn ($q) => $q->whereIn('status', $this->getStatusesForKategori($kategori)))
+            ->when($search, fn ($q) => $q->where(function ($q2) use ($search) {
+                $q2->where('awb', 'LIKE', "%{$search}%")
+                   ->orWhere('status', 'LIKE', "%{$search}%")
+                   ->orWhere('nama_produk', 'LIKE', "%{$search}%")
+                   ->orWhere('no_telp', 'LIKE', "%{$search}%");
+            }))
+            ->orderByDesc('id')
+            ->paginate(50)
+            ->through(function ($pt) {
+                $phone = $pt->no_telp;
+                $phone = preg_replace('/[^0-9]/', '', $phone);
+                if (substr($phone, 0, 1) === '0') {
+                    $phone = '62' . substr($phone, 1);
+                } elseif (substr($phone, 0, 2) !== '62') {
+                    $phone = '62' . $phone;
+                }
+                $pt->wa_link = 'https://wa.me/' . $phone;
+                return $pt;
+            });
+
+        $spending = $csStats;
+
+        return view('dashboard.cs', compact(
+            'user', 'namaCs', 'spending', 'paidRatio',
+            'dataList', 'bulanIni', 'statusCounts', 'kategori', 'totalOrder',
+        ));
+    }
+
+private function getCsStatusCounts(string $namaCs): array
+    {
+        $counts = \App\Models\PaketTracking::where('handle_by', $namaCs)
+            ->selectRaw("CASE WHEN status IN ('retur','diretur','return','return to sender','rts') THEN 'retur'
+                WHEN status LIKE '%retur%' AND status NOT LIKE '%selesai%' THEN 'proses_retur'
+                WHEN status LIKE '%terkirim%' OR status LIKE '%diterima%' OR status LIKE '%selesai%' OR status = 'delivered' THEN 'terkirim'
+                WHEN status LIKE '%kirim%' OR status LIKE '%pengiriman%' OR status LIKE '%pickup%' OR status LIKE '%konfirmasi%' OR status LIKE '%confirmed%' OR status LIKE '%pending%' OR status = 'proses' OR status = 'dikirim' OR status = 'menunggu pickup' THEN 'proses_kirim'
+                WHEN status LIKE '%gagal%' OR status LIKE '%batal%' OR status LIKE '%cancel%' OR status LIKE '%bermasalah%' OR status LIKE '%error%' THEN 'bermasalah'
+                ELSE 'proses_kirim' END as kategori, COUNT(*) as total")
+            ->groupBy('kategori')
+            ->pluck('total', 'kategori')
+            ->toArray();
+
+        return [
+            'proses_kirim' => (int) ($counts['proses_kirim'] ?? 0),
+            'terkirim' => (int) ($counts['terkirim'] ?? 0),
+            'bermasalah' => (int) ($counts['bermasalah'] ?? 0),
+            'retur' => (int) ($counts['retur'] ?? 0) + (int) ($counts['proses_retur'] ?? 0),
+        ];
+    }
+
+    public function csSearchAwb(Request $request): JsonResponse
+    {
+        $user = auth()->user();
+        $namaCs = $user->panggilan ?? $user->nama;
+        $awb = $request->query('awb');
+        $noTelp = $request->query('no_telp');
+
+        if (empty($awb) && empty($noTelp)) {
+            return response()->json(['success' => false, 'message' => 'Masukkan kata kunci', 'records' => [], 'total' => 0]);
+        }
+
+        $query = PaketTracking::where('handle_by', $namaCs);
+
+        if (!empty($awb) && !empty($noTelp)) {
+            $norm = \App\Services\OrderOnlineImportService::normalizePhone($noTelp);
+            $query = $query->where(function ($q) use ($awb, $norm, $noTelp) {
+                $q->where(function ($q2) use ($norm, $noTelp) {
+                    $q2->where('no_telp', 'LIKE', '%' . $norm . '%')
+                       ->orWhere('no_telp', 'LIKE', '%' . $noTelp . '%');
+                })->orWhere('awb', 'LIKE', '%' . $awb . '%');
+            });
+        } elseif (!empty($awb)) {
+            $query = $query->where('awb', 'LIKE', '%' . $awb . '%');
+        } elseif (!empty($noTelp)) {
+            $norm = \App\Services\OrderOnlineImportService::normalizePhone($noTelp);
+            $query = $query->where(function ($q) use ($norm, $noTelp) {
+                $q->where('no_telp', 'LIKE', '%' . $norm . '%')
+                  ->orWhere('no_telp', 'LIKE', '%' . $noTelp . '%');
+            });
+        }
+
+        $records = $query->orderByDesc('id')->limit(50)->get()->map(fn ($pt) => [
+            'awb' => $pt->awb,
+            'status' => $pt->status,
+            'catatan_kurir' => $pt->catatan_kurir,
+            'kurir' => $pt->kurir,
+            'tanggal' => $pt->tanggal_pembuatan?->format('d/m/Y'),
+            'nama_produk' => $pt->nama_produk,
+            'nama_shopper' => $pt->nama_shopper,
+            'kota' => $pt->kota,
+            'harga' => $pt->harga_setelah_diskon,
+            'no_telp' => $pt->no_telp,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'records' => $records,
+            'total' => $records->count(),
+        ]);
+    }
+
+    // ─── 5. Keuangan ───────────────────────────────────────────
 
     private function dashboardKeuangan($user): View
     {

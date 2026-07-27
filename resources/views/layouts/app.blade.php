@@ -353,6 +353,14 @@
                 <span class="nav-icon">📊</span>
                 <span class="sidebar-label">Performa Tim</span>
             </a>
+            @if($u->hasRole('cs'))
+            <a href="{{ route('team.phone-list') }}"
+               class="nav-item {{ request()->routeIs('team.phone-list') ? 'active' : '' }}"
+               data-page-link data-tip="Nomor CS">
+                <span class="nav-icon">📞</span>
+                <span class="sidebar-label">Nomor CS</span>
+            </a>
+            @endif
             @endif
             @endif
 

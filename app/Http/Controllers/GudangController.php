@@ -11,6 +11,7 @@ use App\Models\StockMovement;
 use App\Models\StockRecap;
 use App\Models\Supplier;
 use App\Services\KirimanImportService;
+use App\Services\UndelImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -606,6 +607,14 @@ class GudangController extends Controller
             $products = $result['matched_products'];
 
             DB::transaction(function () use ($result, $products) {
+                $phoneCsMap = collect();
+                $contacts = \App\Models\OrderOnlineContact::all();
+                foreach ($contacts as $contact) {
+                    if (! empty($contact->phone_normalized) && ! empty($contact->cs_name)) {
+                        $phoneCsMap[$contact->phone_normalized] = $contact->cs_name;
+                    }
+                }
+
                 foreach ($result['groups'] as $group) {
                     $kiriman = KirimanActual::create([
                         'tanggal' => $group['tanggal'],
@@ -646,9 +655,20 @@ class GudangController extends Controller
                             continue;
                         }
 
+                        $noTelp = trim((string) ($row['detail']['no_telp'] ?? ''));
+                        $handleBy = null;
+                        if (! empty($noTelp)) {
+                            $normalizedPhone = \App\Services\OrderOnlineImportService::normalizePhone($noTelp);
+                            $handleBy = $phoneCsMap[$normalizedPhone] ?? null;
+                        }
+
                         PaketTracking::create(array_merge(
                             $row['detail'],
-                            ['kiriman_actual_id' => $kiriman->id]
+                            [
+                                'kiriman_actual_id' => $kiriman->id,
+                                'product_id' => $row['product_id'],
+                                'handle_by' => $handleBy,
+                            ]
                         ));
                     }
                 }
@@ -665,6 +685,207 @@ class GudangController extends Controller
                 'message' => 'Gagal import: '.$e->getMessage(),
             ], 500);
         }
+    }
+
+    public function backfillHandleBy(): JsonResponse
+    {
+        $updated = 0;
+        $phoneCsMap = collect();
+        $contacts = \App\Models\OrderOnlineContact::whereNotNull('phone_normalized')->where('phone_normalized', '!', '')->get();
+        foreach ($contacts as $contact) {
+            if (! empty($contact->phone_normalized) && ! empty($contact->cs_name)) {
+                $phoneCsMap[$contact->phone_normalized] = $contact->cs_name;
+            }
+        }
+
+        $affected = PaketTracking::where(function ($q) {
+            $q->whereNull('handle_by')->orWhere('handle_by', '');
+        })
+            ->whereNotNull('no_telp')
+            ->where('no_telp', '!=', '')
+            ->get();
+
+        foreach ($affected as $pt) {
+            $normalized = \App\Services\OrderOnlineImportService::normalizePhone($pt->no_telp);
+            if (isset($phoneCsMap[$normalized])) {
+                $pt->update(['handle_by' => $phoneCsMap[$normalized]]);
+                $updated++;
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'updated' => $updated,
+            'total_affected' => $affected->count(),
+            'message' => 'Berhasil backfill handle_by untuk '.$updated.' paket.',
+        ]);
+    }
+
+    // ─── Excel Undel — Update status dari file Excel ────────────
+
+    public function excelUndelPreview(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+        ]);
+
+        try {
+            $service = app(UndelImportService::class);
+            $result = $service->parseExcel($request->file('file')->getPathname());
+
+            $previewData = [];
+            foreach ($result['data'] as $row) {
+                $exists = PaketTracking::where('awb', $row['awb'])->exists();
+                $previewData[] = [
+                    'awb' => $row['awb'],
+                    'status' => $row['status'],
+                    'handle_by' => $row['handle_by'],
+                    'catatan_kurir' => $row['catatan_kurir'],
+                    'no_telp' => $row['no_telp'],
+                    'exists' => $exists,
+                ];
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $previewData,
+                'errors' => $result['errors'],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memproses file: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function excelUndelImport(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+        ]);
+
+        try {
+            $service = app(UndelImportService::class);
+            $result = $service->parseExcel($request->file('file')->getPathname());
+            $importResult = $service->import($result);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Berhasil update ' . $importResult['updated'] . ' paket.',
+                'not_found' => $importResult['not_found'],
+                'errors' => $importResult['errors'],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal import: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Hapus PaketTracking + adjust KirimanActual.jumlah_resi.
+     * Dipanggil dari stokRincianDeleteDate saat movement dihapus.
+     */
+    private function cleanupKirimanActual(array $productIds, string $gudang, string $bulan): void
+    {
+        $bulanStart = $bulan . '-01';
+        $bulanEnd = date('Y-m-t', strtotime($bulanStart));
+
+        $movements = StockMovement::whereIn('product_id', $productIds)
+            ->where('gudang', $gudang)
+            ->whereBetween('tanggal', [$bulanStart, $bulanEnd])
+            ->get();
+
+        $affectedKirimanIds = [];
+        foreach ($movements as $m) {
+            if ($m->kiriman_actual_id) {
+                $affectedKirimanIds[$m->kiriman_actual_id] = true;
+            }
+        }
+
+        $affectedKirimanIds = array_keys($affectedKirimanIds);
+
+        foreach ($affectedKirimanIds as $kirimanId) {
+            $kiriman = KirimanActual::find($kirimanId);
+            if (! $kiriman) continue;
+
+            $deleted = PaketTracking::where('kiriman_actual_id', $kirimanId)
+                ->whereIn('product_id', $productIds)
+                ->delete();
+
+            if ($deleted > 0) {
+                $kiriman->decrement('jumlah_resi', $deleted);
+            }
+
+            $remaining = PaketTracking::where('kiriman_actual_id', $kirimanId)->count();
+            if ($remaining === 0) {
+                $kiriman->stockMovements()->delete();
+                $kiriman->products()->delete();
+                $kiriman->delete();
+            }
+        }
+    }
+
+    public function stokRincianDeleteDate(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'product_id' => 'required|exists:products,id',
+            'gudang' => 'required|string|max:255',
+            'tanggal' => 'required|date',
+        ]);
+
+        $bulan = substr($data['tanggal'], 0, 7);
+        $productId = (int) $data['product_id'];
+        $tanggal = $data['tanggal'];
+
+        DB::transaction(function () use ($productId, $data, $tanggal, $bulan) {
+            $movements = StockMovement::where('product_id', $productId)
+                ->where('gudang', $data['gudang'])
+                ->whereDate('tanggal', $tanggal)
+                ->get();
+
+            if ($movements->isEmpty()) {
+                return;
+            }
+
+            $affectedKirimanIds = [];
+            foreach ($movements as $m) {
+                $delta = -$this->movementDelta($m->toArray());
+                Product::where('id', $productId)->increment('stok', $delta);
+                if ($m->kiriman_actual_id) {
+                    $affectedKirimanIds[$m->kiriman_actual_id] = true;
+                }
+                $m->delete();
+            }
+
+            $affectedKirimanIds = array_keys($affectedKirimanIds);
+
+            foreach ($affectedKirimanIds as $kirimanId) {
+                $kiriman = KirimanActual::find($kirimanId);
+                if (! $kiriman) continue;
+
+                $deleted = PaketTracking::where('kiriman_actual_id', $kirimanId)
+                    ->where('product_id', $productId)
+                    ->whereDate('created_at', '>=', $tanggal)
+                    ->delete();
+
+                if ($deleted > 0) {
+                    $kiriman->decrement('jumlah_resi', $deleted);
+                }
+
+                $remaining = PaketTracking::where('kiriman_actual_id', $kirimanId)->count();
+                if ($remaining === 0) {
+                    $kiriman->stockMovements()->delete();
+                    $kiriman->products()->delete();
+                    $kiriman->delete();
+                }
+            }
+        });
+
+        return redirect()->route('gudang.stok-rincian', ['bulan' => $bulan])
+            ->with('success', 'Data stok tanggal ' . $tanggal . ' berhasil dihapus.');
     }
 
     // ─── Rincian Stok ────────────────────────────────────────────
@@ -695,15 +916,15 @@ class GudangController extends Controller
         }
 
         // Ambil total stok dari bulan-bulan sebelumnya per gudang+produk (1 query bulk)
-        $priorTotals = collect();
+        $priorTotals = [];
         if ($pairs->isNotEmpty()) {
             $raw = DB::table('stock_movements')
                 ->where('tanggal', '<', $bulanStart)
-                ->selectRaw('gudang, product_id, COALESCE(SUM(masuk_belanja + masuk_rts + masuk_repair - barang_rusak - barang_keluar), 0) as total')
-                ->groupBy('gudang', 'product_id')
+                ->selectRaw('UPPER(gudang) as gudang_upper, product_id, COALESCE(SUM(masuk_belanja + masuk_rts + masuk_repair - barang_rusak - barang_keluar), 0) as total')
+                ->groupBy('gudang_upper', 'product_id')
                 ->get();
             foreach ($raw as $row) {
-                $priorTotals[$row->gudang][$row->product_id] = (int) $row->total;
+                $priorTotals[$row->gudang_upper][$row->product_id] = (int) $row->total;
             }
         }
 
@@ -717,7 +938,7 @@ class GudangController extends Controller
                 if (! $produk) {
                     continue;
                 }
-                $priorTotal = $priorTotals[$gudang][$productId] ?? 0;
+                $priorTotal = $priorTotals[strtoupper($gudang)][$productId] ?? 0;
 
                 // Hitung selisih stok yang tidak tercatat di movement (stok seed/awal)
                 $seedKey = 'seed_'.$productId;
@@ -782,7 +1003,29 @@ class GudangController extends Controller
         Product::where('id', $stockMovement->product_id)->increment('stok', $delta);
 
         $bulan = substr($stockMovement->tanggal->format('Y-m'), 0, 7);
+        $kirimanId = $stockMovement->kiriman_actual_id;
+        $productId = $stockMovement->product_id;
+        $tanggal = $stockMovement->tanggal->format('Y-m-d');
         $stockMovement->delete();
+
+        if ($kirimanId) {
+            $kiriman = KirimanActual::find($kirimanId);
+            if ($kiriman) {
+                $deleted = PaketTracking::where('kiriman_actual_id', $kirimanId)
+                    ->where('product_id', $productId)
+                    ->whereDate('created_at', '>=', $tanggal)
+                    ->delete();
+                if ($deleted > 0) {
+                    $kiriman->decrement('jumlah_resi', $deleted);
+                }
+                $remaining = PaketTracking::where('kiriman_actual_id', $kirimanId)->count();
+                if ($remaining === 0) {
+                    $kiriman->stockMovements()->delete();
+                    $kiriman->products()->delete();
+                    $kiriman->delete();
+                }
+            }
+        }
 
         return redirect()->route('gudang.stok-rincian', ['bulan' => $bulan])
             ->with('success', 'Data stok berhasil dihapus.');
@@ -1031,5 +1274,59 @@ class GudangController extends Controller
 
         return redirect()->route('gudang.rekap-stok', ['bulan' => $bulan])
             ->with('success', 'Real stok berhasil disimpan untuk '.count($productIds).' produk.');
+    }
+
+    public function stokRincianBulkDelete(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'required|exists:stock_movements,id',
+        ]);
+
+        $ids = $data['ids'];
+        $movements = StockMovement::whereIn('id', $ids)->get();
+
+        if ($movements->isEmpty()) {
+            return back()->with('info', 'Tidak ada data yang dipilih.');
+        }
+
+        $bulan = $movements->first()->tanggal->format('Y-m');
+        $gudang = $movements->first()->gudang;
+
+        DB::transaction(function () use ($movements) {
+            foreach ($movements as $m) {
+                $delta = -$this->movementDelta($m->toArray());
+                Product::where('id', $m->product_id)->increment('stok', $delta);
+
+                $kirimanId = $m->kiriman_actual_id;
+                $productId = $m->product_id;
+                $tanggal = $m->tanggal->format('Y-m-d');
+                $m->delete();
+
+                if ($kirimanId) {
+                    $kiriman = KirimanActual::find($kirimanId);
+                    if (! $kiriman) continue;
+
+                    $deleted = PaketTracking::where('kiriman_actual_id', $kirimanId)
+                        ->where('product_id', $productId)
+                        ->whereDate('created_at', '>=', $tanggal)
+                        ->delete();
+
+                    if ($deleted > 0) {
+                        $kiriman->decrement('jumlah_resi', $deleted);
+                    }
+
+                    $remaining = PaketTracking::where('kiriman_actual_id', $kirimanId)->count();
+                    if ($remaining === 0) {
+                        $kiriman->stockMovements()->delete();
+                        $kiriman->products()->delete();
+                        $kiriman->delete();
+                    }
+                }
+            }
+        });
+
+        return redirect()->route('gudang.stok-rincian', ['bulan' => $bulan])
+            ->with('success', ''.count($movements).' data stok berhasil dihapus.');
     }
 }

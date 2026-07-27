@@ -37,16 +37,28 @@ class TopUpController extends Controller
 
             $proposals = $proposalsQuery->latest()->paginate(15);
 
-            // Data summary per advertiser
+            // ─── BATCH: Data summary per advertiser (1 query, no loop) ──
             $summaryPerAdv = [];
-            foreach ($advertisers as $adv) {
-                $advProposals = TopUpProposal::where('user_id', $adv->id);
-                $summaryPerAdv[$adv->id] = [
-                    'total' => $advProposals->count(),
-                    'pending' => (clone $advProposals)->where('status', 'pending')->count(),
-                    'completed' => (clone $advProposals)->where('status', 'completed')->count(),
-                    'total_nominal' => (clone $advProposals)->sum('total_nominal'),
-                ];
+            if ($advertisers->isNotEmpty()) {
+                $batchSummary = TopUpProposal::whereIn('user_id', $advertisers->pluck('id'))
+                    ->selectRaw("user_id,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                        COALESCE(SUM(total_nominal), 0) as total_nominal")
+                    ->groupBy('user_id')
+                    ->get()
+                    ->keyBy('user_id');
+
+                foreach ($advertisers as $adv) {
+                    $s = $batchSummary->get($adv->id);
+                    $summaryPerAdv[$adv->id] = [
+                        'total' => $s ? (int) $s->total : 0,
+                        'pending' => $s ? (int) $s->pending : 0,
+                        'completed' => $s ? (int) $s->completed : 0,
+                        'total_nominal' => $s ? (float) $s->total_nominal : 0,
+                    ];
+                }
             }
 
             return view('topup.index', compact('proposals', 'advertisers', 'activeTab', 'summaryPerAdv'));

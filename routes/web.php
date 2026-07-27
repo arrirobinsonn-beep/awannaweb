@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GudangController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OrderOnlineController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RegionalController;
@@ -38,6 +39,8 @@ Route::middleware('auth')->group(function () {
         // Dashboard
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
         Route::get('/dashboard/paket-detail', [DashboardController::class, 'paketDetail'])->name('dashboard.paket-detail');
+        Route::get('/dashboard/cs', [DashboardController::class, 'dashboardCs'])->name('dashboard.cs');
+        Route::get('/dashboard/cs/search-awb', [DashboardController::class, 'csSearchAwb'])->name('dashboard.cs.search-awb');
 
         // Profil
         Route::get('/profil', [ProfileController::class, 'show'])->name('profile.show');
@@ -94,6 +97,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/tim', [TeamController::class, 'index'])->name('team.index');
         Route::get('/tim/performa', [TeamController::class, 'performance'])->name('team.performance');
         Route::get('/tim/admin', [TeamController::class, 'adminIndex'])->name('team.admin-index');
+        Route::get('/tim/phone-list', [TeamController::class, 'phoneList'])->name('team.phone-list');
 
         // Gudang (admin)
         Route::get('/gudang/stok', [GudangController::class, 'stok'])->name('gudang.stok');
@@ -118,6 +122,8 @@ Route::middleware('auth')->group(function () {
         Route::delete('/gudang/kiriman/{kiriman}', [GudangController::class, 'kirimanDestroy'])->name('gudang.kiriman.destroy');
         Route::post('/gudang/kiriman/dashboard', [GudangController::class, 'kirimanDashboardStore'])->name('gudang.kiriman.dashboard-store');
         Route::delete('/gudang/kiriman/dashboard/{dashboard}', [GudangController::class, 'kirimanDashboardDestroy'])->name('gudang.kiriman.dashboard-destroy');
+        Route::post('/gudang/kiriman/excel-undel-preview', [GudangController::class, 'excelUndelPreview'])->name('gudang.kiriman.excel-undel-preview');
+        Route::post('/gudang/kiriman/excel-undel-import', [GudangController::class, 'excelUndelImport'])->name('gudang.kiriman.excel-undel-import');
 
         // Rincian Stok
         Route::get('/gudang/rincian-stok', [GudangController::class, 'stokRincian'])->name('gudang.stok-rincian');
@@ -125,6 +131,15 @@ Route::middleware('auth')->group(function () {
         Route::get('/gudang/rincian-stok/{stockMovement}/edit', [GudangController::class, 'stokRincianEdit'])->name('gudang.stok-rincian.edit');
         Route::put('/gudang/rincian-stok/{stockMovement}', [GudangController::class, 'stokRincianUpdate'])->name('gudang.stok-rincian.update');
         Route::delete('/gudang/rincian-stok/{stockMovement}', [GudangController::class, 'stokRincianDestroy'])->name('gudang.stok-rincian.destroy');
+        Route::post('/gudang/rincian-stok/bulk-delete', [GudangController::class, 'stokRincianBulkDelete'])->name('gudang.stok-rincian.bulk-delete');
+        Route::post('/gudang/rincian-stok/delete-date', [GudangController::class, 'stokRincianDeleteDate'])->name('gudang.stok-rincian.delete-date');
+
+        // Order Online
+        Route::post('/order-online/preview', [OrderOnlineController::class, 'preview'])->name('order-online.preview');
+        Route::post('/order-online/import', [OrderOnlineController::class, 'import'])->name('order-online.import');
+
+        // Backfill handle_by for existing PaketTracking
+        Route::post('/gudang/backfill-handle-by', [GudangController::class, 'backfillHandleBy'])->name('gudang.backfill-handle-by');
 
         // Rekap Stok Barang (GUDANG KUNINGAN)
         Route::get('/gudang/rekap-stok', [GudangController::class, 'rekapStok'])->name('gudang.rekap-stok');

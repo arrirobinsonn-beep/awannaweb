@@ -105,6 +105,7 @@
     .modal-close:hover { background: #e5e7eb; }
     .modal-body {
         flex: 1; overflow-y: auto; padding: 16px 24px 20px;
+        min-height: 0;
     }
     .modal-footer {
         display: flex; align-items: center; justify-content: flex-end;
@@ -408,7 +409,7 @@
     <div style="display:flex;gap:10px;font-size:.72rem;color:#9ca3af;flex-wrap:wrap;">
         <span>📌 Kolom provinsi <strong>sticky</strong> — tetap terlihat saat scroll horizontal</span>
         <span>🔄 Gunakan date picker untuk mengubah rentang tanggal</span>
-        <span>📤 Klik "Upload File Excel" untuk import data dari file .xlsx</span>
+        <span>📤 Klik "Upload File Excel" untuk import data Regional atau Order Online (format otomatis dikenali)</span>
     </div>
 </div>
 
@@ -422,19 +423,16 @@
         </div>
         <div class="modal-body">
             <div style="font-size:.78rem;color:#6b7280;margin-bottom:12px;">
-                File harus memiliki kolom <strong>province</strong> & <strong>payment_status</strong>.
-                Nama provinsi otomatis dikalibrasi.
+                Upload file Excel <strong>Regional</strong> (Lead/Paid per provinsi). File <strong>Order Online</strong> (mapping CS ke nomor telepon) juga bisa diupload lewat sini — format otomatis dikenali.
             </div>
 
             <div class="dropzone-wrap">
-                {{-- Processing overlay --}}
                 <div class="processing-overlay" id="upload-processing">
                     <div class="spinner"></div>
                     <div style="font-size:.82rem;font-weight:600;color:#374151;">Memproses file...</div>
-                    <div style="font-size:.7rem;color:#9ca3af;">Mengagregasi data per provinsi</div>
+                    <div style="font-size:.7rem;color:#9ca3af;">Mendeteksi format file...</div>
                 </div>
 
-                {{-- Dropzone --}}
                 <div class="dropzone" id="upload-dropzone">
                     <span class="dropzone-icon" id="upload-icon">📂</span>
                     <div class="dropzone-title">Klik atau tarik file ke sini</div>
@@ -541,6 +539,7 @@
         </div>
     </div>
 </div>
+
 @endsection
 
 @push('scripts')
@@ -574,6 +573,9 @@
 
     let isProcessing = false;
     let previewData  = null;
+    let previewErrors = [];
+    let previewPhoneContacts = [];
+    let uploadType   = null;
     let previewCsStats = []; // CS stats terbaru setelah edit
 
     // ── Helpers ──────────────────────────────────────
@@ -703,7 +705,10 @@
         })
         .then(function(json) {
             setProcessing(false);
-            if (json.success) {                    previewData = json.data;
+            if (json.success) {
+                previewData = json.data;
+                previewErrors = json.errors || [];
+                previewPhoneContacts = json.phone_contacts || [];
                 // ─── Simpan CS stats dari preview ────
                 previewCsStats = [];
                 if (json.data.cs_by_date) {
@@ -722,7 +727,7 @@
                 uploadIcon.textContent = '✅';
                 mUpload.classList.remove('active');
                 // Gunakan setTimeout biar transisi modal keluar dulu
-                setTimeout(function() { showPreviewModal(json); }, 200);
+                setTimeout(function() { showPreviewModal(); }, 200);
             } else {
                 showUploadError(json.message || 'Gagal memproses file');
                 resetDropzone();
@@ -736,19 +741,30 @@
     }
 
     // ── Show Preview Modal ──────────────────────────
-    function showPreviewModal(json) {
-        const data = json.data;
-        const errors = json.errors || [];
+    function showPreviewModal() {
+        if (uploadType === 'oo') {
+            showOOPreview();
+            return;
+        }
+
+        previewSave.style.display = 'inline-flex';
+        const data = previewData;
+        const errors = previewErrors;
+
         const numDates = Object.keys(data.by_date).length;
 
         previewTitle.textContent = '📊 Preview — ' + numDates + ' Tanggal, ' + formatNumber(data.total_lead) + ' Lead';
 
         // Stats
+        var pcCount = previewPhoneContacts.length;
+        var uniqueCs = [...new Set(previewPhoneContacts.map(function(p) { return p.cs_name; }))];
         statsEl.innerHTML =
             '<div class="preview-stat"><div class="val">' + formatNumber(data.total_lead) + '</div><div class="lbl">Total Lead</div></div>' +
             '<div class="preview-stat"><div class="val">' + formatNumber(data.total_paid) + '</div><div class="lbl">Total Paid</div></div>' +
             '<div class="preview-stat"><div class="val">' + formatNumber(data.total_rows) + '</div><div class="lbl">Provinsi x Tgl</div></div>' +
-            '<div class="preview-stat"><div class="val">' + numDates + '</div><div class="lbl">Tanggal</div></div>';
+            '<div class="preview-stat"><div class="val">' + numDates + '</div><div class="lbl">Tanggal</div></div>' +
+            (pcCount ? '<div class="preview-stat" style="background:#f0fdf4;"><div class="val" style="color:#059669;">' + formatNumber(pcCount) + '</div><div class="lbl">No Telepon</div></div>' : '') +
+            (uniqueCs.length ? '<div class="preview-stat" style="background:#f0fdf4;"><div class="val" style="color:#059669;">' + uniqueCs.length + '</div><div class="lbl">CS Unik</div></div>' : '');
 
         // Errors
         if (errors.length > 0) {
@@ -786,6 +802,23 @@
             });
             html += '</tbody></table></div>';
         });
+
+        // ─── Phone contacts table ──────────────────────
+        if (previewPhoneContacts.length > 0) {
+            var phoneLimit = 50;
+            var shownPhones = previewPhoneContacts.slice(0, phoneLimit);
+            html += '<div class="date-section">📞 Mapping No Telepon → CS (' + previewPhoneContacts.length + ' kontak)</div>';
+            html += '<div style="max-height:300px;overflow-y:auto;"><table class="modal-table" style="font-size:.72rem;">';
+            html += '<thead><tr><th style="text-align:left;">No Telepon</th><th style="text-align:left;">CS</th></tr></thead><tbody>';
+            shownPhones.forEach(function(p) {
+                html += '<tr><td>' + escHtml(p.phone_normalized) + '</td><td><strong>' + escHtml(p.cs_name) + '</strong></td></tr>';
+            });
+            html += '</tbody></table></div>';
+            if (previewPhoneContacts.length > phoneLimit) {
+                html += '<div style="font-size:.68rem;color:#9ca3af;margin-top:4px;">...dan ' + (previewPhoneContacts.length - phoneLimit) + ' lainnya</div>';
+            }
+        }
+
         tablesEl.innerHTML = html;
 
         tablesEl.querySelectorAll('.prov-lead, .prov-paid').forEach(function(inp) {
@@ -955,9 +988,95 @@
         });
     });
 
+    // ── Show OO Preview ─────────────────────────────
+    function showOOPreview() {
+        previewErrors = [];
+        var data = previewData || {};
+        var errs = data.errors || [];
+
+        previewTitle.textContent = '📊 Preview Order Online — ' + (data.total || 0) + ' Kontak';
+
+        statsEl.innerHTML =
+            '<div class="preview-stat"><div class="val">' + (data.total || 0) + '</div><div class="lbl">Kontak</div></div>' +
+            '<div class="preview-stat"><div class="val">' + (data.unique_cs_count || 0) + '</div><div class="lbl">CS Unik</div></div>' +
+            (errs.length ? '<div class="preview-stat" style="background:#fef2f2;"><div class="val" style="color:#991b1b;">' + errs.length + '</div><div class="lbl">Error</div></div>' : '');
+
+        if (errs.length) {
+            errorsEl.innerHTML = '<strong>⚠️ ' + errs.length + ' error:</strong><br>' + errs.join('<br>');
+            errorsEl.style.display = 'block';
+        } else {
+            errorsEl.style.display = 'none';
+        }
+
+        var rows = data.rows || [];
+        if (rows.length) {
+            var tbl = '<table class="modal-table" style="font-size:.72rem;">';
+            tbl += '<thead><tr><th style="text-align:left;background:#4472C4;width:22%;">Order ID</th><th style="background:#4472C4;width:22%;">Nama</th><th style="background:#4472C4;width:22%;">No Telepon</th><th style="background:#4472C4;width:22%;">CS</th></tr></thead><tbody>';
+            rows.forEach(function(r) {
+                tbl += '<tr><td>' + (r.order_id || '-') + '</td><td>' + (r.buyer_name || '-') + '</td><td>' + (r.phone_normalized || '-') + '</td><td><strong>' + (r.cs_name || '-') + '</strong></td></tr>';
+            });
+            tbl += '</tbody></table>';
+            tbl += '<div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">Menampilkan semua ' + rows.length + ' kontak</div>';
+            tablesEl.innerHTML = tbl;
+        }
+
+        if (data.total > 0) {
+            previewSave.style.display = 'inline-flex';
+        } else {
+            previewSave.style.display = 'none';
+        }
+
+        mPreview.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
     // ── Save Preview ─────────────────────────────────
     previewSave.addEventListener('click', function() {
         if (!previewData) return;
+
+        if (uploadType === 'oo') {
+            // ─── Save OO via order-online.import ──────
+            previewSave.disabled = true;
+            previewSave.innerHTML = '<span class="spinner-sm"></span> Importing...';
+
+            var fd = new FormData();
+            // Ambil file dari input yang terakhir di-upload
+            var file = document.getElementById('file-input').files[0];
+            if (!file) {
+                previewSave.disabled = false;
+                previewSave.innerHTML = '💾 Simpan Data';
+                return;
+            }
+            fd.append('file', file);
+            fd.append('_token', '{{ csrf_token() }}');
+
+            fetch('{{ route('order-online.import') }}', {
+                method: 'POST',
+                body: fd,
+                headers: { 'Accept': 'application/json' },
+            })
+            .then(function(res) {
+                if (!res.ok) return res.json().then(function(e) { throw new Error(e.message || 'Gagal'); });
+                return res.json();
+            })
+            .then(function(res) {
+                if (res.success) {
+                    alert('✅ ' + res.message);
+                    closePreviewModal();
+                    location.reload();
+                } else {
+                    alert('Gagal: ' + (res.message || 'Unknown error'));
+                }
+            })
+            .catch(function(err) {
+                alert('Gagal: ' + err.message);
+            })
+            .finally(function() {
+                previewSave.disabled = false;
+                previewSave.innerHTML = '💾 Simpan Data';
+            });
+            return;
+        }
 
         previewSave.disabled = true;
         previewSave.innerHTML = '<span class="spinner-sm"></span> Memeriksa...';
@@ -965,7 +1084,7 @@
         // Collect items & unique dates
         var items = [];
         var dateSet = {};
-        tablesEl.querySelectorAll('.modal-table').forEach(function(table) {
+        tablesEl.querySelectorAll('.modal-table[data-tanggal]').forEach(function(table) {
             var tanggal = table.getAttribute('data-tanggal');
             table.querySelectorAll('tbody tr').forEach(function(tr) {
                 var province = tr.querySelector('td:first-child').textContent.trim();
@@ -984,102 +1103,56 @@
             return;
         }
 
-        var uniqueDates = Object.keys(dateSet).sort();
+        // ─── Kumpulkan CS stats ─────────────────────
+        previewSave.innerHTML = '<span class="spinner-sm"></span> Menyimpan...';
 
-        // Step 1: Cek apakah tanggal-tanggal ini sudah punya data
-        var checkData = { dates: uniqueDates };
+        var csStatsPayload = [];
+        previewCsStats.forEach(function(cs) {
+            csStatsPayload.push({
+                tanggal: cs.tanggal,
+                cs_panggilan: cs.cs_panggilan,
+                lead: cs.lead,
+                paid: cs.paid
+            });
+        });
+
+        var saveData = { items: items, cs_stats: csStatsPayload, phone_contacts: previewPhoneContacts };
+
+        // Kirim target_user_id jika ada selector advertiser
         var advSelect = document.querySelector('select[name="user_id"]');
         if (advSelect) {
-            checkData.user_id = advSelect.value;
+            saveData.target_user_id = advSelect.value;
         }
 
-        fetch('{{ route('regional.check-existing') }}', {
+        fetch('{{ route('regional.save') }}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
                 'X-CSRF-TOKEN': '{{ csrf_token() }}',
             },
-            body: JSON.stringify(checkData),
+            body: JSON.stringify(saveData),
         })
         .then(function(res) {
-            if (!res.ok) throw new Error('Gagal memeriksa data');
+            if (!res.ok) return res.json().then(function(e) { throw new Error(e.message || 'Gagal'); });
             return res.json();
         })
-        .then(function(check) {
-            if (check.has_existing) {
-                // Format tanggal existing untuk pesan konfirmasi
-                var dateLabels = check.existing_dates.map(function(d) {
-                    return new Date(d + 'T00:00:00').toLocaleDateString('id-ID', {
-                        day: 'numeric', month: 'long', year: 'numeric'
-                    });
-                });
-                var msg = 'Data regional untuk tanggal ' + dateLabels.join(', ');
-                msg += ' sudah ada, apakah kamu ingin memperbaharuinya?';
-
-                if (!confirm(msg)) {
-                    previewSave.disabled = false;
-                    previewSave.innerHTML = '💾 Simpan Data';
-                    return; // User membatalkan
-                }
+        .then(function(json) {
+            if (json.success) {
+                closePreviewModal();
+                window.location.href = '{{ route('regional.index') }}';
+            } else {
+                alert('Gagal: ' + json.message);
             }
-
-            // Step 2: Lanjut save
-            previewSave.innerHTML = '<span class="spinner-sm"></span> Menyimpan...';
-
-            // ─── Kumpulkan CS stats ─────────────────────
-            var csStatsPayload = [];
-            previewCsStats.forEach(function(cs) {
-                csStatsPayload.push({
-                    tanggal: cs.tanggal,
-                    cs_panggilan: cs.cs_panggilan,
-                    lead: cs.lead,
-                    paid: cs.paid
-                });
-            });
-
-            var saveData = { items: items, cs_stats: csStatsPayload };
-
-            // Kirim target_user_id jika ada selector advertiser
-            var advSelect = document.querySelector('select[name="user_id"]');
-            if (advSelect) {
-                saveData.target_user_id = advSelect.value;
-            }
-
-            fetch('{{ route('regional.save') }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                },
-                body: JSON.stringify(saveData),
-            })
-            .then(function(res) {
-                if (!res.ok) return res.json().then(function(e) { throw new Error(e.message || 'Gagal'); });
-                return res.json();
-            })
-            .then(function(json) {
-                if (json.success) {
-                    closePreviewModal();
-                    window.location.href = '{{ route('regional.index') }}';
-                } else {
-                    alert('Gagal: ' + json.message);
-                }
-            })
-            .catch(function(err) { alert('Error: ' + err.message); })
-            .finally(function() {
-                previewSave.disabled = false;
-                previewSave.innerHTML = '💾 Simpan Data';
-            });
         })
-        .catch(function(err) {
-            alert('Error: ' + err.message);
+        .catch(function(err) { alert('Error: ' + err.message); })
+        .finally(function() {
             previewSave.disabled = false;
             previewSave.innerHTML = '💾 Simpan Data';
         });
     });
 
 })();
+
 </script>
 @endpush

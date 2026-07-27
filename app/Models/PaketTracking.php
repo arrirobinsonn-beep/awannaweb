@@ -17,6 +17,8 @@ class PaketTracking extends Model
         'scheduled_pickup', 'terakhir_update', 'nama_warehouse',
         'sumber', 'komisi_cod', 'komisi_jagokurir', 'actual_pickup',
         'kecamatan', 'kota', 'alamat_lengkap',
+        'handle_by',
+        'product_id',
     ];
 
     protected $casts = [

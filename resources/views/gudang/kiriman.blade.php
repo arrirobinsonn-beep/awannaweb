@@ -19,16 +19,23 @@
                 onclick="document.getElementById('modal-upload').classList.add('active')">
             📤 Upload Excel
         </button>
+
         <button type="button" class="clay-btn clay-btn-success"
                 onclick="document.getElementById('form-tambah').classList.toggle('hidden')">
             + Tambah
         </button>
-        <button type="button" class="clay-btn clay-btn-outline" style="font-size:.7rem;"
-                onclick="document.getElementById('panel-dashboard').classList.toggle('hidden')">
-            ⚙️ Atur Dashboard
-        </button>
-    </form>
-</div>
+<button type="button" class="clay-btn clay-btn-outline" style="font-size:.7rem;"
+                 onclick="document.getElementById('panel-dashboard').classList.toggle('hidden')">
+             ⚙️ Atur Dashboard
+         </button>
+         @role('admin|owner|super_admin')
+         <button type="button" class="clay-btn clay-btn-warning" style="font-size:.7rem;"
+                 onclick="backfillHandleBy()">
+             🔄 Backfill Handle By
+         </button>
+         @endrole
+     </form>
+ </div>
 
 {{-- ─── Panel Atur Dashboard ─────────────────────────────────────────────── --}}
 <div id="panel-dashboard" class="hidden clay-card" style="padding:16px;margin-bottom:16px;" data-reveal>
@@ -141,9 +148,12 @@
         </div>
         <div class="modal-body">
             <div style="margin-bottom:12px;">
-                <label style="font-size:.78rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">📅 Tanggal Kiriman</label>
-                <input type="date" id="upload-tanggal" value="{{ date('Y-m-d') }}"
-                       style="width:100%;padding:8px 10px;border:2px solid #e5e7eb;border-radius:8px;font-size:.8rem;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.78rem;font-weight:600;color:#374151;">
+                    <input type="checkbox" id="override-tanggal" onchange="toggleTanggal()">
+                    ☑️ Override Tanggal
+                </label>
+                <input type="date" id="upload-tanggal" disabled
+                       style="width:100%;padding:8px 10px;border:2px solid #e5e7eb;border-radius:8px;font-size:.8rem;margin-top:4px;opacity:.5;">
             </div>
             <div style="font-size:.78rem;color:#6b7280;margin-bottom:12px;">
                 File harus memiliki kolom <strong>Tanggal Pembuatan</strong>, <strong>Kurir</strong>, <strong>AWB</strong>, dan <strong>Nama Produk</strong>.
@@ -242,6 +252,14 @@ function closeModal(id) {
     document.getElementById(id).classList.remove('active');
 }
 
+function toggleTanggal() {
+    var cb = document.getElementById('override-tanggal');
+    var inp = document.getElementById('upload-tanggal');
+    inp.disabled = !cb.checked;
+    inp.style.opacity = cb.checked ? '1' : '.5';
+    if (!cb.checked) inp.value = '';
+}
+
 // ─── Upload Excel ───────────────────────────────────────────────────
 var selectedFile = null;
 
@@ -277,7 +295,9 @@ function uploadAndPreview(file) {
 
     var fd = new FormData();
     fd.append('file', file);
-    fd.append('tanggal', document.getElementById('upload-tanggal').value);
+    if (document.getElementById('override-tanggal').checked) {
+        fd.append('tanggal', document.getElementById('upload-tanggal').value);
+    }
     fd.append('_token', '{{ csrf_token() }}');
 
     fetch('{{ route('gudang.kiriman.excel-preview') }}', {
@@ -375,7 +395,9 @@ function importData(file) {
 
     var fd = new FormData();
     fd.append('file', file);
-    fd.append('tanggal', document.getElementById('upload-tanggal').value);
+    if (document.getElementById('override-tanggal').checked) {
+        fd.append('tanggal', document.getElementById('upload-tanggal').value);
+    }
     fd.append('_token', '{{ csrf_token() }}');
 
     fetch('{{ route('gudang.kiriman.excel-import') }}', {
@@ -404,6 +426,7 @@ function importData(file) {
 function numberFormat(x) {
     return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
+
 </script>
 
 {{-- ─── Rekap Harian per Dashboard ─────────────────────────────────────── --}}
@@ -441,9 +464,12 @@ function numberFormat(x) {
                     | COD: {{ number_format($recap['cod_resi'],0,',','.') }} resi / {{ number_format($recap['cod_barang'],0,',','.') }} brg
                 </span>
             </span>
-            <span style="font-weight:800;font-size:.75rem;color:var(--color-primary,#FF6B6B);">
-                {{ number_format($recap['total_resi'],0,',','.') }} resi | {{ number_format($recap['total_barang'],0,',','.') }} brg
-            </span>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-weight:800;font-size:.75rem;color:var(--color-primary,#FF6B6B);">
+                    {{ number_format($recap['total_resi'],0,',','.') }} resi | {{ number_format($recap['total_barang'],0,',','.') }} brg
+                </span>
+
+            </div>
         </div>
 
         {{-- Folder Content --}}
@@ -499,6 +525,7 @@ function numberFormat(x) {
                         <td class="text-right" style="color:var(--color-primary,#FF6B6B);">{{ number_format($recap['total_resi'],0,',','.') }}</td>
                         <td class="text-right" style="color:var(--color-primary,#FF6B6B);">{{ number_format($recap['total_barang'],0,',','.') }}</td>
                         <td class="text-right" style="color:var(--color-primary,#FF6B6B);">{{ number_format($recap['total_value'],0,',','.') }}</td>
+                        <td></td>
                     </tr>
                 </tfoot>
             </table>
@@ -571,4 +598,16 @@ function togDb(id) {
 @keyframes modalIn { from { opacity:0;transform:scale(.95) translateY(10px); } to { opacity:1;transform:scale(1) translateY(0); } }
 @keyframes spin { to { transform:rotate(360deg); } }
 </style>
-@endsection
+ <script>
+ function backfillHandleBy() {
+     if (!confirm('Backfill handle_by untuk semua PaketTracking kosong berdasarkan nomor telepon dari Order Online contacts?')) return;
+     fetch("{{ route('gudang.backfill-handle-by') }}", { method: 'POST', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Content-Type': 'application/json' } })
+         .then(r => r.json())
+         .then(d => {
+             alert(d.message);
+             if (d.updated > 0) location.reload();
+         })
+         .catch(e => alert('Gagal: ' + e));
+ }
+ </script>
+ @endsection
