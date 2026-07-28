@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Product;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class KirimanImportService
@@ -28,6 +29,13 @@ class KirimanImportService
             default => throw new \Exception('Format file tidak dikenali. Gunakan file dari FLIK, SPX, atau SICEPAT.'),
         };
 
+        if ($result['total'] === 0 && ! empty($rows)) {
+            $firstRows = array_slice($rows, 0, min(5, count($rows)));
+            Log::warning('[KirimanImport] total=0 | format='.$format, [
+                'first_rows' => $firstRows,
+            ]);
+        }
+
         if ($autoCreateProducts) {
             $this->resolveMissingProducts($result['data'], $result['groups'], $result['matched_products']);
         }
@@ -39,25 +47,40 @@ class KirimanImportService
 
     private function detectFormat(array $rows): string
     {
-        $first = array_map(fn ($h) => strtolower(trim((string) $h)), $rows[0]);
-        $joined = implode(' ', $first);
+        $joined = '';
+        for ($ri = 0; $ri <= min(1, count($rows) - 1); $ri++) {
+            $row = array_map(fn ($h) => strtolower(trim((string) $h)), $rows[$ri]);
+            $joined .= ' ' . implode(' ', $row);
+        }
 
-        // SPX: first cell contains "Report Download Time"
+        // SPX: headers row 1 has "tracking no" + "parcel value" or row 0 has "report download time"
+        if (str_contains($joined, 'tracking no') && str_contains($joined, 'parcel value')) {
+            return 'spx';
+        }
         if (str_contains($joined, 'report download time')) {
             return 'spx';
         }
+        if (str_contains($joined, 'tracking no') && str_contains($joined, 'create time') && str_contains($joined, 'recipient phone')) {
+            return 'spx';
+        }
 
-        // SICEPAT: has "nomor resi" AND "isi paket" AND "jumlah isi paket"
+        // SICEPAT: has "nomor resi" AND "isi paket"
         if (str_contains($joined, 'nomor resi') && str_contains($joined, 'isi paket')) {
             return 'sicepat';
         }
 
-        // FLIK: has "order id" + "sumber"
-        if (str_contains($joined, 'order id') || str_contains($joined, 'sumber') || str_contains($joined, 'flik')) {
+        // FLIK: has "order id" + "awb" (more specific than just "order id")
+        if (str_contains($joined, 'order id') && str_contains($joined, 'awb')) {
+            return 'flik';
+        }
+        if (str_contains($joined, 'order id') && str_contains($joined, 'tanggal pembuatan')) {
+            return 'flik';
+        }
+        if (str_contains($joined, 'sumber') && str_contains($joined, 'nama produk')) {
             return 'flik';
         }
 
-        // Fallback: try FLIK parsing anyway
+        // Fallback
         return 'flik';
     }
 
@@ -75,25 +98,29 @@ class KirimanImportService
         foreach ($rows as $idx => $row) {
             if ($idx === 0) continue;
 
-            $tanggalRaw = trim((string) ($row[$colMap['tanggal_pembuatan']] ?? ''));
-            $awb = trim((string) ($row[$colMap['awb']] ?? ''));
+            $tanggalIdx = $colMap['tanggal_pembuatan'] ?? null;
+            $awbIdx = $colMap['awb'] ?? null;
+            $tanggalRaw = $tanggalIdx !== null ? trim((string) ($row[$tanggalIdx] ?? '')) : '';
+            $awb = $awbIdx !== null ? trim((string) ($row[$awbIdx] ?? '')) : '';
             if (empty($tanggalRaw) || empty($awb)) continue;
 
             $tanggal = $this->parseDate($tanggalRaw);
             if (! $tanggal) { $errors[] = 'Baris '.($idx + 1).': Tanggal tidak valid "'.$tanggalRaw.'".'; continue; }
 
-            $sumber = isset($colMap['sumber'])
-                ? trim((string) ($row[$colMap['sumber']] ?? ''))
-                : 'FLIK';
+            $sumberIdx = $colMap['sumber'] ?? null;
+            $sumber = $sumberIdx !== null ? trim((string) ($row[$sumberIdx] ?? '')) : 'FLIK';
             $dashboard = $this->resolveDashboard($sumber);
 
-            $kurir = trim((string) ($row[$colMap['kurir']] ?? $dashboard));
+            $kurirIdx = $colMap['kurir'] ?? null;
+            $kurir = $kurirIdx !== null ? trim((string) ($row[$kurirIdx] ?? '')) : $dashboard;
 
-            $codRaw = trim((string) ($row[$colMap['cod'] ?? -1] ?? '0'));
+            $codIdx = $colMap['cod'] ?? null;
+            $codRaw = $codIdx !== null ? trim((string) ($row[$codIdx] ?? '0')) : '0';
             $codVal = $this->parseDecimal($codRaw);
             $jenis = $codVal > 0 ? 'COD' : 'TF';
 
-            $namaProdukRaw = isset($colMap['nama_produk']) ? trim((string) ($row[$colMap['nama_produk']] ?? '')) : '';
+            $namaProdukIdx = $colMap['nama_produk'] ?? null;
+            $namaProdukRaw = $namaProdukIdx !== null ? trim((string) ($row[$namaProdukIdx] ?? '')) : '';
             $jumlah = 1;
             $cleanName = $namaProdukRaw;
             if (! empty($cleanName)) {
@@ -111,7 +138,8 @@ class KirimanImportService
             }
 
             $hargaDiskon = 0;
-            if (isset($colMap['harga_setelah_diskon'])) $hargaDiskon = $this->parseDecimal(trim((string) ($row[$colMap['harga_setelah_diskon']] ?? '0')));
+            $hargaIdx = $colMap['harga_setelah_diskon'] ?? null;
+            if ($hargaIdx !== null) $hargaDiskon = $this->parseDecimal(trim((string) ($row[$hargaIdx] ?? '0')));
 
             $detail = $this->buildDetail($row, $colMap, $codRaw, $tanggal, $kurir, $awb, $namaProdukRaw);
 
@@ -126,19 +154,25 @@ class KirimanImportService
 
     private function parseSpx(array $rows, Collection $allProducts, bool $autoCreateProducts = false): array
     {
-        // Row 0 = metadata, Row 1 = actual headers, Row 2+ = data
-        $headers = array_map(fn ($h) => strtolower(trim((string) $h)), $rows[1]);
+        // Detect apakah row 0 adalah header (tanpa metadata row)
+        $row0joined = implode(' ', array_map(fn ($h) => strtolower(trim((string) $h)), $rows[0]));
+        $hasMeta = !str_contains($row0joined, 'tracking no') && !str_contains($row0joined, 'create time');
+        $headerRow = $hasMeta ? 1 : 0;
+        $dataStart = $hasMeta ? 2 : 1;
+
+        $headers = array_map(fn ($h) => strtolower(trim((string) $h)), $rows[$headerRow]);
         $colMap = $this->mapHeadersSpx($headers);
 
         $parsed = [];
         $errors = [];
         $matchedIds = [];
 
-        for ($idx = 2; $idx < count($rows); $idx++) {
+        for ($idx = $dataStart; $idx < count($rows); $idx++) {
             $row = $rows[$idx];
 
             $awb = trim((string) ($row[0] ?? ''));
-            $tanggalRaw = trim((string) ($row[$colMap['tanggal_pembuatan']] ?? ''));
+            $tglIdx = $colMap['tanggal_pembuatan'] ?? null;
+            $tanggalRaw = $tglIdx !== null ? trim((string) ($row[$tglIdx] ?? '')) : '';
             if (empty($awb) || empty($tanggalRaw)) continue;
 
             $tanggal = $this->parseSpxDate($tanggalRaw);
@@ -148,14 +182,18 @@ class KirimanImportService
             $dashboard = 'SPX';
 
             // COD detection
-            $codYn = strtolower(trim((string) ($row[$colMap['cod']] ?? 'n')));
-            $codAmount = $this->parseDecimal(trim((string) ($row[$colMap['nominal_cod']] ?? '0')));
+            $codIdx = $colMap['cod'] ?? null;
+            $codYn = $codIdx !== null ? strtolower(trim((string) ($row[$codIdx] ?? 'n'))) : 'n';
+            $nomCodIdx = $colMap['nominal_cod'] ?? null;
+            $codAmount = $nomCodIdx !== null ? $this->parseDecimal(trim((string) ($row[$nomCodIdx] ?? '0'))) : 0;
             $jenis = ($codYn === 'y' || $codAmount > 0) ? 'COD' : 'TF';
 
-            $namaProdukRaw = trim((string) ($row[$colMap['nama_produk']] ?? ''));
+            $produkIdx = $colMap['nama_produk'] ?? null;
+            $namaProdukRaw = $produkIdx !== null ? trim((string) ($row[$produkIdx] ?? '')) : '';
             $jumlah = 1;
-            if (isset($colMap['jumlah']) && is_numeric(trim((string) ($row[$colMap['jumlah']] ?? '')))) {
-                $jumlah = max(1, (int) trim((string) ($row[$colMap['jumlah']] ?? '1')));
+            $jmlIdx = $colMap['jumlah'] ?? null;
+            if ($jmlIdx !== null && is_numeric(trim((string) ($row[$jmlIdx] ?? '')))) {
+                $jumlah = max(1, (int) trim((string) ($row[$jmlIdx] ?? '1')));
                 $cleanName = $namaProdukRaw;
                 $cleanName = trim(preg_replace('/\b\d+\s*pcs\b/i', '', $cleanName));
             } else {
@@ -179,24 +217,25 @@ class KirimanImportService
 
             // Price
             $hargaDiskon = 0;
-            if (isset($colMap['harga_setelah_diskon'])) $hargaDiskon = $this->parseDecimal(trim((string) ($row[$colMap['harga_setelah_diskon']] ?? '0')));
+            $hargaIdx = $colMap['harga_setelah_diskon'] ?? null;
+            if ($hargaIdx !== null) $hargaDiskon = $this->parseDecimal(trim((string) ($row[$hargaIdx] ?? '0')));
 
             $detail = [
-                'order_id' => trim((string) ($row[1] ?? '')), // Tracking link
+                'order_id' => trim((string) ($row[1] ?? '')),
                 'awb' => $awb,
                 'kurir' => $kurir,
                 'service' => '',
                 'tanggal_pembuatan' => $tanggal,
                 'cod' => $jenis === 'COD' ? $codAmount : 0,
-                'nama_shopper' => trim((string) ($row[$colMap['nama_shopper']] ?? '')),
-                'no_telp' => trim((string) ($row[$colMap['no_telp']] ?? '')),
-                'provinsi' => trim((string) ($row[$colMap['provinsi']] ?? '')),
-                'kota' => trim((string) ($row[$colMap['kota']] ?? '')),
-                'kecamatan' => trim((string) ($row[$colMap['kecamatan']] ?? '')),
-                'alamat_lengkap' => trim((string) ($row[$colMap['alamat_lengkap']] ?? '')),
+                'nama_shopper' => isset($colMap['nama_shopper']) ? trim((string) ($row[$colMap['nama_shopper']] ?? '')) : '',
+                'no_telp' => isset($colMap['no_telp']) ? trim((string) ($row[$colMap['no_telp']] ?? '')) : '',
+                'provinsi' => isset($colMap['provinsi']) ? trim((string) ($row[$colMap['provinsi']] ?? '')) : '',
+                'kota' => isset($colMap['kota']) ? trim((string) ($row[$colMap['kota']] ?? '')) : '',
+                'kecamatan' => isset($colMap['kecamatan']) ? trim((string) ($row[$colMap['kecamatan']] ?? '')) : '',
+                'alamat_lengkap' => isset($colMap['alamat_lengkap']) ? trim((string) ($row[$colMap['alamat_lengkap']] ?? '')) : '',
                 'nama_produk' => $namaProdukRaw,
-                'status' => trim((string) ($row[$colMap['status']] ?? '')),
-                'catatan_kurir' => trim((string) ($row[$colMap['catatan_kurir']] ?? '')),
+                'status' => isset($colMap['status']) ? trim((string) ($row[$colMap['status']] ?? '')) : '',
+                'catatan_kurir' => isset($colMap['catatan_kurir']) ? trim((string) ($row[$colMap['catatan_kurir']] ?? '')) : '',
                 'harga_setelah_diskon' => $hargaDiskon,
             ];
 
@@ -223,21 +262,25 @@ class KirimanImportService
         foreach ($rows as $idx => $row) {
             if ($idx === 0) continue;
 
-            $awb = trim((string) ($row[$colMap['awb']] ?? ''));
-            $tanggalRaw = trim((string) ($row[$colMap['tanggal_pembuatan']] ?? ''));
+            $awbIdx = $colMap['awb'] ?? null;
+            $tglIdx = $colMap['tanggal_pembuatan'] ?? null;
+            $awb = $awbIdx !== null ? trim((string) ($row[$awbIdx] ?? '')) : '';
+            $tanggalRaw = $tglIdx !== null ? trim((string) ($row[$tglIdx] ?? '')) : '';
             if (empty($awb) || empty($tanggalRaw)) continue;
 
             $tanggal = $this->parseDate($tanggalRaw);
             if (! $tanggal) { $errors[] = 'Baris '.($idx + 1).': Tanggal tidak valid "'.$tanggalRaw.'".'; continue; }
 
-            // COD detection from Tipe Pembayaran
-            $tipeBayar = strtolower(trim((string) ($row[$colMap['tipe_bayar']] ?? 'tf')));
+            $bayarIdx = $colMap['tipe_bayar'] ?? null;
+            $tipeBayar = $bayarIdx !== null ? strtolower(trim((string) ($row[$bayarIdx] ?? 'tf'))) : 'tf';
             $jenis = ($tipeBayar === 'cod') ? 'COD' : 'TF';
 
-            $namaProdukRaw = trim((string) ($row[$colMap['nama_produk']] ?? ''));
+            $produkIdx = $colMap['nama_produk'] ?? null;
+            $namaProdukRaw = $produkIdx !== null ? trim((string) ($row[$produkIdx] ?? '')) : '';
             $jumlah = 1;
-            if (isset($colMap['jumlah']) && is_numeric(trim((string) ($row[$colMap['jumlah']] ?? '')))) {
-                $jumlah = max(1, (int) trim((string) ($row[$colMap['jumlah']] ?? '1')));
+            $jmlIdx = $colMap['jumlah'] ?? null;
+            if ($jmlIdx !== null && is_numeric(trim((string) ($row[$jmlIdx] ?? '')))) {
+                $jumlah = max(1, (int) trim((string) ($row[$jmlIdx] ?? '1')));
                 $cleanName = $namaProdukRaw;
                 $cleanName = trim(preg_replace('/\b\d+\s*pcs\b/i', '', $cleanName));
             } else {
@@ -260,25 +303,27 @@ class KirimanImportService
             }
 
             $hargaDiskon = 0;
-            if (isset($colMap['harga_setelah_diskon'])) $hargaDiskon = $this->parseDecimal(trim((string) ($row[$colMap['harga_setelah_diskon']] ?? '0')));
+            $hargaIdx = $colMap['harga_setelah_diskon'] ?? null;
+            if ($hargaIdx !== null) $hargaDiskon = $this->parseDecimal(trim((string) ($row[$hargaIdx] ?? '0')));
 
             $ongkir = 0;
-            if (isset($colMap['ongkir'])) $ongkir = $this->parseDecimal(trim((string) ($row[$colMap['ongkir']] ?? '0')));
+            $ongkirIdx = $colMap['ongkir'] ?? null;
+            if ($ongkirIdx !== null) $ongkir = $this->parseDecimal(trim((string) ($row[$ongkirIdx] ?? '0')));
 
             $detail = [
                 'awb' => $awb,
                 'kurir' => $kurir,
-                'service' => trim((string) ($row[$colMap['service']] ?? '')),
+                'service' => isset($colMap['service']) ? trim((string) ($row[$colMap['service']] ?? '')) : '',
                 'tanggal_pembuatan' => $tanggal,
                 'cod' => $jenis === 'COD' ? 1 : 0,
-                'nama_shopper' => trim((string) ($row[$colMap['nama_shopper']] ?? '')),
-                'no_telp' => trim((string) ($row[$colMap['no_telp']] ?? '')),
-                'provinsi' => trim((string) ($row[$colMap['provinsi']] ?? '')),
-                'kota' => trim((string) ($row[$colMap['kota']] ?? '')),
-                'kecamatan' => trim((string) ($row[$colMap['kecamatan']] ?? '')),
-                'alamat_lengkap' => trim((string) ($row[$colMap['alamat_lengkap']] ?? '')),
+                'nama_shopper' => isset($colMap['nama_shopper']) ? trim((string) ($row[$colMap['nama_shopper']] ?? '')) : '',
+                'no_telp' => isset($colMap['no_telp']) ? trim((string) ($row[$colMap['no_telp']] ?? '')) : '',
+                'provinsi' => isset($colMap['provinsi']) ? trim((string) ($row[$colMap['provinsi']] ?? '')) : '',
+                'kota' => isset($colMap['kota']) ? trim((string) ($row[$colMap['kota']] ?? '')) : '',
+                'kecamatan' => isset($colMap['kecamatan']) ? trim((string) ($row[$colMap['kecamatan']] ?? '')) : '',
+                'alamat_lengkap' => isset($colMap['alamat_lengkap']) ? trim((string) ($row[$colMap['alamat_lengkap']] ?? '')) : '',
                 'nama_produk' => $namaProdukRaw,
-                'status' => trim((string) ($row[$colMap['status']] ?? '')),
+                'status' => isset($colMap['status']) ? trim((string) ($row[$colMap['status']] ?? '')) : '',
                 'ongkir_sebelum_diskon' => $ongkir,
                 'harga_setelah_diskon' => $hargaDiskon,
                 'sumber' => 'SICEPAT',
@@ -323,7 +368,7 @@ class KirimanImportService
         ];
     }
 
-    private function groupData(array $parsed): array
+    public function groupData(array $parsed): array
     {
         $groups = [];
         foreach ($parsed as $row) {
@@ -441,9 +486,16 @@ class KirimanImportService
 
     private function matchColMap(array $headers, array $map): array
     {
-        $result = [];
+        $cleaned = [];
         foreach ($headers as $i => $header) {
-            $lower = strtolower(trim((string) $header));
+            $h = trim((string) $header);
+            $h = preg_replace('/^\xEF\xBB\xBF|\xFE\xFF|\xFF\xFE/', '', $h);
+            $h = preg_replace('/\s+/', ' ', $h);
+            $cleaned[$i] = strtolower($h);
+        }
+
+        $result = [];
+        foreach ($cleaned as $i => $lower) {
             foreach ($map as $key => $aliases) {
                 if (in_array($lower, $aliases)) {
                     $result[$key] = $i;
@@ -451,6 +503,40 @@ class KirimanImportService
                 }
             }
         }
+
+        $fuzzy = [
+            'awb' => ['tracking', 'no resi', 'resi', 'awb', 'nomor resi', 'tracking no'],
+            'tanggal_pembuatan' => ['create time', 'tanggal', 'tgl', 'date', 'created'],
+            'nama_produk' => ['item in parcel', 'item', 'isi paket', 'produk', 'nama produk', 'product'],
+            'jumlah' => ['no. of item', 'jumlah isi', 'jumlah', 'qty', 'quantity'],
+            'no_telp' => ['phone', 'hp', 'telepon', 'no_telp', 'no telp', 'recipient phone'],
+            'nama_shopper' => ['recipient name', 'nama penerima', 'nama', 'shopper', 'penerima'],
+            'harga_setelah_diskon' => ['parcel value', 'harga paket', 'total biaya', 'harga setelah', 'subtotal'],
+            'catatan_kurir' => ['delivery failed reason', 'delivery failed', 'catatan', 'keterangan', 'failed reason'],
+            'status' => ['tracking status', 'status'],
+            'tipe_bayar' => ['tipe pembayaran', 'tipe', 'payment'],
+            'cod' => ['cod collection', 'cod'],
+            'nominal_cod' => ['cod amount', 'nominal cod'],
+            'provinsi' => ['recipient province', 'province', 'provinsi'],
+            'kota' => ['recipient city', 'city', 'kota', 'kabupaten'],
+            'kecamatan' => ['recipient district', 'district', 'kecamatan'],
+            'alamat_lengkap' => ['recipient detail address', 'alamat', 'address', 'alamat lengkap'],
+            'kurir' => ['kurir', 'courier', 'ekspedisi'],
+            'service' => ['service', 'layanan'],
+        ];
+
+        foreach ($fuzzy as $key => $keywords) {
+            if (isset($result[$key])) continue;
+            foreach ($cleaned as $i => $lower) {
+                foreach ($keywords as $kw) {
+                    if (str_contains($lower, $kw)) {
+                        $result[$key] = $i;
+                        break 2;
+                    }
+                }
+            }
+        }
+
         return $result;
     }
 
@@ -490,17 +576,7 @@ class KirimanImportService
             'alamat_lengkap' => ['alamat lengkap', 'alamat_lengkap', 'alamat', 'address', 'full address', 'alamat penerima', 'alamat lengkap penerima'],
         ];
 
-        $result = [];
-        foreach ($headers as $i => $header) {
-            $lower = strtolower(trim((string) $header));
-            foreach ($map as $key => $aliases) {
-                if (in_array($lower, $aliases)) {
-                    $result[$key] = $i;
-                    break;
-                }
-            }
-        }
-        return $result;
+        return $this->matchColMap($headers, $map);
     }
 
     // ─── Date/Number helpers ────────────────────────────────────
@@ -509,6 +585,13 @@ class KirimanImportService
     {
         $dateStr = trim($dateStr);
         if (empty($dateStr)) return null;
+
+        if (is_numeric($dateStr) && $dateStr > 40000 && $dateStr < 200000) {
+            try {
+                $ts = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float) $dateStr);
+                return date('Y-m-d', $ts);
+            } catch (\Exception $e) {}
+        }
 
         $clean = preg_replace('/[\s\-]+\d{2}[:.]\d{2}.*$/', '', $dateStr);
         $clean = trim($clean);

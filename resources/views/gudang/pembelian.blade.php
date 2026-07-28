@@ -31,7 +31,9 @@
             @foreach($products as $p)
             <button type="button" class="pilih-produk-btn"
                     data-id="{{ $p->id }}" data-nama="{{ $p->nama_produk }}"
-                    onclick="pilihProduk({{ $p->id }},'{{ $p->nama_produk }}')">
+                    data-supplier="{{ $p->supplier?->nama_supplier ?? '' }}"
+                    data-supplier-id="{{ $p->supplier_id ?? '' }}"
+                    onclick="pilihProduk(this)">
                 {{ $p->nama_produk }}
             </button>
             @endforeach
@@ -61,13 +63,12 @@
             </div>
             <div>
                 <label class="field-label">SUPPLIER</label>
-                <input type="text" name="supplier" class="clay-input" list="supplier-list" placeholder="Ketik/pilih">
-                <input type="hidden" name="supplier_id" id="supplier_id">
-                <datalist id="supplier-list">
+                <select name="supplier_id" id="supplier_id" class="clay-input">
+                    <option value="">— Pilih —</option>
                     @foreach($suppliers as $s)
-                    <option value="{{ $s->nama_supplier }}" data-id="{{ $s->id }}">
+                    <option value="{{ $s->id }}">{{ $s->nama_supplier }}</option>
                     @endforeach
-                </datalist>
+                </select>
             </div>
             <div>
                 <label class="field-label">SUMBER PRODUK</label>
@@ -91,10 +92,11 @@
             </div>
             <div>
                 <label class="field-label">KETERANGAN</label>
-                <select name="keterangan" required class="clay-input">
-                    <option value="MASUK STOK">MASUK STOK</option>
-                    <option value="BARU PESAN">BARU PESAN</option>
-                </select>
+                <input type="hidden" name="keterangan" id="keterangan" value="MASUK STOK">
+                <div class="toggle-group">
+                    <button type="button" class="toggle-opt active" data-value="MASUK STOK" onclick="pilihKeterangan(this)">MASUK STOK</button>
+                    <button type="button" class="toggle-opt" data-value="BARU PESAN" onclick="pilihKeterangan(this)">BARU PESAN</button>
+                </div>
             </div>
             <div style="display:flex;align-items:flex-end;">
                 <button type="submit" class="clay-btn clay-btn-primary">Simpan</button>
@@ -113,7 +115,10 @@
             📦 {{ $produk->nama_produk }}
         </span>
         <button type="button" class="clay-btn clay-btn-xs clay-btn-success" style="font-size:.65rem;"
-                onclick="event.stopPropagation();bukaFormProduk({{ $produk->id }},'{{ $produk->nama_produk }}')">+ Tambah</button>
+                data-id="{{ $produk->id }}" data-nama="{{ $produk->nama_produk }}"
+                data-supplier="{{ $produk->supplier?->nama_supplier ?? '' }}"
+                data-supplier-id="{{ $produk->supplier_id ?? '' }}"
+                onclick="event.stopPropagation();bukaFormProduk(this)">+ Tambah</button>
     </div>
     <div id="grp-{{ $produk->id }}" style="display:none;">
     <table class="clay-table">
@@ -200,6 +205,11 @@ tfoot td { border-top:2px solid #e5e7eb;font-size:.75rem; }
     transition:all .15s;
 }
 .pilih-produk-btn:hover { background:#FFF5F5;border-color:var(--color-primary,#FF6B6B);color:var(--color-primary,#FF6B6B); }
+.toggle-group { display:flex;border:1.5px solid #e5e7eb;border-radius:8px;overflow:hidden;background:#f3f4f6; }
+.toggle-opt { flex:1;padding:6px 6px;border:none;background:transparent;cursor:pointer;font-size:.72rem;font-weight:700;color:#6b7280;transition:all .15s;letter-spacing:.3px; }
+.toggle-opt.active[data-value="MASUK STOK"] { background:#d1fae5;color:#065f46;box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:800; }
+.toggle-opt.active[data-value="BARU PESAN"] { background:#fef3c7;color:#92400e;box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:800; }
+.toggle-opt:not(.active):hover { color:#374151;background:#e5e7eb; }
 </style>
 
 <script>
@@ -247,35 +257,31 @@ function filterProduk() {
     });
 }
 
-function pilihProduk(id, nama) {
+function pilihProduk(btn) {
     tutupModalProduk();
-    bukaFormProduk(id, nama);
+    bukaFormProduk(btn);
 }
 
-function bukaFormProduk(id, nama) {
-    document.getElementById('form-produk-id').value = id;
-    document.getElementById('form-produk-nama').textContent = nama;
+function bukaFormProduk(btn) {
+    document.getElementById('form-produk-id').value = btn.dataset.id;
+    document.getElementById('form-produk-nama').textContent = btn.dataset.nama;
     document.getElementById('form-tambah').classList.remove('hidden');
     document.getElementById('form-tambah').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    document.querySelector('input[name="supplier"]').focus();
+    document.getElementById('supplier_id').value = btn.dataset.supplierId || '';
+    hitungDariHarga();
+    document.querySelector('input[name="qty"]').focus();
+}
+
+function pilihKeterangan(btn) {
+    document.querySelectorAll('.toggle-opt').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('keterangan').value = btn.dataset.value;
 }
 
 function tutupForm() {
     document.getElementById('form-tambah').classList.add('hidden');
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    var supplierInput = document.querySelector('input[name="supplier"]');
-    supplierInput.addEventListener('input', function() {
-        var list = document.getElementById('supplier-list');
-        for (var i = 0; i < list.options.length; i++) {
-            if (list.options[i].value === this.value) {
-                document.getElementById('supplier_id').value = list.options[i].getAttribute('data-id');
-                return;
-            }
-        }
-        document.getElementById('supplier_id').value = '';
-    });
-});
+
 </script>
 @endsection

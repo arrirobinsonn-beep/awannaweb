@@ -18,6 +18,7 @@ class Product extends Model
         'kategori',
         'deskripsi',
         'supplier_id',
+        'gudang_id',
         'harga_beli',
         'harga_jual',
         'stok',
@@ -37,6 +38,11 @@ class Product extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function gudang(): BelongsTo
+    {
+        return $this->belongsTo(Gudang::class);
     }
 
     public function whitelists(): HasMany

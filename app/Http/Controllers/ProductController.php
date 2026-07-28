@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Gudang;
 use App\Models\Product;
 use App\Models\Supplier;
 use Illuminate\Http\RedirectResponse;
@@ -39,8 +40,9 @@ class ProductController extends Controller
     public function create(): View
     {
         $suppliers = Supplier::aktif()->pluck('nama_supplier', 'id');
+        $gudangs = Gudang::orderBy('nama')->get();
 
-        return view('product.form', ['product' => new Product, 'suppliers' => $suppliers, 'mode' => 'create']);
+        return view('product.form', ['product' => new Product, 'suppliers' => $suppliers, 'gudangs' => $gudangs, 'mode' => 'create']);
     }
 
     public function store(Request $request): RedirectResponse
@@ -50,8 +52,7 @@ class ProductController extends Controller
             'nama_produk' => ['required', 'string', 'max:150'],
             'kategori' => ['nullable', 'string', 'max:80'],
             'deskripsi' => ['nullable', 'string'],
-            'supplier_id' => ['nullable', 'exists:suppliers,id'],
-            'harga_beli' => ['required', 'numeric', 'min:0'],
+            'gudang_id' => ['nullable', 'exists:gudangs,id'],
             'harga_jual' => ['required', 'numeric', 'min:0'],
             'stok' => ['required', 'integer', 'min:0'],
             'satuan' => ['required', 'string', 'max:30'],
@@ -74,8 +75,9 @@ class ProductController extends Controller
     public function edit(Product $product): View
     {
         $suppliers = Supplier::aktif()->pluck('nama_supplier', 'id');
+        $gudangs = Gudang::orderBy('nama')->get();
 
-        return view('product.form', ['product' => $product, 'suppliers' => $suppliers, 'mode' => 'edit']);
+        return view('product.form', ['product' => $product, 'suppliers' => $suppliers, 'gudangs' => $gudangs, 'mode' => 'edit']);
     }
 
     public function update(Request $request, Product $product): RedirectResponse
@@ -85,8 +87,7 @@ class ProductController extends Controller
             'nama_produk' => ['required', 'string', 'max:150'],
             'kategori' => ['nullable', 'string', 'max:80'],
             'deskripsi' => ['nullable', 'string'],
-            'supplier_id' => ['nullable', 'exists:suppliers,id'],
-            'harga_beli' => ['required', 'numeric', 'min:0'],
+            'gudang_id' => ['nullable', 'exists:gudangs,id'],
             'harga_jual' => ['required', 'numeric', 'min:0'],
             'stok' => ['required', 'integer', 'min:0'],
             'satuan' => ['required', 'string', 'max:30'],

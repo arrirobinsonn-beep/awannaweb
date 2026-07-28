@@ -32,12 +32,12 @@
         <div style="display:grid;grid-template-columns:repeat(11,1fr);gap:8px;align-items:end;">
             <div>
                 <label class="field-label">GUDANG</label>
-                <input type="text" name="gudang" id="input-gudang" class="clay-input" value="{{ $gudangList->first() ?? '' }}" list="gudang-list" required>
-                <datalist id="gudang-list">
-                    @foreach($gudangList as $g)
-                    <option value="{{ $g }}">
+                <select name="gudang" id="input-gudang" class="clay-input" required>
+                    <option value="">— Pilih —</option>
+                    @foreach($gudangs as $g)
+                    <option value="{{ $g->nama }}" {{ $loop->first ? 'selected' : '' }}>{{ $g->nama }}</option>
                     @endforeach
-                </datalist>
+                </select>
             </div>
             <div>
                 <label class="field-label">PRODUK</label>

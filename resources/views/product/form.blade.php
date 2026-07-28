@@ -24,21 +24,17 @@
                     <input type="text" name="kategori" value="{{ old('kategori',$product->kategori) }}" placeholder="Skincare" class="clay-input">
                 </div>
                 <div>
-                    <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;">Supplier</label>
-                    <select name="supplier_id" class="clay-input">
-                        <option value="">— Pilih Supplier —</option>
-                        @foreach($suppliers as $id=>$nama)
-                        <option value="{{ $id }}" {{ old('supplier_id',$product->supplier_id)==$id?'selected':'' }}>{{ $nama }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;">Harga Beli (Rp) <span style="color:#f87171;">*</span></label>
-                    <input type="number" name="harga_beli" min="0" step="500" value="{{ old('harga_beli',$product->harga_beli) }}" placeholder="45000" class="clay-input">
-                </div>
-                <div>
                     <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;">Harga Jual (Rp) <span style="color:#f87171;">*</span></label>
                     <input type="number" name="harga_jual" min="0" step="500" value="{{ old('harga_jual',$product->harga_jual) }}" placeholder="129000" class="clay-input">
+                </div>
+                <div>
+                    <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;">Gudang</label>
+                    <select name="gudang_id" class="clay-input">
+                        <option value="">— Pilih Gudang —</option>
+                        @foreach($gudangs as $g)
+                        <option value="{{ $g->id }}" {{ old('gudang_id',$product->gudang_id)==$g->id?'selected':'' }}>{{ $g->nama }}</option>
+                        @endforeach
+                    </select>
                 </div>
                 <div>
                     <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;">Stok <span style="color:#f87171;">*</span></label>

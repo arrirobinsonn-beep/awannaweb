@@ -11,7 +11,7 @@ class OrderOnlineController extends Controller
     public function preview(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv', 'max:10240'],
         ]);
 
         try {
@@ -41,7 +41,7 @@ class OrderOnlineController extends Controller
     public function import(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv', 'max:10240'],
         ]);
 
         $user = auth()->user();

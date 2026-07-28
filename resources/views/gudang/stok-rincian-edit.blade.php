@@ -11,12 +11,11 @@
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
                 <div>
                     <label class="field-label">GUDANG</label>
-                    <input type="text" name="gudang" class="clay-input" value="{{ $item->gudang }}" list="gudang-list" required>
-                    <datalist id="gudang-list">
-                        @foreach($gudangList as $g)
-                        <option value="{{ $g }}">
+                    <select name="gudang" class="clay-input" required>
+                        @foreach($gudangs as $g)
+                        <option value="{{ $g->nama }}" {{ $item->gudang === $g->nama ? 'selected' : '' }}>{{ $g->nama }}</option>
                         @endforeach
-                    </datalist>
+                    </select>
                 </div>
                 <div>
                     <label class="field-label">PRODUK</label>

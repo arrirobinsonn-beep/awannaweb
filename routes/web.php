@@ -102,6 +102,11 @@ Route::middleware('auth')->group(function () {
         // Gudang (admin)
         Route::get('/gudang/stok', [GudangController::class, 'stok'])->name('gudang.stok');
 
+        // Master Gudang
+        Route::get('/gudang/master', [GudangController::class, 'gudangMaster'])->name('gudang.master');
+        Route::post('/gudang/master', [GudangController::class, 'gudangMasterStore'])->name('gudang.master.store');
+        Route::delete('/gudang/master/{gudang}', [GudangController::class, 'gudangMasterDestroy'])->name('gudang.master.destroy');
+
         // Master Pembelian Barang
         Route::get('/gudang/pembelian', [GudangController::class, 'pembelian'])->name('gudang.pembelian');
         Route::post('/gudang/pembelian', [GudangController::class, 'pembelianStore'])->name('gudang.pembelian.store');

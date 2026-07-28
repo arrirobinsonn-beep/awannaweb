@@ -23,14 +23,12 @@
         </div>
         <div>
             <label class="field-label">SUPPLIER</label>
-            <input type="text" name="supplier" class="clay-input" list="supplier-list"
-                   value="{{ old('supplier', $pembelian->supplier ?? $pembelian->supplierRel?->nama_supplier ?? '') }}">
-            <input type="hidden" name="supplier_id" value="{{ $pembelian->supplier_id }}">
-            <datalist id="supplier-list">
+            <select name="supplier_id" class="clay-input">
+                <option value="">— Pilih —</option>
                 @foreach($suppliers as $s)
-                <option value="{{ $s->nama_supplier }}" data-id="{{ $s->id }}">
+                <option value="{{ $s->id }}" {{ $pembelian->supplier_id == $s->id ? 'selected' : '' }}>{{ $s->nama_supplier }}</option>
                 @endforeach
-            </datalist>
+            </select>
         </div>
         <div>
             <label class="field-label">SUMBER PRODUK</label>
@@ -59,10 +57,11 @@
         </div>
         <div>
             <label class="field-label">KETERANGAN</label>
-            <select name="keterangan" required class="clay-input">
-                <option value="MASUK STOK" {{ $pembelian->keterangan==='MASUK STOK'?'selected':'' }}>MASUK STOK</option>
-                <option value="BARU PESAN" {{ $pembelian->keterangan==='BARU PESAN'?'selected':'' }}>BARU PESAN</option>
-            </select>
+            <input type="hidden" name="keterangan" id="keterangan" value="{{ $pembelian->keterangan }}">
+            <div class="toggle-group">
+                <button type="button" class="toggle-opt {{ $pembelian->keterangan==='MASUK STOK'?'active':'' }}" data-value="MASUK STOK" onclick="pilihKeterangan(this)">MASUK STOK</button>
+                <button type="button" class="toggle-opt {{ $pembelian->keterangan==='BARU PESAN'?'active':'' }}" data-value="BARU PESAN" onclick="pilihKeterangan(this)">BARU PESAN</button>
+            </div>
         </div>
         <div style="display:flex;align-items:flex-end;gap:8px;">
             <button type="submit" class="clay-btn clay-btn-primary">Simpan</button>
@@ -85,9 +84,20 @@ function hitungDariTotal() {
         document.getElementById('harga_satuan').value = (total / qty).toFixed(2);
     }
 }
+
+function pilihKeterangan(btn) {
+    document.querySelectorAll('.toggle-opt').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('keterangan').value = btn.dataset.value;
+}
 </script>
 
 <style>
 .field-label { display:block;font-size:.75rem;font-weight:700;margin-bottom:4px;color:#374151; }
+.toggle-group { display:flex;border:1.5px solid #e5e7eb;border-radius:8px;overflow:hidden;background:#f3f4f6; }
+.toggle-opt { flex:1;padding:6px 6px;border:none;background:transparent;cursor:pointer;font-size:.72rem;font-weight:700;color:#6b7280;transition:all .15s;letter-spacing:.3px; }
+.toggle-opt.active[data-value="MASUK STOK"] { background:#d1fae5;color:#065f46;box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:800; }
+.toggle-opt.active[data-value="BARU PESAN"] { background:#fef3c7;color:#92400e;box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:800; }
+.toggle-opt:not(.active):hover { color:#374151;background:#e5e7eb; }
 </style>
 @endsection

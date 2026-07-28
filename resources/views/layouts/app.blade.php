@@ -385,6 +385,13 @@
                 <span class="nav-icon">📦</span>
                 <span class="sidebar-label">Produk</span>
             </a>
+
+            <a href="{{ route('gudang.master') }}"
+               class="nav-item {{ request()->routeIs('gudang.master*') ? 'active' : '' }}"
+               data-page-link data-tip="Gudang">
+                <span class="nav-icon">🏭</span>
+                <span class="sidebar-label">Master Gudang</span>
+            </a>
             @endif
 
             {{-- ── Admin: Gudang ─────────────────────────────────── --}}
