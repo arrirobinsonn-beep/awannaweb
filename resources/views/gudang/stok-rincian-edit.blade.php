@@ -11,19 +11,17 @@
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
                 <div>
                     <label class="field-label">GUDANG</label>
-                    <select name="gudang" class="clay-input" required>
-                        @foreach($gudangs as $g)
-                        <option value="{{ $g->nama }}" {{ $item->gudang === $g->nama ? 'selected' : '' }}>{{ $g->nama }}</option>
-                        @endforeach
+                    <select class="clay-input" disabled>
+                        <option selected>{{ $item->gudang }}</option>
                     </select>
+                    <input type="hidden" name="gudang" value="{{ $item->gudang }}">
                 </div>
                 <div>
                     <label class="field-label">PRODUK</label>
-                    <select name="product_id" required class="clay-input">
-                        @foreach(\App\Models\Product::where('status','aktif')->orderBy('nama_produk')->get() as $p)
-                        <option value="{{ $p->id }}" {{ $item->product_id==$p->id?'selected':'' }}>{{ $p->nama_produk }}</option>
-                        @endforeach
+                    <select class="clay-input" disabled>
+                        <option selected>{{ $item->product?->nama_produk ?? '-' }}</option>
                     </select>
+                    <input type="hidden" name="product_id" value="{{ $item->product_id }}">
                 </div>
                 <div>
                     <label class="field-label">TANGGAL</label>

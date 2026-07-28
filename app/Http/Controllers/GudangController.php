@@ -655,14 +655,23 @@ class GudangController extends Controller
                             'jumlah' => $prod['jumlah'],
                         ]);
 
-                        StockMovement::create([
+                        $sm = StockMovement::firstOrNew([
                             'product_id' => $prod['product_id'],
                             'gudang' => $product->gudang?->nama ?? '',
                             'tanggal' => $group['tanggal'],
-                            'barang_keluar' => $prod['jumlah'],
-                            'catatan' => 'Kiriman '.$group['jenis'].' '.$group['dashboard'],
-                            'kiriman_actual_id' => $kiriman->id,
                         ]);
+                        $sm->barang_keluar = ($sm->barang_keluar ?? 0) + $prod['jumlah'];
+                        $newCatatan = 'Kiriman '.$group['jenis'].' '.$group['dashboard'];
+                        if ($sm->exists && ! str_contains($sm->catatan ?? '', $newCatatan)) {
+                            $sm->catatan = ($sm->catatan ?? '').'; '.$newCatatan;
+                        } elseif (! $sm->exists) {
+                            $sm->catatan = $newCatatan;
+                            $sm->masuk_belanja = 0;
+                            $sm->masuk_rts = 0;
+                            $sm->masuk_repair = 0;
+                            $sm->barang_rusak = 0;
+                        }
+                        $sm->save();
 
                         Product::where('id', $prod['product_id'])->decrement('stok', $prod['jumlah']);
                     }
