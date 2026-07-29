@@ -302,6 +302,7 @@ function uploadAndPreview(file) {
 
     fetch('{{ route('gudang.kiriman.excel-preview') }}', {
         method: 'POST',
+        headers: { 'Accept': 'application/json' },
         body: fd,
     })
     .then(function(r) { return r.json(); })
@@ -402,6 +403,7 @@ function importData(file) {
 
     fetch('{{ route('gudang.kiriman.excel-import') }}', {
         method: 'POST',
+        headers: { 'Accept': 'application/json' },
         body: fd,
     })
     .then(function(r) { return r.json(); })

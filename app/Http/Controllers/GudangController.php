@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Dashboard;
+use App\Models\Gudang;
 use App\Models\KirimanActual;
 use App\Models\PaketTracking;
 use App\Models\PembelianBarang;
@@ -21,20 +22,23 @@ use Illuminate\View\View;
 class GudangController extends Controller
 {
     /** Stok Gudang — daftar stok produk terkini */
-    public function stok(): View
+    public function stok(Request $request): View
     {
         $products = Product::with('supplier')
+            ->when($request->filled('gudang_id'), fn($q) => $q->where('gudang_id', $request->gudang_id))
             ->orderBy('stok', 'asc')
             ->paginate(15);
 
-        return view('gudang.stok', compact('products'));
+        $gudangs = \App\Models\Gudang::orderBy('nama')->get();
+
+        return view('gudang.stok', compact('products', 'gudangs'));
     }
 
     // ─── Master Pembelian Barang ─────────────────────────────────
 
     public function pembelian(Request $request): View
     {
-        $produkQuery = Product::with(['pembelianBarangs' => function ($q) use ($request) {
+        $produkQuery = Product::with('supplier')->with(['pembelianBarangs' => function ($q) use ($request) {
             $q->with('supplierRel')->orderBy('tanggal');
             if ($request->filled('bulan')) {
                 $q->whereYear('tanggal', substr($request->bulan, 0, 4))
@@ -81,7 +85,7 @@ class GudangController extends Controller
         }
 
         $suppliers = Supplier::orderBy('nama_supplier')->get();
-        $products = Product::orderBy('nama_produk')->get();
+        $products = Product::with('supplier')->orderBy('nama_produk')->get();
 
         return view('gudang.pembelian', compact('produkList', 'suppliers', 'products'));
     }
@@ -90,7 +94,6 @@ class GudangController extends Controller
     {
         $data = $request->validate([
             'tanggal' => 'required|date',
-            'supplier' => 'nullable|string|max:255',
             'supplier_id' => 'nullable|exists:suppliers,id',
             'sumber_produk' => 'nullable|string|max:255',
             'product_id' => 'nullable|exists:products,id',
@@ -108,13 +111,9 @@ class GudangController extends Controller
         $data['total_belanja'] = $data['qty'] * $data['harga_satuan'];
         $data['ongkir'] ??= 0;
 
-        if ($data['supplier_id'] && ! $data['supplier']) {
+        if ($data['supplier_id']) {
             $supplier = Supplier::find($data['supplier_id']);
             $data['supplier'] = $supplier?->nama_supplier ?? '';
-        }
-        if ($data['product_id'] && ! $data['sumber_produk']) {
-            $product = Product::find($data['product_id']);
-            $data['sumber_produk'] = $product?->nama_produk ?? '';
         }
 
         PembelianBarang::create($data);
@@ -134,7 +133,6 @@ class GudangController extends Controller
     {
         $data = $request->validate([
             'tanggal' => 'required|date',
-            'supplier' => 'nullable|string|max:255',
             'supplier_id' => 'nullable|exists:suppliers,id',
             'sumber_produk' => 'nullable|string|max:255',
             'product_id' => 'nullable|exists:products,id',
@@ -152,13 +150,9 @@ class GudangController extends Controller
         $data['total_belanja'] = $data['qty'] * $data['harga_satuan'];
         $data['ongkir'] ??= 0;
 
-        if ($data['supplier_id'] && ! $data['supplier']) {
+        if ($data['supplier_id']) {
             $supplier = Supplier::find($data['supplier_id']);
             $data['supplier'] = $supplier?->nama_supplier ?? '';
-        }
-        if ($data['product_id'] && ! $data['sumber_produk']) {
-            $product = Product::find($data['product_id']);
-            $data['sumber_produk'] = $product?->nama_produk ?? '';
         }
 
         $pembelian->update($data);
@@ -398,9 +392,10 @@ class GudangController extends Controller
                         'jumlah' => $prod['jumlah'],
                     ]);
 
+                    $product = $products->get($prod['product_id']);
                     StockMovement::create([
                         'product_id' => $prod['product_id'],
-                        'gudang' => 'GUDANG KUNINGAN',
+                        'gudang' => $product->gudang?->nama ?? '',
                         'tanggal' => $data['tanggal'],
                         'barang_keluar' => $prod['jumlah'],
                         'catatan' => 'Kiriman '.$row['jenis'].' '.$row['dashboard'],
@@ -418,7 +413,7 @@ class GudangController extends Controller
     public function kirimanEdit(KirimanActual $kiriman): View
     {
         $dashboards = $this->getDashboards();
-        $kiriman->load('products.product');
+        $kiriman->load(['products.product', 'stockMovements']);
         $products = Product::orderBy('nama_produk')->get();
 
         return view('gudang.kiriman-edit', compact('kiriman', 'dashboards', 'products'));
@@ -473,9 +468,10 @@ class GudangController extends Controller
                     'jumlah' => $prod['jumlah'],
                 ]);
 
+                $product = $products->get($prod['product_id']);
                 StockMovement::create([
                     'product_id' => $prod['product_id'],
-                    'gudang' => 'GUDANG KUNINGAN',
+                    'gudang' => $product->gudang?->nama ?? '',
                     'tanggal' => $data['tanggal'],
                     'barang_keluar' => $prod['jumlah'],
                     'catatan' => 'Kiriman '.$data['jenis'].' '.$data['dashboard'],
@@ -526,7 +522,7 @@ class GudangController extends Controller
     public function kirimanExcelPreview(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv', 'max:10240'],
             'tanggal' => ['nullable', 'date'],
         ]);
 
@@ -548,7 +544,7 @@ class GudangController extends Controller
             if ($result['total'] === 0 && ! empty($request->file('file'))) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Format file tidak dikenal atau tidak memiliki data yang bisa dibaca. Gunakan file dari dashboard FLIK, SPX, atau SICEPAT.',
+                    'message' => 'Tidak ada data yang bisa dibaca. Periksa apakah file memiliki kolom AWB/Resi, Tanggal, dan Nama Produk.',
                 ], 422);
             }
 
@@ -571,7 +567,7 @@ class GudangController extends Controller
     public function kirimanExcelImport(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv', 'max:10240'],
             'tanggal' => ['nullable', 'date'],
         ]);
 
@@ -606,7 +602,31 @@ class GudangController extends Controller
 
             $products = $result['matched_products'];
 
-            DB::transaction(function () use ($result, $products) {
+            // ─── Filter duplicate AWB ────────────────────────────────
+            $allAwbs = collect($result['data'])->pluck('awb')->filter()->values()->toArray();
+            $existingAwbs = [];
+            if (! empty($allAwbs)) {
+                $existingAwbs = \App\Models\PaketTracking::whereIn('awb', $allAwbs)
+                    ->pluck('awb')
+                    ->map(fn ($v) => true)
+                    ->toArray();
+            }
+
+            $filteredData = array_values(array_filter($result['data'], fn ($r) => empty($existingAwbs[$r['awb']])));
+            $skipped = count($result['data']) - count($filteredData);
+
+            if (empty($filteredData)) {
+                return response()->json([
+                    'success' => true,
+                    'imported' => 0,
+                    'skipped' => $skipped,
+                    'message' => 'Semua data sudah ada ('.$skipped.' AWB skipped).',
+                ]);
+            }
+
+            $regrouped = app(\App\Services\KirimanImportService::class)->groupData($filteredData);
+
+            DB::transaction(function () use ($filteredData, $regrouped, $products) {
                 $phoneCsMap = collect();
                 $contacts = \App\Models\OrderOnlineContact::all();
                 foreach ($contacts as $contact) {
@@ -615,7 +635,7 @@ class GudangController extends Controller
                     }
                 }
 
-                foreach ($result['groups'] as $group) {
+                foreach ($regrouped as $group) {
                     $kiriman = KirimanActual::create([
                         'tanggal' => $group['tanggal'],
                         'jenis' => $group['jenis'],
@@ -635,19 +655,28 @@ class GudangController extends Controller
                             'jumlah' => $prod['jumlah'],
                         ]);
 
-                        StockMovement::create([
+                        $sm = StockMovement::firstOrNew([
                             'product_id' => $prod['product_id'],
-                            'gudang' => 'GUDANG KUNINGAN',
+                            'gudang' => $product->gudang?->nama ?? '',
                             'tanggal' => $group['tanggal'],
-                            'barang_keluar' => $prod['jumlah'],
-                            'catatan' => 'Kiriman '.$group['jenis'].' '.$group['dashboard'],
-                            'kiriman_actual_id' => $kiriman->id,
                         ]);
+                        $sm->barang_keluar = ($sm->barang_keluar ?? 0) + $prod['jumlah'];
+                        $newCatatan = 'Kiriman '.$group['jenis'].' '.$group['dashboard'];
+                        if ($sm->exists && ! str_contains($sm->catatan ?? '', $newCatatan)) {
+                            $sm->catatan = ($sm->catatan ?? '').'; '.$newCatatan;
+                        } elseif (! $sm->exists) {
+                            $sm->catatan = $newCatatan;
+                            $sm->masuk_belanja = 0;
+                            $sm->masuk_rts = 0;
+                            $sm->masuk_repair = 0;
+                            $sm->barang_rusak = 0;
+                        }
+                        $sm->save();
 
                         Product::where('id', $prod['product_id'])->decrement('stok', $prod['jumlah']);
                     }
 
-                    foreach ($result['data'] as $row) {
+                    foreach ($filteredData as $row) {
                         if ($row['tanggal'] !== $group['tanggal']
                             || $row['dashboard'] !== $group['dashboard']
                             || $row['kurir'] !== $group['kurir']
@@ -674,10 +703,14 @@ class GudangController extends Controller
                 }
             });
 
+            $msg = 'Berhasil import '.count($filteredData).' data kiriman.';
+            if ($skipped > 0) $msg .= ' '.$skipped.' AWB skipped (already exist).';
+
             return response()->json([
                 'success' => true,
-                'imported' => $result['total'],
-                'message' => 'Berhasil import '.$result['total'].' data kiriman.',
+                'imported' => count($filteredData),
+                'skipped' => $skipped,
+                'message' => $msg,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -726,7 +759,7 @@ class GudangController extends Controller
     public function excelUndelPreview(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv', 'max:10240'],
         ]);
 
         try {
@@ -762,7 +795,7 @@ class GudangController extends Controller
     public function excelUndelImport(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv', 'max:10240'],
         ]);
 
         try {
@@ -888,6 +921,31 @@ class GudangController extends Controller
             ->with('success', 'Data stok tanggal ' . $tanggal . ' berhasil dihapus.');
     }
 
+    // ─── Master Gudang ───────────────────────────────────────────
+
+    public function gudangMaster(): View
+    {
+        $gudangs = Gudang::with('products')->orderBy('nama')->get();
+
+        return view('gudang.master', compact('gudangs'));
+    }
+
+    public function gudangMasterStore(Request $request): RedirectResponse
+    {
+        $data = $request->validate(['nama' => 'required|string|max:255|unique:gudangs,nama']);
+
+        Gudang::create($data);
+
+        return redirect()->route('gudang.master')->with('success', 'Gudang berhasil ditambahkan.');
+    }
+
+    public function gudangMasterDestroy(Gudang $gudang): RedirectResponse
+    {
+        $gudang->delete();
+
+        return redirect()->route('gudang.master')->with('success', 'Gudang berhasil dihapus.');
+    }
+
     // ─── Rincian Stok ────────────────────────────────────────────
 
     public function stokRincian(Request $request): View
@@ -895,7 +953,13 @@ class GudangController extends Controller
         $bulan = $request->filled('bulan') ? $request->bulan : date('Y-m');
         $bulanStart = $bulan.'-01';
 
-        $gudangList = StockMovement::select('gudang')->distinct()->pluck('gudang')->sort()->values();
+        if (! Gudang::count()) {
+            $existing = StockMovement::select('gudang')->distinct()->pluck('gudang')->filter();
+            foreach ($existing as $nama) {
+                Gudang::create(['nama' => $nama]);
+            }
+        }
+        $gudangs = Gudang::orderBy('nama')->get();
 
         // Ambil semua movement bulan ini per gudang
         $allMovements = StockMovement::with('product')
@@ -963,7 +1027,7 @@ class GudangController extends Controller
             $gudangData[$gudang] = $produkData;
         }
 
-        return view('gudang.stok-rincian', compact('gudangData', 'gudangList', 'bulan'));
+        return view('gudang.stok-rincian', compact('gudangData', 'gudangs', 'bulan'));
     }
 
     private function movementDelta(array $data): int
@@ -1033,9 +1097,9 @@ class GudangController extends Controller
 
     public function stokRincianEdit(StockMovement $stockMovement): View
     {
-        $gudangList = StockMovement::select('gudang')->distinct()->pluck('gudang')->sort()->values();
+        $gudangs = Gudang::orderBy('nama')->get();
 
-        return view('gudang.stok-rincian-edit', ['item' => $stockMovement, 'gudangList' => $gudangList]);
+        return view('gudang.stok-rincian-edit', ['item' => $stockMovement, 'gudangs' => $gudangs]);
     }
 
     public function stokRincianUpdate(Request $request, StockMovement $stockMovement): RedirectResponse
