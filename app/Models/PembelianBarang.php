@@ -9,8 +9,6 @@ class PembelianBarang extends Model
 {
     protected $fillable = [
         'tanggal',
-        'supplier',
-        'supplier_id',
         'sumber_produk',
         'product_id',
         'qty',
@@ -28,18 +26,8 @@ class PembelianBarang extends Model
         'ongkir' => 'decimal:2',
     ];
 
-    public function supplierRel(): BelongsTo
-    {
-        return $this->belongsTo(Supplier::class, 'supplier_id');
-    }
-
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
-    }
-
-    public function getSupplierNameAttribute(): string
-    {
-        return $this->supplierRel?->nama_supplier ?? $this->supplier ?? '-';
     }
 }
