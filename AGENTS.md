@@ -164,4 +164,23 @@ Adv upload Excel Order Online (dari OO) yang berisi nomor telepon + CS name. Dat
 
 ---
 
+## E. ✅ Akumulasi Stok Rincian 1 Row per Tanggal (28 Juli 2026)
+
+### Deskripsi
+Import Kiriman sekarang mengakumulasi StockMovement jadi **1 baris per (product_id, gudang, tanggal)** — `barang_keluar` dijumlah, catatan digabung. View stok-rincian hanya tampilkan 1 baris per tanggal. Halaman edit: gudang & produk readonly.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/GudangController.php:658` | `StockMovement::create()` → `firstOrNew()` + increment + concat catatan |
+| `resources/views/gudang/stok-rincian.blade.php` | 1 baris akumulasi per tanggal, hapus checkbox/bulk-delete |
+| `resources/views/gudang/stok-rincian-edit.blade.php` | Gudang & produk disabled |
+
+### Catatan
+- Data lama perlu re-import setelah reset
+- Branch: `develop/arif`
+- Commit: `56f61c2`
+
+---
+
 # Fitur Belum Selesai / Ide ke Depan

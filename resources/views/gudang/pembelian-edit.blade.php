@@ -22,15 +22,6 @@
                    value="{{ $pembelian->tanggal->format('Y-m-d') }}">
         </div>
         <div>
-            <label class="field-label">SUPPLIER</label>
-            <select name="supplier_id" class="clay-input">
-                <option value="">— Pilih —</option>
-                @foreach($suppliers as $s)
-                <option value="{{ $s->id }}" {{ $pembelian->supplier_id == $s->id ? 'selected' : '' }}>{{ $s->nama_supplier }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div>
             <label class="field-label">SUMBER PRODUK</label>
             <input type="text" name="sumber_produk" class="clay-input" placeholder="SHOPEE, TOKOPEDIA, dll"
                    value="{{ old('sumber_produk',$pembelian->sumber_produk) }}">

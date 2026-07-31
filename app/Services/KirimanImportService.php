@@ -692,20 +692,36 @@ class KirimanImportService
     private function matchProduct(string $excelName, Collection $products): ?Product
     {
         $excelName = strtolower(trim($excelName));
+
         $exact = $products->first(fn ($p) => strtolower(trim($p->nama_produk)) === $excelName);
         if ($exact) return $exact;
+
+        $bestContains = null;
+        $bestLen = 0;
+        foreach ($products as $p) {
+            $dbName = strtolower(trim($p->nama_produk));
+            if ($dbName !== '' && str_contains($excelName, $dbName)) {
+                $len = strlen($dbName);
+                if ($len > $bestLen) {
+                    $bestLen = $len;
+                    $bestContains = $p;
+                }
+            }
+        }
+        if ($bestContains) return $bestContains;
 
         $excelWords = $this->tokenize($excelName);
         if (empty($excelWords)) return null;
 
-        $minRequired = min(2, count($excelWords));
         $bestScore = 0;
         $best = null;
         foreach ($products as $p) {
             $dbWords = $this->tokenize(strtolower(trim($p->nama_produk)));
             $common = array_intersect($excelWords, $dbWords);
             if (empty($common)) continue;
-            if (count($common) < $minRequired) continue;
+
+            $minCount = min(count($excelWords), count($dbWords));
+            if (count($common) < $minCount) continue;
 
             $score = count($common) + strlen($p->nama_produk) / 100;
             if ($score > $bestScore) { $bestScore = $score; $best = $p; }
@@ -715,7 +731,7 @@ class KirimanImportService
 
     private function tokenize(string $name): array
     {
-        $parts = preg_split('/[^a-z0-9+.\-\/\(\)]+/i', $name);
+        $parts = preg_split('/[^a-z0-9+.\-\/]+/i', $name);
         $parts = array_filter($parts, fn ($w) => strlen($w) >= 2);
         return array_values(array_map('strtolower', $parts));
     }
