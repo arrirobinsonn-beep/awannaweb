@@ -691,17 +691,19 @@ class KirimanImportService
 
     private function matchProduct(string $excelName, Collection $products): ?Product
     {
-        $excelName = strtolower(trim($excelName));
+        $excelNorm = $this->normalizeName($excelName);
 
-        $exact = $products->first(fn ($p) => strtolower(trim($p->nama_produk)) === $excelName);
+        // 1. Exact match (nama sudah dinormalisasi)
+        $exact = $products->first(fn ($p) => $this->normalizeName($p->nama_produk) === $excelNorm);
         if ($exact) return $exact;
 
+        // 2. Contains — nama produk di DB terkandung dalam nama excel (yang terpanjang)
         $bestContains = null;
         $bestLen = 0;
         foreach ($products as $p) {
-            $dbName = strtolower(trim($p->nama_produk));
-            if ($dbName !== '' && str_contains($excelName, $dbName)) {
-                $len = strlen($dbName);
+            $dbNorm = $this->normalizeName($p->nama_produk);
+            if ($dbNorm !== '' && str_contains($excelNorm, $dbNorm)) {
+                $len = strlen($dbNorm);
                 if ($len > $bestLen) {
                     $bestLen = $len;
                     $bestContains = $p;
@@ -710,23 +712,33 @@ class KirimanImportService
         }
         if ($bestContains) return $bestContains;
 
-        $excelWords = $this->tokenize($excelName);
+        // 3. Token match — semua token produk di DB harus ada di nama excel,
+        //    nilai terbaik dipilih dari rasio kecocokan + panjang nama.
+        $excelWords = $this->tokenize($excelNorm);
         if (empty($excelWords)) return null;
 
         $bestScore = 0;
         $best = null;
         foreach ($products as $p) {
-            $dbWords = $this->tokenize(strtolower(trim($p->nama_produk)));
+            $dbWords = $this->tokenize($this->normalizeName($p->nama_produk));
+            if (empty($dbWords)) continue;
+
             $common = array_intersect($excelWords, $dbWords);
-            if (empty($common)) continue;
+            if (empty($common) || count($common) < count($dbWords)) continue;
 
-            $minCount = min(count($excelWords), count($dbWords));
-            if (count($common) < $minCount) continue;
-
-            $score = count($common) + strlen($p->nama_produk) / 100;
+            $ratio = count($common) / max(count($excelWords), count($dbWords));
+            $score = $ratio + strlen($p->nama_produk) / 100;
             if ($score > $bestScore) { $bestScore = $score; $best = $p; }
         }
         return $best;
+    }
+
+    private function normalizeName(string $name): string
+    {
+        $name = strtolower(trim($name));
+        $name = str_replace(['+', '(', ')', ',', '  '], ' ', $name);
+        $name = preg_replace('/\s+/', ' ', $name);
+        return trim($name);
     }
 
     private function tokenize(string $name): array

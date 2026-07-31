@@ -130,7 +130,7 @@ class RegionalController extends Controller
         // ─── Alarm: bandingkan dengan Spending Harian ────────
         $spendingTotals = SpendingHarian::where('user_id', $targetUserId)
             ->whereBetween('tanggal', [$dari, $sampai])
-            ->selectRaw('tanggal, COALESCE(SUM(lead), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
+            ->selectRaw('tanggal, COALESCE(SUM(`lead`), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
             ->groupBy('tanggal')
             ->get()
             ->keyBy('tanggal')

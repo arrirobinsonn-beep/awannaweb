@@ -5,21 +5,26 @@
 @push('styles')
 
 <style>
+    /* ── Scroll wrapper ──────────────────────────── */
+    .reg-scroll-wrap {
+        position: relative;
+        overflow-x: auto;
+        max-height: 75vh;
+        overflow-y: auto;
+    }
+
     /* ── Sticky columns ─────────────────────────── */
     .reg-sticky-left {
         position: sticky !important;
         left: 0;
         z-index: 4;
+        background: #fff;
         background-clip: padding-box;
     }
-    thead .reg-sticky-left {
-        z-index: 6;
-        top: 0; /* sticky vertikal di header row 1 */
-    }
-    thead tr:nth-child(2) .reg-sticky-left {
-        top: 38px; /* sticky vertikal di header row 2 */
-    }
+    thead .reg-sticky-left { z-index: 6; top: 0; }
+    thead tr:nth-child(2) .reg-sticky-left { top: var(--reg-head2, 38px); }
     tbody .reg-sticky-left { z-index: 2; }
+    tbody tr:hover .reg-sticky-left { background: #f8fafc; }
 
     .reg-sticky-right {
         position: sticky !important;
@@ -27,14 +32,13 @@
         z-index: 5;
         background-clip: padding-box;
     }
-    thead .reg-sticky-right {
-        z-index: 6;
-        top: 0; /* sticky vertikal di header row 1 */
-    }
-    thead tr:nth-child(2) .reg-sticky-right {
-        top: 38px; /* sticky vertikal di header row 2 */
-    }
+    thead .reg-sticky-right { z-index: 6; top: 0; }
+    thead tr:nth-child(2) .reg-sticky-right { top: var(--reg-head2, 38px); }
     tbody .reg-sticky-right { z-index: 3; }
+
+    /* ── Sticky header rows ─────────────────────── */
+    thead .reg-head-row { position: sticky; top: 0; z-index: 7; }
+    thead .reg-head-row-2 { top: var(--reg-head2, 38px); }
 
     /* Bayangan pseudo-element */
     .reg-sticky-left::after {
@@ -286,9 +290,10 @@
 
     {{-- ─── Tabel Utama ─────────────────────────────── --}}
     <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
-        <div style="overflow-x:auto;max-height:75vh;overflow-y:auto;position:relative;">                <table style="border-collapse:collapse;width:100%;font-size:.78rem;white-space:nowrap;">
+        <div class="reg-scroll-wrap">
+            <table style="border-collapse:collapse;width:100%;font-size:.78rem;white-space:nowrap;">
                 <thead>
-                    <tr style="position:sticky;top:0;z-index:3;">
+                    <tr class="reg-head-row">
                         <th colspan="1" class="reg-sticky-left" style="background:#4472C4;color:#fff;padding:8px 14px;text-align:left;font-weight:700;font-size:.8rem;min-width:200px;border:1px solid rgba(255,255,255,.15);">
                             PROVINSI
                         </th>
@@ -305,7 +310,7 @@
                             📊 TOTAL
                         </th>
                     </tr>
-                    <tr style="position:sticky;top:38px;z-index:3;">
+                    <tr class="reg-head-row reg-head-row-2">
                         <th class="reg-sticky-left" style="background:#5B9BD5;color:#fff;padding:6px 14px;text-align:left;font-weight:600;font-size:.72rem;border:1px solid rgba(255,255,255,.15);">
                             {{ count($masterProvinces) }} Provinsi
                         </th>
@@ -329,7 +334,7 @@
                     <tr style="transition:background .12s;"
                         onmouseenter="this.style.background='#f8fafc'"
                         onmouseleave="this.style.background=''">
-                        <td class="reg-sticky-left" style="background:#fff;padding:6px 14px;font-weight:600;font-size:.78rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);white-space:nowrap;">
+                        <td class="reg-sticky-left" style="padding:6px 14px;font-weight:600;font-size:.78rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);white-space:nowrap;">
                             {{ $province }}
                         </td>
                         @foreach($allDates as $dateIndex => $date)
@@ -1152,6 +1157,26 @@
         });
     });
 
+})();
+
+// ── Sticky header offset: ukur tinggi header row 1 supaya header row 2
+//    tetap menempel rapi tanpa celah/susun saat scroll vertikal. ──
+(function fixRegStickyHead() {
+    function apply() {
+        var wrap = document.querySelector('.reg-scroll-wrap');
+        if (!wrap) return;
+        var rows = wrap.querySelectorAll('thead tr');
+        if (rows.length < 2) return;
+        var h1 = rows[0].getBoundingClientRect().height;
+        wrap.style.setProperty('--reg-head2', h1 + 'px');
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', apply);
+    } else {
+        apply();
+    }
+    window.addEventListener('load', apply);
+    window.addEventListener('resize', apply);
 })();
 
 </script>

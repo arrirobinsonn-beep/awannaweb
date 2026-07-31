@@ -9,6 +9,8 @@ class PembelianBarang extends Model
 {
     protected $fillable = [
         'tanggal',
+        'supplier',
+        'supplier_id',
         'sumber_produk',
         'product_id',
         'qty',

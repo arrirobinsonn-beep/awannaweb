@@ -10,7 +10,7 @@
           style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
         <div>
             <label style="display:block;font-size:.75rem;font-weight:600;margin-bottom:4px;color:#374151;">Bulan</label>
-            <input type="month" name="bulan" value="{{ request('bulan') }}"
+            <input type="month" name="bulan" value="{{ $bulan }}"
                    class="clay-input" style="padding:6px 10px;">
         </div>
         <button type="submit" class="clay-btn clay-btn-primary">Filter</button>
@@ -35,6 +35,20 @@
          </button>
          @endrole
      </form>
+
+     @if(count($availableMonths) > 1)
+     <div style="margin-top:10px;padding:8px 12px;background:#eff6ff;border-radius:8px;font-size:.75rem;color:#1e40af;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+         <span><strong>🗓️ Data tersedia di bulan:</strong></span>
+         @foreach($availableMonths as $m)
+         <a href="{{ route('gudang.kiriman', ['bulan' => $m]) }}"
+            style="display:inline-block;padding:2px 10px;border-radius:6px;font-weight:700;text-decoration:none;
+            {{ $m === $bulan ? 'background:#1e40af;color:#fff;' : 'background:#dbeafe;color:#1e40af;' }}">{{ $m }}</a>
+         @endforeach
+         @if(count($availableMonths) === 1)
+         <span style="color:#6b7280;font-size:.7rem;">(bulan yang dipilih sudah yang punya data)</span>
+         @endif
+     </div>
+     @endif
  </div>
 
 {{-- ─── Panel Atur Dashboard ─────────────────────────────────────────────── --}}
@@ -348,10 +362,16 @@ function showPreview(res) {
     statsHtml += '<div class="stat-card" style="background:#f3e8ff;color:#6b21a8;">📦 Total: ' + numberFormat(totalPcs) + ' pcs — Rp ' + numberFormat(totalNilai) + '</div>';
     document.getElementById('preview-stats').innerHTML = statsHtml;
 
-    // Errors
+    // Errors (batasi jumlah baris yang dirender agar tidak membebani browser)
     var errorDiv = document.getElementById('preview-errors');
     if (errors.length) {
-        errorDiv.innerHTML = '<strong>⚠️ ' + errors.length + ' baris dilewati:</strong>\n' + errors.join('\n');
+        var maxShown = 30;
+        var shown = errors.slice(0, maxShown);
+        var extra = errors.length - shown.length;
+        var errText = '<strong>⚠️ ' + errors.length + ' baris tidak valid (produk tidak ditemukan di tabel produk) dan tidak akan diimport:</strong>\n'
+            + shown.join('\n')
+            + (extra > 0 ? '\n… dan ' + extra + ' baris lainnya.' : '');
+        errorDiv.innerHTML = errText;
         errorDiv.style.display = 'block';
     } else {
         errorDiv.style.display = 'none';

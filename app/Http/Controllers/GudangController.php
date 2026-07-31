@@ -94,6 +94,7 @@ class GudangController extends Controller
     {
         $data = $request->validate([
             'tanggal' => 'required|date',
+            'supplier_id' => 'nullable|exists:suppliers,id',
             'sumber_produk' => 'nullable|string|max:255',
             'product_id' => 'nullable|exists:products,id',
             'qty' => 'required|integer|min:0',
@@ -103,6 +104,7 @@ class GudangController extends Controller
             'keterangan' => 'required|in:MASUK STOK,BARU PESAN',
         ]);
 
+        $data['supplier'] = $this->resolveSupplierName($data['supplier_id'] ?? null);
         $data['harga_satuan'] ??= 0;
         if ($data['harga_satuan'] == 0 && ($data['total_belanja'] ?? 0) > 0 && $data['qty'] > 0) {
             $data['harga_satuan'] = round($data['total_belanja'] / $data['qty'], 2);
@@ -127,6 +129,7 @@ class GudangController extends Controller
     {
         $data = $request->validate([
             'tanggal' => 'required|date',
+            'supplier_id' => 'nullable|exists:suppliers,id',
             'sumber_produk' => 'nullable|string|max:255',
             'product_id' => 'nullable|exists:products,id',
             'qty' => 'required|integer|min:0',
@@ -136,6 +139,7 @@ class GudangController extends Controller
             'keterangan' => 'required|in:MASUK STOK,BARU PESAN',
         ]);
 
+        $data['supplier'] = $this->resolveSupplierName($data['supplier_id'] ?? null);
         $data['harga_satuan'] ??= 0;
         if ($data['harga_satuan'] == 0 && ($data['total_belanja'] ?? 0) > 0 && $data['qty'] > 0) {
             $data['harga_satuan'] = round($data['total_belanja'] / $data['qty'], 2);
@@ -153,6 +157,11 @@ class GudangController extends Controller
         $pembelian->delete();
 
         return redirect()->route('gudang.pembelian')->with('success', 'Data pembelian berhasil dihapus.');
+    }
+
+    private function resolveSupplierName(mixed $supplierId): string
+    {
+        return $supplierId ? (Supplier::find($supplierId)?->nama_supplier ?? '') : '';
     }
 
     // ─── Helper: HPP Weighted Average ─────────────────────────────
@@ -245,7 +254,16 @@ class GudangController extends Controller
 
     public function kiriman(Request $request): View
     {
-        $bulan = $request->filled('bulan') ? $request->bulan : date('Y-m');
+        // Bulan-bulan yang memiliki data kiriman (paling baru dulu)
+        $availableMonths = KirimanActual::selectRaw('DISTINCT YEAR(tanggal) y, MONTH(tanggal) m')
+            ->orderByDesc('y')
+            ->orderByDesc('m')
+            ->get()
+            ->map(fn ($r) => sprintf('%04d-%02d', $r->y, $r->m))
+            ->values();
+
+        // Default ke bulan paling baru yang punya data agar data tidak "hilang"
+        $bulan = $request->filled('bulan') ? $request->bulan : ($availableMonths->first() ?? date('Y-m'));
         $year = substr($bulan, 0, 4);
         $month = substr($bulan, 5, 2);
         $dashboards = $this->getDashboards();
@@ -330,7 +348,7 @@ class GudangController extends Controller
         $allDashboards = Dashboard::orderBy('name')->get();
         $products = Product::orderBy('nama_produk')->get();
 
-        return view('gudang.kiriman', compact('recapByDashboard', 'grandTotalResi', 'grandTotalBarang', 'grandTotalValue', 'bulan', 'allDashboards', 'selectedDashboard', 'dashboards', 'products'));
+        return view('gudang.kiriman', compact('recapByDashboard', 'grandTotalResi', 'grandTotalBarang', 'grandTotalValue', 'bulan', 'allDashboards', 'selectedDashboard', 'dashboards', 'products', 'availableMonths'));
     }
 
     public function kirimanStore(Request $request): RedirectResponse
@@ -518,6 +536,11 @@ class GudangController extends Controller
             $importService = app(KirimanImportService::class);
             $result = $importService->parseExcel($request->file('file')->getPathname());
 
+            // Hanya tampilkan baris yang produknya cocok dengan produk aktif
+            $result['data'] = array_values(array_filter($result['data'], fn ($r) => ! empty($r['product_id'])));
+            $result['total'] = count($result['data']);
+            $result['groups'] = $importService->groupData($result['data']);
+
             if ($request->filled('tanggal')) {
                 $tgl = $request->input('tanggal');
                 foreach ($result['data'] as &$row) {
@@ -600,15 +623,27 @@ class GudangController extends Controller
             }
 
             $filteredData = array_values(array_filter($result['data'], fn ($r) => empty($existingAwbs[$r['awb']])));
-            $skipped = count($result['data']) - count($filteredData);
+            $skippedExisting = count($result['data']) - count($filteredData);
+
+            // ─── Baris tanpa produk yang cocok tidak diinsert ────────
+            $noProductCount = 0;
+            $filteredData = array_values(array_filter($filteredData, function ($r) use (&$noProductCount) {
+                if (empty($r['product_id'])) {
+                    $noProductCount++;
+                    return false;
+                }
+                return true;
+            }));
 
             if (empty($filteredData)) {
+                $msg = 'Tidak ada data valid untuk diimport.';
+                if ($skippedExisting > 0) $msg .= ' '.$skippedExisting.' AWB sudah ada.';
+                if ($noProductCount > 0) $msg .= ' '.$noProductCount.' baris dilewati (produk tidak cocok).';
+                if ($errorCount > 0) $msg .= ' '.$errorCount.' baris dilewati (produk tidak ditemukan).';
                 return response()->json([
-                    'success' => true,
-                    'imported' => 0,
-                    'skipped' => $skipped,
-                    'message' => 'Semua data sudah ada ('.$skipped.' AWB skipped).',
-                ]);
+                    'success' => false,
+                    'message' => $msg,
+                ], 422);
             }
 
             $regrouped = app(\App\Services\KirimanImportService::class)->groupData($filteredData);
@@ -691,13 +726,14 @@ class GudangController extends Controller
             });
 
             $msg = 'Berhasil import '.count($filteredData).' data kiriman.';
-            if ($skipped > 0) $msg .= ' '.$skipped.' AWB skipped (already exist).';
+            if ($skippedExisting > 0) $msg .= ' '.$skippedExisting.' AWB skipped (sudah ada).';
+            if ($noProductCount > 0) $msg .= ' '.$noProductCount.' baris dilewati (produk tidak cocok).';
             if ($errorCount > 0) $msg .= ' '.$errorCount.' baris dilewati (produk tidak ditemukan).';
 
             return response()->json([
                 'success' => true,
                 'imported' => count($filteredData),
-                'skipped' => $skipped + $errorCount,
+                'skipped' => $skippedExisting + $errorCount + $noProductCount,
                 'message' => $msg,
             ]);
         } catch (\Exception $e) {

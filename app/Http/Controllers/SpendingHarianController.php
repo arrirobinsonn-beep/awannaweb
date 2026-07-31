@@ -49,7 +49,7 @@ class SpendingHarianController extends Controller
         // Total regional per tanggal
         $regionalTotals = RegionalReport::where('user_id', $userId)
             ->whereBetween('tanggal', [$dari, $sampai])
-            ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(lead),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('tgl')
             ->get()
             ->keyBy('tgl');
@@ -57,7 +57,7 @@ class SpendingHarianController extends Controller
         // Total spending per tanggal
         $spendingTotals = SpendingHarian::where('user_id', $userId)
             ->whereBetween('tanggal', [$dari, $sampai])
-            ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(lead),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('tgl')
             ->get()
             ->keyBy('tgl');
@@ -158,7 +158,7 @@ class SpendingHarianController extends Controller
             // Ambil total spending per tanggal untuk CS team
             $csTotals = SpendingHarian::whereIn('user_id', $csTeamIds)
                 ->whereBetween('tanggal', [$dari, $sampai])
-                ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(lead),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+                ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
                 ->groupBy('tgl')
                 ->get()
                 ->keyBy('tgl');
@@ -166,7 +166,7 @@ class SpendingHarianController extends Controller
             // Bandingkan dengan data advertiser per tanggal
             $advTotals = SpendingHarian::where('user_id', $user->id)
                 ->whereBetween('tanggal', [$dari, $sampai])
-                ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(lead),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+                ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
                 ->groupBy('tgl')
                 ->get()
                 ->keyBy('tgl');
@@ -240,14 +240,14 @@ class SpendingHarianController extends Controller
 
         $regionalTotals = RegionalReport::whereIn('user_id', $advIds)
             ->whereBetween('tanggal', [$dari, $sampai])
-            ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(lead),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('user_id', 'tgl')
             ->get()
             ->groupBy('user_id');
 
         $spendingTotals = SpendingHarian::whereIn('user_id', $advIds)
             ->whereBetween('tanggal', [$dari, $sampai])
-            ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(lead),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('user_id', 'tgl')
             ->get()
             ->groupBy('user_id');

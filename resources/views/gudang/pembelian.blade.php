@@ -62,8 +62,20 @@
                 <input type="date" name="tanggal" required class="clay-input" value="{{ date('Y-m-d') }}">
             </div>
             <div>
+                <label class="field-label">SUPPLIER</label>
+                <select name="supplier_id" id="supplier_id" class="clay-input">
+                    <option value="">— Pilih Supplier —</option>
+                    @foreach($suppliers as $sup)
+                    <option value="{{ $sup->id }}">{{ $sup->nama_supplier }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div>
                 <label class="field-label">SUMBER PRODUK</label>
-                <input type="text" name="sumber_produk" class="clay-input" placeholder="SHOPEE, TOKOPEDIA, dll">
+                <select name="sumber_produk" class="clay-input">
+                    <option value="ONLINE">ONLINE</option>
+                    <option value="OFFLINE">OFFLINE</option>
+                </select>
             </div>
             <div>
                 <label class="field-label">QTY</label>
@@ -116,6 +128,7 @@
         <thead>
             <tr>
                 <th>TANGGAL</th>
+                <th>SUPPLIER</th>
                 <th>SUMBER PRODUK</th>
                 <th>QTY</th>
                 <th>HARGA SATUAN</th>
@@ -132,6 +145,7 @@
             @foreach($produk->pembelianBarangs as $item)
             <tr>
                 <td>{{ $item->tanggal ? $item->tanggal->format('d/m/Y') : '-' }}</td>
+                <td>{{ $item->supplier ?? '-' }}</td>
                 <td>{{ $item->sumber_produk ?? '-' }}</td>
                 <td class="text-right">{{ number_format($item->qty,0,',','.') }}</td>
                 <td class="text-right">{{ number_format($item->harga_satuan,2,',','.') }}</td>

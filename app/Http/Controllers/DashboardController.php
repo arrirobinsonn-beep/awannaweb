@@ -54,14 +54,14 @@ class DashboardController extends Controller
         // Kolom baru: spending, lead, paid
         $spendingHariIni = SpendingHarian::whereDate('tanggal', $today)
             ->selectRaw('SUM(spending) as total_spending,
-                         SUM(lead) as total_lead,
+                         SUM(`lead`) as total_lead,
                          SUM(paid) as total_paid')
             ->first();
 
         $spendingBulanIni = SpendingHarian::whereYear('tanggal', now()->year)
             ->whereMonth('tanggal', now()->month)
             ->selectRaw('SUM(spending) as total_spending,
-                         SUM(lead) as total_lead,
+                         SUM(`lead`) as total_lead,
                          SUM(paid) as total_paid')
             ->first();
 
@@ -75,14 +75,14 @@ class DashboardController extends Controller
             ->whereYear('tanggal', now()->year)->whereMonth('tanggal', now()->month)
             ->selectRaw('user_id,
                          SUM(spending) as total_spending,
-                         SUM(lead) as total_lead,
+                         SUM(`lead`) as total_lead,
                          SUM(paid) as total_paid')
             ->groupBy('user_id')->orderByDesc('total_spending')->limit(5)->get();
 
         // Spending per whitelist (pengganti per-platform)
         $spendingPerWhitelist = SpendingHarian::with('whitelist')
             ->whereYear('tanggal', now()->year)->whereMonth('tanggal', now()->month)
-            ->selectRaw('whitelist_id, SUM(spending) as total_spending, SUM(lead) as total_lead, SUM(paid) as total_paid')
+            ->selectRaw('whitelist_id, SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
             ->groupBy('whitelist_id')->orderByDesc('total_spending')->limit(6)->get();
 
         return view('dashboard.general', compact(
@@ -99,12 +99,12 @@ class DashboardController extends Controller
         $base = SpendingHarian::where('user_id', $user->id);
 
         $spendingHariIni = (clone $base)->whereDate('tanggal', $today)
-            ->selectRaw('SUM(spending) as total_spending, SUM(lead) as total_lead, SUM(paid) as total_paid')
+            ->selectRaw('SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
             ->first();
 
         $spendingBulanIni = (clone $base)->whereYear('tanggal', now()->year)
             ->whereMonth('tanggal', now()->month)
-            ->selectRaw('SUM(spending) as total_spending, SUM(lead) as total_lead, SUM(paid) as total_paid')
+            ->selectRaw('SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
             ->first();
 
         $chartSpending = (clone $base)
@@ -308,7 +308,7 @@ class DashboardController extends Controller
                 ->where('cs_panggilan', $namaCs)
                 ->whereYear('tanggal', now()->year)
                 ->whereMonth('tanggal', now()->month)
-                ->selectRaw('COALESCE(SUM(lead),0) as total_lead,
+                ->selectRaw('COALESCE(SUM(`lead`),0) as total_lead,
                              COALESCE(SUM(paid),0) as total_paid')
                 ->first();
             if ($s) $csStats = $s;
@@ -431,22 +431,22 @@ private function getCsStatusCounts(string $namaCs): array
     {
         $bulanIni = SpendingHarian::whereYear('tanggal', now()->year)
             ->whereMonth('tanggal', now()->month)
-            ->selectRaw('SUM(spending) as total_spending, SUM(lead) as total_lead, SUM(paid) as total_paid')
+            ->selectRaw('SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
             ->first();
 
         $bulanLalu = SpendingHarian::whereYear('tanggal', now()->subMonth()->year)
             ->whereMonth('tanggal', now()->subMonth()->month)
-            ->selectRaw('SUM(spending) as total_spending, SUM(lead) as total_lead, SUM(paid) as total_paid')
+            ->selectRaw('SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
             ->first();
 
         $topAdvertiser = SpendingHarian::with('user')
             ->whereYear('tanggal', now()->year)->whereMonth('tanggal', now()->month)
-            ->selectRaw('user_id, SUM(spending) as total_spending, SUM(lead) as total_lead, SUM(paid) as total_paid')
+            ->selectRaw('user_id, SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
             ->groupBy('user_id')->orderByDesc('total_spending')->limit(5)->get();
 
         $spendingPerWhitelist = SpendingHarian::with('whitelist')
             ->whereYear('tanggal', now()->year)->whereMonth('tanggal', now()->month)
-            ->selectRaw('whitelist_id, SUM(spending) as total_spending, SUM(lead) as total_lead, SUM(paid) as total_paid')
+            ->selectRaw('whitelist_id, SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
             ->groupBy('whitelist_id')->orderByDesc('total_spending')->limit(6)->get();
 
         return view('dashboard.keuangan', compact(
