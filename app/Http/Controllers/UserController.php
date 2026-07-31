@@ -69,11 +69,9 @@ class UserController extends Controller
             ->with('success', "Akun untuk {$data['email']} berhasil dibuat. User harus melengkapi profil saat login pertama.");
     }
 
-    public function show(User $user): View
+    public function show(User $user): RedirectResponse
     {
-        $user->load('roles', 'spendingHarians');
-
-        return view('user.show', compact('user'));
+        return redirect()->route('user.edit', $user);
     }
 
     public function edit(User $user): View

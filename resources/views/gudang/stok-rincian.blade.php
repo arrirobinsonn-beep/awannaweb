@@ -170,15 +170,19 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @php $m = $movementsByDate->first(); @endphp
+                        @php
+                            $m = $movementsByDate->first();
+                            $mLast = $movementsByDate->last();
+                            $daySum = fn ($f) => $movementsByDate->sum($f);
+                        @endphp
                         <tr>
                             <td class="text-right" style="padding:4px 8px;font-size:.65rem;color:#6b7280;white-space:nowrap;">{{ number_format($m->stock_awal_hari) }}</td>
-                            <td class="text-right" style="padding:4px 8px;">{{ $m->masuk_belanja > 0 ? '+'.number_format($m->masuk_belanja) : '-' }}</td>
-                            <td class="text-right" style="padding:4px 8px;">{{ $m->masuk_rts > 0 ? '+'.number_format($m->masuk_rts) : '-' }}</td>
-                            <td class="text-right" style="padding:4px 8px;">{{ $m->masuk_repair > 0 ? '+'.number_format($m->masuk_repair) : '-' }}</td>
-                            <td class="text-right" style="padding:4px 8px;{{ $m->barang_rusak > 0 ? 'color:#dc2626;' : '' }}">{{ $m->barang_rusak > 0 ? '-'.number_format($m->barang_rusak) : '-' }}</td>
-                            <td class="text-right" style="padding:4px 8px;{{ $m->barang_keluar > 0 ? 'color:#dc2626;' : '' }}">{{ $m->barang_keluar > 0 ? '-'.number_format($m->barang_keluar) : '-' }}</td>
-                            <td class="text-right" style="padding:4px 8px;font-weight:700;">{{ number_format($m->stock_akhir_hari) }}</td>
+                            <td class="text-right" style="padding:4px 8px;">{{ $daySum('masuk_belanja') > 0 ? '+'.number_format($daySum('masuk_belanja')) : '-' }}</td>
+                            <td class="text-right" style="padding:4px 8px;">{{ $daySum('masuk_rts') > 0 ? '+'.number_format($daySum('masuk_rts')) : '-' }}</td>
+                            <td class="text-right" style="padding:4px 8px;">{{ $daySum('masuk_repair') > 0 ? '+'.number_format($daySum('masuk_repair')) : '-' }}</td>
+                            <td class="text-right" style="padding:4px 8px;{{ $daySum('barang_rusak') > 0 ? 'color:#dc2626;' : '' }}">{{ $daySum('barang_rusak') > 0 ? '-'.number_format($daySum('barang_rusak')) : '-' }}</td>
+                            <td class="text-right" style="padding:4px 8px;{{ $daySum('barang_keluar') > 0 ? 'color:#dc2626;' : '' }}">{{ $daySum('barang_keluar') > 0 ? '-'.number_format($daySum('barang_keluar')) : '-' }}</td>
+                            <td class="text-right" style="padding:4px 8px;font-weight:700;">{{ number_format($mLast->stock_akhir_hari) }}</td>
                             <td style="padding:4px 8px;font-size:.6rem;color:#6b7280;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ $m->catatan ?? '-' }}</td>
                             <td style="padding:4px 8px;">
                                 <a href="{{ route('gudang.stok-rincian.edit',$m) }}" class="clay-btn clay-btn-xs clay-btn-outline" style="font-size:.55rem;padding:1px 5px;">Edit</a>

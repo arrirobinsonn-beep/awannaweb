@@ -334,14 +334,17 @@ class DashboardController extends Controller
             ->orderByDesc('id')
             ->paginate(50)
             ->through(function ($pt) {
-                $phone = $pt->no_telp;
-                $phone = preg_replace('/[^0-9]/', '', $phone);
-                if (substr($phone, 0, 1) === '0') {
-                    $phone = '62' . substr($phone, 1);
-                } elseif (substr($phone, 0, 2) !== '62') {
-                    $phone = '62' . $phone;
+                $phone = preg_replace('/[^0-9]/', '', (string) $pt->no_telp);
+                if ($phone !== '') {
+                    if (substr($phone, 0, 1) === '0') {
+                        $phone = '62' . substr($phone, 1);
+                    } elseif (substr($phone, 0, 2) !== '62') {
+                        $phone = '62' . $phone;
+                    }
+                    $pt->wa_link = 'https://wa.me/' . $phone;
+                } else {
+                    $pt->wa_link = null;
                 }
-                $pt->wa_link = 'https://wa.me/' . $phone;
                 return $pt;
             });
 

@@ -17,12 +17,14 @@ class TopUpProposalItem extends Model
         'va_number',
         'payment_status',
         'paid_at',
+        'sisa_saldo_dilaporkan',
     ];
 
     protected $casts = [
         'nominal' => 'decimal:2',
         'payment_status' => 'string',
         'paid_at' => 'datetime',
+        'sisa_saldo_dilaporkan' => 'decimal:2',
     ];
 
     // ─── Relasi ────────────────────────────────────────────────

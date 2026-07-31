@@ -110,9 +110,36 @@ class GudangController extends Controller
         $data['total_belanja'] = $data['qty'] * $data['harga_satuan'];
         $data['ongkir'] ??= 0;
 
-        PembelianBarang::create($data);
+        $pembelian = PembelianBarang::create($data);
+        $this->applyPembelianStok($data['keterangan'], $data['qty'], $data['product_id'], $data['tanggal']);
 
         return redirect()->route('gudang.pembelian')->with('success', 'Data pembelian berhasil ditambahkan.');
+    }
+
+    private function applyPembelianStok(string $keterangan, int $qty, ?int $productId, string $tanggal): void
+    {
+        if ($keterangan !== 'MASUK STOK' || $qty === 0 || ! $productId) {
+            return;
+        }
+
+        $product = Product::find($productId);
+        $sm = StockMovement::firstOrNew([
+            'product_id' => $productId,
+            'gudang' => $product?->gudang?->nama ?? '',
+            'tanggal' => $tanggal,
+        ]);
+        if (! $sm->exists) {
+            $sm->masuk_belanja = 0;
+            $sm->masuk_rts = 0;
+            $sm->masuk_repair = 0;
+            $sm->barang_rusak = 0;
+            $sm->barang_keluar = 0;
+            $sm->catatan = 'Pembelian masuk stok';
+        }
+        $sm->masuk_belanja += $qty;
+        $sm->save();
+
+        Product::where('id', $productId)->increment('stok', $qty);
     }
 
     public function pembelianEdit(PembelianBarang $pembelian): View
@@ -143,13 +170,16 @@ class GudangController extends Controller
         $data['total_belanja'] = $data['qty'] * $data['harga_satuan'];
         $data['ongkir'] ??= 0;
 
+        $this->applyPembelianStok($pembelian->keterangan, -$pembelian->qty, $pembelian->product_id, $pembelian->tanggal->format('Y-m-d'));
         $pembelian->update($data);
+        $this->applyPembelianStok($data['keterangan'], $data['qty'], $data['product_id'], $data['tanggal']);
 
         return redirect()->route('gudang.pembelian')->with('success', 'Data pembelian berhasil diperbarui.');
     }
 
     public function pembelianDestroy(PembelianBarang $pembelian): RedirectResponse
     {
+        $this->applyPembelianStok($pembelian->keterangan, -$pembelian->qty, $pembelian->product_id, $pembelian->tanggal->format('Y-m-d'));
         $pembelian->delete();
 
         return redirect()->route('gudang.pembelian')->with('success', 'Data pembelian berhasil dihapus.');
@@ -379,23 +409,68 @@ class GudangController extends Controller
                         'product_id' => $prod['product_id'],
                         'jumlah' => $prod['jumlah'],
                     ]);
-
-                    $product = $products->get($prod['product_id']);
-                    StockMovement::create([
-                        'product_id' => $prod['product_id'],
-                        'gudang' => $product->gudang?->nama ?? '',
-                        'tanggal' => $data['tanggal'],
-                        'barang_keluar' => $prod['jumlah'],
-                        'catatan' => 'Kiriman '.$row['jenis'].' '.$row['dashboard'],
-                        'kiriman_actual_id' => $kiriman->id,
-                    ]);
-
-                    Product::where('id', $prod['product_id'])->decrement('stok', $prod['jumlah']);
                 }
+
+                $this->createKirimanStok($kiriman);
             }
         });
 
         return redirect()->route('gudang.kiriman')->with('success', 'Data kiriman berhasil ditambahkan.');
+    }
+
+    private function createKirimanStok(KirimanActual $kiriman): void
+    {
+        foreach ($kiriman->products as $kp) {
+            $product = $kp->product;
+            $sm = StockMovement::firstOrNew([
+                'product_id' => $kp->product_id,
+                'gudang' => $product?->gudang?->nama ?? '',
+                'tanggal' => $kiriman->tanggal->format('Y-m-d'),
+            ]);
+            $sm->barang_keluar = ($sm->barang_keluar ?? 0) + $kp->jumlah;
+            $newCatatan = 'Kiriman '.$kiriman->jenis.' '.$kiriman->dashboard;
+            if ($sm->exists && ! str_contains($sm->catatan ?? '', $newCatatan)) {
+                $sm->catatan = ($sm->catatan ?? '').'; '.$newCatatan;
+            } elseif (! $sm->exists) {
+                $sm->catatan = $newCatatan;
+                $sm->masuk_belanja = 0;
+                $sm->masuk_rts = 0;
+                $sm->masuk_repair = 0;
+                $sm->barang_rusak = 0;
+            }
+            $sm->save();
+
+            Product::where('id', $kp->product_id)->decrement('stok', $kp->jumlah);
+        }
+    }
+
+    private function reverseKirimanStok(KirimanActual $kiriman): void
+    {
+        $tanggal = $kiriman->tanggal->format('Y-m-d');
+
+        foreach ($kiriman->products as $kp) {
+            $rows = StockMovement::where('product_id', $kp->product_id)
+                ->whereDate('tanggal', $tanggal)
+                ->where('barang_keluar', '>', 0)
+                ->orderBy('id')
+                ->get();
+
+            $remaining = $kp->jumlah;
+            foreach ($rows as $row) {
+                if ($remaining <= 0) {
+                    break;
+                }
+                $take = min($remaining, $row->barang_keluar);
+                $row->barang_keluar -= $take;
+                $row->save();
+                $remaining -= $take;
+            }
+
+            $reversed = $kp->jumlah - $remaining;
+            if ($reversed > 0) {
+                Product::where('id', $kp->product_id)->increment('stok', $reversed);
+            }
+        }
     }
 
     public function kirimanEdit(KirimanActual $kiriman): View
@@ -422,11 +497,8 @@ class GudangController extends Controller
         ]);
 
         DB::transaction(function () use ($data, $kiriman) {
-            // Reverse old stock movements
-            foreach ($kiriman->stockMovements as $sm) {
-                Product::where('id', $sm->product_id)->increment('stok', $sm->barang_keluar);
-                $sm->delete();
-            }
+            // Reverse old stock movements (berlaku juga untuk movement hasil import Excel)
+            $this->reverseKirimanStok($kiriman);
 
             // Load products for pricing
             $allProductIds = collect($data['products'])->pluck('product_id')->unique()->values()->toArray();
@@ -455,19 +527,9 @@ class GudangController extends Controller
                     'product_id' => $prod['product_id'],
                     'jumlah' => $prod['jumlah'],
                 ]);
-
-                $product = $products->get($prod['product_id']);
-                StockMovement::create([
-                    'product_id' => $prod['product_id'],
-                    'gudang' => $product->gudang?->nama ?? '',
-                    'tanggal' => $data['tanggal'],
-                    'barang_keluar' => $prod['jumlah'],
-                    'catatan' => 'Kiriman '.$data['jenis'].' '.$data['dashboard'],
-                    'kiriman_actual_id' => $kiriman->id,
-                ]);
-
-                Product::where('id', $prod['product_id'])->decrement('stok', $prod['jumlah']);
             }
+
+            $this->createKirimanStok($kiriman);
         });
 
         return redirect()->route('gudang.kiriman')->with('success', 'Data kiriman berhasil diperbarui.');
@@ -476,11 +538,7 @@ class GudangController extends Controller
     public function kirimanDestroy(KirimanActual $kiriman): RedirectResponse
     {
         DB::transaction(function () use ($kiriman) {
-            foreach ($kiriman->stockMovements as $sm) {
-                Product::where('id', $sm->product_id)->increment('stok', $sm->barang_keluar);
-                $sm->delete();
-            }
-
+            $this->reverseKirimanStok($kiriman);
             $kiriman->delete();
         });
 
@@ -595,7 +653,7 @@ class GudangController extends Controller
             if (! empty($allAwbs)) {
                 $existingAwbs = \App\Models\PaketTracking::whereIn('awb', $allAwbs)
                     ->pluck('awb')
-                    ->map(fn ($v) => true)
+                    ->mapWithKeys(fn ($awb) => [$awb => true])
                     ->toArray();
             }
 
@@ -871,34 +929,24 @@ class GudangController extends Controller
                 return;
             }
 
-            $affectedKirimanIds = [];
             foreach ($movements as $m) {
                 $delta = -$this->movementDelta($m->toArray());
                 Product::where('id', $productId)->increment('stok', $delta);
-                if ($m->kiriman_actual_id) {
-                    $affectedKirimanIds[$m->kiriman_actual_id] = true;
-                }
                 $m->delete();
             }
 
-            $affectedKirimanIds = array_keys($affectedKirimanIds);
-
-            foreach ($affectedKirimanIds as $kirimanId) {
-                $kiriman = KirimanActual::find($kirimanId);
-                if (! $kiriman) continue;
-
-                $deleted = PaketTracking::where('kiriman_actual_id', $kirimanId)
+            $kirimanList = KirimanActual::where('tanggal', $tanggal)->get();
+            foreach ($kirimanList as $kiriman) {
+                $deleted = PaketTracking::where('kiriman_actual_id', $kiriman->id)
                     ->where('product_id', $productId)
-                    ->whereDate('created_at', '>=', $tanggal)
                     ->delete();
 
                 if ($deleted > 0) {
                     $kiriman->decrement('jumlah_resi', $deleted);
                 }
 
-                $remaining = PaketTracking::where('kiriman_actual_id', $kirimanId)->count();
+                $remaining = PaketTracking::where('kiriman_actual_id', $kiriman->id)->count();
                 if ($remaining === 0) {
-                    $kiriman->stockMovements()->delete();
                     $kiriman->products()->delete();
                     $kiriman->delete();
                 }
@@ -1055,27 +1103,22 @@ class GudangController extends Controller
         Product::where('id', $stockMovement->product_id)->increment('stok', $delta);
 
         $bulan = substr($stockMovement->tanggal->format('Y-m'), 0, 7);
-        $kirimanId = $stockMovement->kiriman_actual_id;
         $productId = $stockMovement->product_id;
         $tanggal = $stockMovement->tanggal->format('Y-m-d');
         $stockMovement->delete();
 
-        if ($kirimanId) {
-            $kiriman = KirimanActual::find($kirimanId);
-            if ($kiriman) {
-                $deleted = PaketTracking::where('kiriman_actual_id', $kirimanId)
-                    ->where('product_id', $productId)
-                    ->whereDate('created_at', '>=', $tanggal)
-                    ->delete();
-                if ($deleted > 0) {
-                    $kiriman->decrement('jumlah_resi', $deleted);
-                }
-                $remaining = PaketTracking::where('kiriman_actual_id', $kirimanId)->count();
-                if ($remaining === 0) {
-                    $kiriman->stockMovements()->delete();
-                    $kiriman->products()->delete();
-                    $kiriman->delete();
-                }
+        $kirimanList = KirimanActual::whereDate('tanggal', $tanggal)->get();
+        foreach ($kirimanList as $kiriman) {
+            $deleted = PaketTracking::where('kiriman_actual_id', $kiriman->id)
+                ->where('product_id', $productId)
+                ->delete();
+            if ($deleted > 0) {
+                $kiriman->decrement('jumlah_resi', $deleted);
+            }
+            $remaining = PaketTracking::where('kiriman_actual_id', $kiriman->id)->count();
+            if ($remaining === 0) {
+                $kiriman->products()->delete();
+                $kiriman->delete();
             }
         }
 

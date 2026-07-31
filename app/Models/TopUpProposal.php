@@ -25,6 +25,7 @@ class TopUpProposal extends Model
         'declined_at',
         'va_paid_at',
         'va_paid_by',
+        'completed_at',
     ];
 
     protected $casts = [

@@ -65,6 +65,8 @@ class WhitelistController extends Controller
             'tanggal' => ['required', 'date'],
             'status' => ['required', 'in:aktif,nonaktif'],
             'catatan' => ['nullable', 'string'],
+            'total_topup' => ['nullable', 'numeric', 'min:0'],
+            'nominal_terakhir_topup' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         // Nominal top up awal boleh diisi sekalian
