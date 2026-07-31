@@ -39,7 +39,7 @@ class GudangController extends Controller
     public function pembelian(Request $request): View
     {
         $produkQuery = Product::with('supplier')->with(['pembelianBarangs' => function ($q) use ($request) {
-            $q->with('supplierRel')->orderBy('tanggal');
+            $q->orderBy('tanggal');
             if ($request->filled('bulan')) {
                 $q->whereYear('tanggal', substr($request->bulan, 0, 4))
                     ->whereMonth('tanggal', substr($request->bulan, 5, 2));
@@ -94,7 +94,6 @@ class GudangController extends Controller
     {
         $data = $request->validate([
             'tanggal' => 'required|date',
-            'supplier_id' => 'nullable|exists:suppliers,id',
             'sumber_produk' => 'nullable|string|max:255',
             'product_id' => 'nullable|exists:products,id',
             'qty' => 'required|integer|min:0',
@@ -110,11 +109,6 @@ class GudangController extends Controller
         }
         $data['total_belanja'] = $data['qty'] * $data['harga_satuan'];
         $data['ongkir'] ??= 0;
-
-        if ($data['supplier_id']) {
-            $supplier = Supplier::find($data['supplier_id']);
-            $data['supplier'] = $supplier?->nama_supplier ?? '';
-        }
 
         PembelianBarang::create($data);
 
@@ -133,7 +127,6 @@ class GudangController extends Controller
     {
         $data = $request->validate([
             'tanggal' => 'required|date',
-            'supplier_id' => 'nullable|exists:suppliers,id',
             'sumber_produk' => 'nullable|string|max:255',
             'product_id' => 'nullable|exists:products,id',
             'qty' => 'required|integer|min:0',
@@ -149,11 +142,6 @@ class GudangController extends Controller
         }
         $data['total_belanja'] = $data['qty'] * $data['harga_satuan'];
         $data['ongkir'] ??= 0;
-
-        if ($data['supplier_id']) {
-            $supplier = Supplier::find($data['supplier_id']);
-            $data['supplier'] = $supplier?->nama_supplier ?? '';
-        }
 
         $pembelian->update($data);
 
@@ -567,7 +555,7 @@ class GudangController extends Controller
     public function kirimanExcelImport(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv', 'max:10240'],
+            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv'],
             'tanggal' => ['nullable', 'date'],
         ]);
 
@@ -585,18 +573,17 @@ class GudangController extends Controller
                 }
             }
 
-            if (! empty($result['errors'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Terdapat '.count($result['errors']).' error. Perbaiki dan upload ulang.',
-                    'errors' => $result['errors'],
-                ], 422);
+            $errorCount = count($result['errors']);
+            if ($errorCount > 0) {
+                \Illuminate\Support\Facades\Log::warning('[KirimanImport] '.$errorCount.' rows skipped (product not found)', $result['errors']);
             }
 
             if (empty($result['groups'])) {
+                $msg = 'Tidak ada data valid untuk diimport.';
+                if ($errorCount > 0) $msg .= ' '.$errorCount.' baris dilewati karena produk tidak ditemukan.';
                 return response()->json([
                     'success' => false,
-                    'message' => 'Tidak ada data valid untuk diimport.',
+                    'message' => $msg,
                 ], 422);
             }
 
@@ -705,11 +692,12 @@ class GudangController extends Controller
 
             $msg = 'Berhasil import '.count($filteredData).' data kiriman.';
             if ($skipped > 0) $msg .= ' '.$skipped.' AWB skipped (already exist).';
+            if ($errorCount > 0) $msg .= ' '.$errorCount.' baris dilewati (produk tidak ditemukan).';
 
             return response()->json([
                 'success' => true,
                 'imported' => count($filteredData),
-                'skipped' => $skipped,
+                'skipped' => $skipped + $errorCount,
                 'message' => $msg,
             ]);
         } catch (\Exception $e) {
