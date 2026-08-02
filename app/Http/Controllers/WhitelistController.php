@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
 use App\Models\Whitelist;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -43,14 +42,8 @@ class WhitelistController extends Controller
 
     public function create(): View
     {
-        // Daftar advertiser untuk pilihan pemilik
-        $advertisers = User::role('advertiser')
-            ->where('is_active', true)
-            ->get(['id', 'nama', 'panggilan', 'email']);
-
         return view('whitelist.form', [
             'whitelist' => new Whitelist,
-            'advertisers' => $advertisers,
             'mode' => 'create',
         ]);
     }
@@ -61,11 +54,13 @@ class WhitelistController extends Controller
             'nama' => ['required', 'string', 'max:150'],
             'kode' => ['required', 'string', 'max:50', 'unique:whitelists,kode'],
             'platform' => ['required', 'string', 'max:50'],
-            'user_id' => ['required', 'exists:users,id'],
             'tanggal' => ['required', 'date'],
             'status' => ['required', 'in:aktif,nonaktif'],
             'catatan' => ['nullable', 'string'],
         ]);
+
+        // Kepemilikan otomatis = advertiser yang sedang login
+        $data['user_id'] = auth()->id();
 
         // Nominal top up awal boleh diisi sekalian
         $data['total_topup'] = $request->input('total_topup', 0);
@@ -87,13 +82,8 @@ class WhitelistController extends Controller
 
     public function edit(Whitelist $whitelist): View
     {
-        $advertisers = User::role('advertiser')
-            ->where('is_active', true)
-            ->get(['id', 'nama', 'panggilan', 'email']);
-
         return view('whitelist.form', [
             'whitelist' => $whitelist,
-            'advertisers' => $advertisers,
             'mode' => 'edit',
         ]);
     }
@@ -104,13 +94,14 @@ class WhitelistController extends Controller
             'nama' => ['required', 'string', 'max:150'],
             'kode' => ['required', 'string', 'max:50', 'unique:whitelists,kode,'.$whitelist->id],
             'platform' => ['required', 'string', 'max:50'],
-            'user_id' => ['required', 'exists:users,id'],
             'tanggal' => ['required', 'date'],
             'status' => ['required', 'in:aktif,nonaktif'],
             'total_topup' => ['nullable', 'numeric', 'min:0'],
             'nominal_terakhir_topup' => ['nullable', 'numeric', 'min:0'],
             'catatan' => ['nullable', 'string'],
         ]);
+
+        // user_id tidak ikut diubah — kepemilikan tetap milik pemilik awal
 
         $whitelist->update($data);
 
