@@ -64,11 +64,11 @@
                     </select>
                 </div>
 
-                {{-- Advertiser assignment (hanya untuk role CS) --}}
+                {{-- CS Utama assignment (hanya untuk role CS) --}}
                 <div id="advertiser-field" style="display:none;">
                     <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;color:#374151;">
-                        👤 Tugaskan ke Advertiser
-                        <span style="font-size:.72rem;font-weight:400;color:#9ca3af;">(pilih tuan untuk CS ini)</span>
+                        ⭐ CS Utama untuk
+                        <span style="font-size:.72rem;font-weight:400;color:#9ca3af;">(pilih advertiser yang menjadikan CS ini sebagai CS utama)</span>
                     </label>
                     <select name="advertiser_id" class="clay-input">
                         <option value="">— Pilih Advertiser —</option>
@@ -80,7 +80,7 @@
                     </select>
                     @if($user->hasRole('cs') && $user->advertiser)
                     <div style="margin-top:8px;padding:8px 12px;border-radius:10px;background:#F0FFFE;border:1.5px solid rgba(78,205,196,.3);font-size:.78rem;color:#065f46;">
-                        🏠 Saat ini ditugaskan ke <strong>{{ $user->advertiser->display_name }}</strong>
+                        ⭐ Saat ini CS utama untuk <strong>{{ $user->advertiser->display_name }}</strong>
                     </div>
                     @endif
                 </div>

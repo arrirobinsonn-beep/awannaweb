@@ -78,13 +78,20 @@
         <span>🚨</span>
         <div style="flex:1;font-size:.78rem;">
             <strong>Ketidaksesuaian Data!</strong> Lead/Paid Regional tidak sama dengan Spending Harian.
-            @foreach($data['discrepancies'] as $tgl => $d)
-            <div style="margin-top:3px;font-size:.74rem;">
-                📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
-                Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
-                Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+            @if(count($data['discrepancies']) > 5)
+            <div style="margin-top:5px;font-size:.68rem;color:#b91c1c;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($data['discrepancies']) }} tanggal — scroll untuk melihat sisanya
             </div>
-            @endforeach
+            @endif
+            <div style="margin-top:3px;max-height:102px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach($data['discrepancies'] as $tgl => $d)
+                <div style="margin-top:3px;font-size:.74rem;line-height:1.45;">
+                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                    Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                    Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+                </div>
+                @endforeach
+            </div>
         </div>
     </div>
     @endif

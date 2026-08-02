@@ -37,14 +37,19 @@ class TeamController extends Controller
         // Hanya advertiser & cs yang punya akses
         abort_unless($user->hasRole('advertiser'), 403, 'Halaman ini hanya untuk Advertiser.');
 
-        // Ambil semua CS yang terasosiasi dengan advertiser ini
-        $team = User::where('advertiser_id', $user->id)
-            ->with('roles')
+        // ─── Mekanisme rotasi CS bulanan ─────────────────────────────
+        // Tampilkan SEMUA CS: CS Utama (yang dikhususkan untuk advertiser ini)
+        // dan CS Tamu (seluruh CS lain yang masuk rotasi bulanan).
+        $allCs = User::role('cs')
+            ->with('roles', 'advertiser')
             ->orderBy('nama')
             ->orderBy('email')
             ->get();
 
-        return view('team.index', compact('team', 'user'));
+        $mainCs = $allCs->where('advertiser_id', $user->id)->values();
+        $guestCs = $allCs->where('advertiser_id', '!=', $user->id)->values();
+
+        return view('team.index', compact('mainCs', 'guestCs', 'user'));
     }
 
     /**
@@ -57,99 +62,79 @@ class TeamController extends Controller
         $dari = $request->input('dari', now()->startOfMonth()->format('Y-m-d'));
         $sampai = $request->input('sampai', now()->format('Y-m-d'));
 
-        if ($user->hasRole('cs')) {
-            // CS lihat performa tim — data dari advertiser tempat bernaung
-            $advertiser = $user->advertiser;
-            $advertiserId = $advertiser?->id;
+        // Halaman ini hanya untuk Advertiser & CS
+        abort_unless($user->hasRole(['advertiser', 'cs']), 403, 'Halaman ini hanya untuk Advertiser & CS.');
 
-            $stats = collect();
-            $teamMembers = collect();
-            $totalPerCs = [];
-            $byDate = [];
+        // Tentukan advertiser pemilik data (advertiser → dirinya; CS → atasan)
+        $advertiserId = $user->hasRole('advertiser') ? $user->id : $user->advertiser_id;
 
-            if ($advertiserId) {
-                $stats = RegionalCsStat::where('user_id', $advertiserId)
-                    ->with('csUser')
-                    ->whereBetween('tanggal', [$dari, $sampai])
-                    ->orderBy('tanggal', 'asc')
-                    ->orderBy('cs_panggilan', 'asc')
-                    ->get();
-
-                foreach ($stats as $stat) {
-                    $tglKey = $stat->tanggal instanceof Carbon
-                        ? $stat->tanggal->format('Y-m-d')
-                        : substr((string) $stat->tanggal, 0, 10);
-                    if (! isset($byDate[$tglKey])) {
-                        $byDate[$tglKey] = [];
-                    }
-                    $byDate[$tglKey][] = $stat;
-                }
-
-                $teamMembers = User::where('advertiser_id', $advertiserId)
-                    ->where('is_active', true)
-                    ->orderBy('nama')
-                    ->get(['id', 'nama', 'panggilan', 'email', 'avatar']);
-
-                foreach ($stats->groupBy('cs_panggilan') as $csName => $csStats) {
-                    $totalPerCs[$csName] = [
-                        'lead' => $csStats->sum('lead'),
-                        'paid' => $csStats->sum('paid'),
-                    ];
-                }
-            }
-
-            $allDates = [];
-            $start = Carbon::parse($dari);
-            $end = Carbon::parse($sampai);
-            while ($start->lte($end)) {
-                $allDates[] = $start->format('Y-m-d');
-                $start->addDay();
-            }
-            $today = now()->format('Y-m-d');
-            $allDates = array_values(array_filter($allDates, fn ($d) => $d <= $today));
-
-            return view('team.performance', compact(
-                'byDate', 'teamMembers', 'totalPerCs', 'allDates',
-                'dari', 'sampai', 'user',
-            ));
-        }
-
-        abort_unless($user->hasRole('advertiser'), 403, 'Halaman ini hanya untuk Advertiser.');
-
-        // Ambil semua CS stats milik advertiser ini di range tanggal
-        $stats = RegionalCsStat::where('user_id', $user->id)
-            ->with('csUser')
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->orderBy('tanggal', 'asc')
-            ->orderBy('cs_panggilan', 'asc')
-            ->get();
-
-        // Group by tanggal → CS
+        $stats = collect();
         $byDate = [];
-        foreach ($stats as $stat) {
-            $tglKey = $stat->tanggal instanceof Carbon
-                ? $stat->tanggal->format('Y-m-d')
-                : substr((string) $stat->tanggal, 0, 10);
-
-            if (! isset($byDate[$tglKey])) {
-                $byDate[$tglKey] = [];
-            }
-            $byDate[$tglKey][] = $stat;
-        }
-
-        // Ambil semua CS yang menjadi tim advertiser ini (termasuk yang mungkin belum punya data)
-        $teamMembers = User::where('advertiser_id', $user->id)
-            ->where('is_active', true)
-            ->orderBy('nama')
-            ->get(['id', 'nama', 'panggilan', 'email', 'avatar']);
-
-        // Hitung total per CS
         $totalPerCs = [];
-        foreach ($stats->groupBy('cs_panggilan') as $csName => $csStats) {
-            $totalPerCs[$csName] = [
-                'lead' => $csStats->sum('lead'),
-                'paid' => $csStats->sum('paid'),
-            ];
+        $mainMembers = collect();
+        $guestMembers = collect();
+
+        if ($advertiserId) {
+            $stats = RegionalCsStat::with('csUser.advertiser')
+                ->where('user_id', $advertiserId)
+                ->whereBetween('tanggal', [$dari, $sampai])
+                ->orderBy('tanggal', 'asc')
+                ->orderBy('cs_panggilan', 'asc')
+                ->get();
+
+            // Group by tanggal → CS
+            foreach ($stats as $stat) {
+                $tglKey = $stat->tanggal instanceof Carbon
+                    ? $stat->tanggal->format('Y-m-d')
+                    : substr((string) $stat->tanggal, 0, 10);
+                $byDate[$tglKey][] = $stat;
+            }
+
+            // CS Utama = CS yang dikhususkan untuk advertiser ini
+            $mainMembers = User::where('advertiser_id', $advertiserId)
+                ->where('is_active', true)
+                ->orderBy('nama')
+                ->get(['id', 'nama', 'panggilan', 'email', 'avatar']);
+
+            // Total per CS (untuk kartu statistik)
+            foreach ($stats->groupBy('cs_panggilan') as $csName => $csStats) {
+                $totalPerCs[$csName] = [
+                    'lead' => $csStats->sum('lead'),
+                    'paid' => $csStats->sum('paid'),
+                ];
+            }
+
+            // ─── CS Tamu: cs_panggilan yang menangani order tapi bukan CS utama ───
+            $mainPanggilan = $mainMembers->pluck('panggilan')->filter()
+                ->map(fn ($p) => strtolower(trim($p)))->all();
+            $mainNama = $mainMembers->pluck('nama')->filter()
+                ->map(fn ($n) => strtolower(trim($n)))->all();
+            $mainKeys = array_merge($mainPanggilan, $mainNama);
+
+            $guestNames = $stats->pluck('cs_panggilan')->filter()
+                ->map(fn ($n) => strtolower(trim($n)))
+                ->unique()
+                ->reject(fn ($n) => in_array($n, $mainKeys))
+                ->values();
+
+            foreach ($guestNames as $gName) {
+                $stat = $stats->first(fn ($s) => strtolower(trim((string) $s->cs_panggilan)) === $gName);
+                $csUser = $stat?->csUser;
+                $rawName = $stat?->cs_panggilan ?: $gName;
+
+                $guestMembers->push((object) [
+                    'panggilan' => $rawName,
+                    'nama' => $csUser?->nama,
+                    'display_name' => $csUser ? $csUser->display_name : $rawName,
+                    'email' => $csUser?->email,
+                    'avatar_url' => $csUser
+                        ? $csUser->avatar_url
+                        : 'https://ui-avatars.com/api/?name=' . urlencode($rawName) . '&background=6B7280&color=fff&bold=true',
+                    'subtitle' => $csUser?->advertiser
+                        ? 'Utama untuk ' . $csUser->advertiser->display_name
+                        : 'CS Tamu',
+                ]);
+            }
         }
 
         // Bangun semua tanggal dalam range
@@ -164,13 +149,8 @@ class TeamController extends Controller
         $allDates = array_values(array_filter($allDates, fn ($d) => $d <= $today));
 
         return view('team.performance', compact(
-            'byDate',
-            'teamMembers',
-            'totalPerCs',
-            'allDates',
-            'dari',
-            'sampai',
-            'user',
+            'byDate', 'mainMembers', 'guestMembers', 'totalPerCs', 'allDates',
+            'dari', 'sampai', 'user',
         ));
     }
 

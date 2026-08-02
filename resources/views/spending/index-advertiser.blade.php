@@ -7,40 +7,52 @@
 
 {{-- ⚠️ Alarm Banner --}}
 @if($hasDiscrepancy)
-<div class="clay-alert clay-alert-error" data-reveal>
-    <span>🚨</span>
-    <div style="flex:1;font-size:.83rem;">
-        <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
-        @foreach($discrepancies as $tgl => $d)
-        <div style="margin-top:4px;font-size:.78rem;">
-            📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
-            Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
-            Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+<div class="clay-alert clay-alert-error" data-reveal style="margin-bottom:16px;">
+    <span>🚨</span>        <div style="flex:1;font-size:.83rem;">
+            <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
+            @if(count($discrepancies) > 5)
+            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($discrepancies) }} tanggal — scroll untuk melihat sisanya
+            </div>
+            @endif
+            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach($discrepancies as $tgl => $d)
+                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                    Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                    Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+                </div>
+                @endforeach
+            </div>
         </div>
-        @endforeach
-    </div>
 </div>
 @endif
 
 @if($csDiscrepancy['has_discrepancy'] ?? false)
-<div class="clay-alert clay-alert-warning" data-reveal style="margin-top:8px;">
-    <span>🔔</span>
-    <div style="flex:1;font-size:.83rem;">
-        <strong>Koreksi Data oleh CS!</strong> Tim CS telah menginput data yang berbeda untuk tanggal berikut:
-        @foreach($csDiscrepancy['dates'] as $tgl => $d)
-        <div style="margin-top:4px;font-size:.78rem;">
-            📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M Y') }} —
-            Data CS: Lead {{ $d['cs_lead'] }}, Paid {{ $d['cs_paid'] }} |
-            Data Anda: Lead {{ $d['adv_lead'] }}, Paid {{ $d['adv_paid'] }}
-            @if($d['cs_lead'] != $d['adv_lead'] || $d['cs_paid'] != $d['adv_paid'])
-            <span style="color:#dc2626;font-weight:700;"> ⚠️ Ada selisih</span>
+<div class="clay-alert clay-alert-warning" data-reveal style="margin-top:8px;margin-bottom:16px;">
+    <span>🔔</span>        <div style="flex:1;font-size:.83rem;">
+            <strong>Koreksi Data oleh CS!</strong> Tim CS telah menginput data yang berbeda untuk tanggal berikut:
+            @if(count($csDiscrepancy['dates']) > 5)
+            <div style="margin-top:6px;font-size:.7rem;color:#b45309;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($csDiscrepancy['dates']) }} tanggal — scroll untuk melihat sisanya
+            </div>
             @endif
+            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach($csDiscrepancy['dates'] as $tgl => $d)
+                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M Y') }} —
+                    Data CS: Lead {{ $d['cs_lead'] }}, Paid {{ $d['cs_paid'] }} |
+                    Data Anda: Lead {{ $d['adv_lead'] }}, Paid {{ $d['adv_paid'] }}
+                    @if($d['cs_lead'] != $d['adv_lead'] || $d['cs_paid'] != $d['adv_paid'])
+                    <span style="color:#dc2626;font-weight:700;"> ⚠️ Ada selisih</span>
+                    @endif
+                </div>
+                @endforeach
+            </div>
+            <div style="margin-top:6px;font-size:.75rem;color:#6b7280;">
+                Silakan sesuaikan data Anda agar sesuai dengan data real.
+            </div>
         </div>
-        @endforeach
-        <div style="margin-top:6px;font-size:.75rem;color:#6b7280;">
-            Silakan sesuaikan data Anda agar sesuai dengan data real.
-        </div>
-    </div>
 </div>
 @endif
 
