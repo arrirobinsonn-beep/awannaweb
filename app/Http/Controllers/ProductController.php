@@ -54,7 +54,6 @@ class ProductController extends Controller
             'deskripsi' => ['nullable', 'string'],
             'gudang_id' => ['nullable', 'exists:gudangs,id'],
             'harga_jual' => ['required', 'numeric', 'min:0'],
-            'stok' => ['required', 'integer', 'min:0'],
             'satuan' => ['required', 'string', 'max:30'],
             'status' => ['required', 'in:aktif,nonaktif'],
         ]);
@@ -89,7 +88,6 @@ class ProductController extends Controller
             'deskripsi' => ['nullable', 'string'],
             'gudang_id' => ['nullable', 'exists:gudangs,id'],
             'harga_jual' => ['required', 'numeric', 'min:0'],
-            'stok' => ['required', 'integer', 'min:0'],
             'satuan' => ['required', 'string', 'max:30'],
             'status' => ['required', 'in:aktif,nonaktif'],
         ]);
