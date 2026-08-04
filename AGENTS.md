@@ -183,4 +183,42 @@ Import Kiriman sekarang mengakumulasi StockMovement jadi **1 baris per (product_
 
 ---
 
+## F. ✅ Skema Rotasi CS Bulanan (cs_assignments) — 2 Agustus 2026
+
+### Deskripsi
+CS diputar (rolling) setiap bulan: CS A bisa menjadi CS Utama advertiser B bulan ini, tapi bulan lalu milik advertiser A. `users.advertiser_id` lama hanya snapshot kondisi sekarang → dibuatkan tabel histori `cs_assignments` per bulan.
+
+### Keputusan Desain
+- **1 CS = 1 advertiser per bulan** → unique `(cs_user_id, bulan)`
+- **Tabel histori + pertahankan `users.advertiser_id`** sebagai penunjuk bulan berjalan (sinkron hanya saat edit bulan berjalan)
+- **Manual total**: admin mengisi penempatan per bulan lewat form edit user (bulan default = bulan berjalan)
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_02_000001_create_cs_assignments_table.php` | Tabel `cs_assignments` (cs_user_id, advertiser_id, bulan 'Y-m', created_by) + unique (cs,bulan) + index (advertiser_id,bulan) |
+| `app/Models/CsAssignment.php` | Model + relasi `csUser`, `advertiser`, `creator` + scope `bulan()` |
+| `app/Models/User.php` | Relasi `csAssignments()` (hasMany via cs_user_id) |
+| `app/Http/Controllers/UserController.php` | `update()`: upsert assignment per bulan; hanya bulan berjalan yang sinkron `advertiser_id`; role pindah dari CS → riwayat dihapus. `edit()`: kirim `$csAssignments` |
+| `resources/views/user/edit.blade.php` | Input `📅 Bulan Berlaku` (type=month) + select advertiser (sync JS per bulan) + kartu "Riwayat Penempatan CS" |
+| `app/Http/Controllers/TeamController.php` | `index()` & `performance()` month-aware: main/guest + subtitle "Utama untuk X" mengikuti bulan yang dipilih; fallback ke snapshot bila belum ada assignment bulan itu. `index()` kirim `$csHistory` (modal riwayat); `adminIndex()` kirim data matriks riwayat (`$semuaBulan`, `$assignmentRows`, `$semuaCs`, `$bulanBerjalan`) |
+| `resources/views/team/index.blade.php` | Tombol "🗂️ Riwayat CS Utama" (sisi advertiser) + modal daftar CS utama per bulan (badge Berjalan untuk bulan berjalan) |
+| `resources/views/team/admin-index.blade.php` | Section "🗂️ Riwayat Penempatan" — matriks CS × Bulan (12 bulan terakhir), kolom bulan berjalan di-highlight + tombol "🎯 Buat Penugasan" + modal pilih bulan |
+| `routes/web.php` | `GET/POST /tim/admin/penugasan` → `team.penugasan` / `team.penugasan.store` |
+| `app/Http/Controllers/TeamController.php` | `penugasan()` (board bulan terpilih, chip CS + zona advertiser + penempatan existing) & `penugasanStore()` (simpan massal, validasi batch CS/advertiser, sync snapshot hanya bulan berjalan) |
+| `resources/views/team/penugasan.blade.php` | Board drag & drop: kolam "Belum Ditugaskan" + zona per advertiser, fallback klik-chip-klik-zona, simpan via hidden JSON |
+| `resources/views/team/partials/penugasan-chip.blade.php` | Chip CS draggable (avatar + nama + badge Nonaktif) |
+
+### Alur Query
+- "CS A milik siapa bulan X?" → `CsAssignment::where('cs_user_id', A)->where('bulan', X)`
+- "CS Utama advertiser B bulan X?" → `CsAssignment::where('advertiser_id', B)->where('bulan', X)`
+- Fallback data lama (belum ada assignment): pakai `users.advertiser_id` (snapshot)
+
+### Catatan
+- Penulis snapshot `users.advertiser_id` hanya lewat `UserController@update` — 1 titik sinkron
+- Bulan dipakai format string `'Y-m'` (bukan date) agar mudah difilter & diindex
+- Data lama tidak di-seed otomatis; fallback snapshot menangani hingga admin mulai mengisi rotasi
+
+---
+
 # Fitur Belum Selesai / Ide ke Depan

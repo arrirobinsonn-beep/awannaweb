@@ -39,18 +39,27 @@
         $isAlt = $dateIndex % 2 === 0;
         $stripClass = 'cs-date-striped' . ($isAlt ? '' : ' cs-date-alt');
 
-        $found = null;
+        $lead = 0;
+        $paid = 0;
         if (isset($byDate[$date])) {
             foreach ($byDate[$date] as $stat) {
-                if (strtolower(trim((string) $stat->cs_panggilan)) === strtolower(trim((string) $csName))) {
-                    $found = $stat;
-                    break;
+                // Prioritas: cocokkan FK cs_user_id (robust terhadap variasi nama),
+                // fallback: cocokkan nama cs_panggilan.
+                $isMatch = false;
+                if ($csData && ! empty($csData->id) && ! empty($stat->cs_user_id)
+                    && (int) $stat->cs_user_id === (int) $csData->id) {
+                    $isMatch = true;
+                } elseif (strtolower(trim((string) $stat->cs_panggilan)) === strtolower(trim((string) $csName))
+                    || ($csData && strtolower(trim((string) $stat->cs_panggilan)) === strtolower(trim((string) ($csData->nama ?? ''))))) {
+                    $isMatch = true;
+                }
+                if ($isMatch) {
+                    $lead += (int) $stat->lead;
+                    $paid += (int) $stat->paid;
                 }
             }
         }
-        $hasData = $found && ($found->lead > 0 || $found->paid > 0);
-        $lead = $hasData ? $found->lead : 0;
-        $paid = $hasData ? $found->paid : 0;
+        $hasData = $lead > 0 || $paid > 0;
         $ratio = $lead > 0 ? round($paid / $lead * 100, 1) : 0;
         $csTotalLead += $lead;
         $csTotalPaid += $paid;

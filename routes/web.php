@@ -97,6 +97,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/tim', [TeamController::class, 'index'])->name('team.index');
         Route::get('/tim/performa', [TeamController::class, 'performance'])->name('team.performance');
         Route::get('/tim/admin', [TeamController::class, 'adminIndex'])->name('team.admin-index');
+        Route::get('/tim/admin/penugasan', [TeamController::class, 'penugasan'])->name('team.penugasan');
+        Route::post('/tim/admin/penugasan', [TeamController::class, 'penugasanStore'])->name('team.penugasan.store');
         Route::get('/tim/phone-list', [TeamController::class, 'phoneList'])->name('team.phone-list');
 
         // Gudang (admin)
