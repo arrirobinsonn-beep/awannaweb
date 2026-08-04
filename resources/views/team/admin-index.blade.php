@@ -36,7 +36,9 @@
             onclick="document.getElementById('modal-bulan-penugasan').classList.add('active')">
         🎯 Buat Penugasan
     </button>
+    @if(auth()->user()->canCreateUser())
     <a href="{{ route('user.create') }}" class="clay-btn clay-btn-outline" data-page-link>＋ Tambah CS</a>
+    @endif
 </div>
 
 <div class="clay-card" style="overflow:hidden;" data-reveal>
@@ -80,7 +82,9 @@
                     </span>
                 </td>
                 <td style="text-align:right;">
+                    @if(auth()->user()->canCreateUser())
                     <a href="{{ route('user.edit', $cs) }}" class="clay-btn clay-btn-secondary" style="padding:5px 10px;font-size:.72rem;" data-page-link>✏️</a>
+                    @endif
                 </td>
             </tr>
             @empty

@@ -242,7 +242,7 @@ class TeamController extends Controller
      */
     public function adminIndex(Request $request): View
     {
-        abort_unless(auth()->user()->canCreateUser(), 403);
+        abort_unless(auth()->user()->canManageAssignments(), 403);
 
         // Ambil semua CS beserta advertiser-nya
         $csUsers = User::role('cs')
@@ -285,7 +285,7 @@ class TeamController extends Controller
      */
     public function penugasan(Request $request): View
     {
-        abort_unless(auth()->user()->canCreateUser(), 403);
+        abort_unless(auth()->user()->canManageAssignments(), 403);
 
         $bulan = $request->input('bulan', now()->format('Y-m'));
         // Lindungi dari input bulan yang tidak valid (mencegah error Carbon di view)
@@ -316,7 +316,7 @@ class TeamController extends Controller
      */
     public function penugasanStore(Request $request): RedirectResponse
     {
-        abort_unless(auth()->user()->canCreateUser(), 403);
+        abort_unless(auth()->user()->canManageAssignments(), 403);
 
         $data = $request->validate([
             'bulan' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],

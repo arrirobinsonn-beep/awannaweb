@@ -89,6 +89,12 @@ class User extends Authenticatable
         return $this->hasRole(['owner', 'super_admin']);
     }
 
+    /** Apakah user bisa mengelola mapping/penugasan CS (termasuk admin operasional) */
+    public function canManageAssignments(): bool
+    {
+        return $this->hasRole(['owner', 'super_admin', 'admin']);
+    }
+
     public function isSuperAdmin(): bool
     {
         return $this->hasRole('super_admin');
