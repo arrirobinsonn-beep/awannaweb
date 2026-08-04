@@ -15,7 +15,6 @@ class DatabaseSeeder extends Seeder
             UserSeeder::class,           // 4. User & assign role
             WhitelistSeeder::class,      // 5. Whitelist (butuh supplier & produk)
             SpendingHarianSeeder::class, // 6. Spending (butuh semua di atas)
-            DashboardSeeder::class,      // 7. Dashboard kiriman
         ]);
     }
 }

@@ -55,14 +55,14 @@ class Product extends Model
         return $this->hasMany(SpendingHarian::class);
     }
 
-    public function pembelianBarangs(): HasMany
-    {
-        return $this->hasMany(PembelianBarang::class);
-    }
-
     public function stockMovements(): HasMany
     {
         return $this->hasMany(StockMovement::class);
+    }
+
+    public function purchases(): HasMany
+    {
+        return $this->hasMany(Purchase::class);
     }
 
     // ─── Accessor ─────────────────────────────────────────────

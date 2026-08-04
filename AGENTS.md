@@ -41,7 +41,7 @@ Untuk menyimpan banyak data, gunakan `DB::transaction()` + `Model::insert()` ata
 Gunakan `computeDiscrepancyBatch()` yang menerima pre-computed collection, bukan query per user.
 
 ## 7. Batch-Resolve Pattern (CS Lookup, dll)
-Saat perlu resolve/map nilai dari Excel ke DB (misal handle_by → user CS):
+Saat perlu resolve/map nilai dari Excel/CSV ke DB (misal handle_by → user CS):
 ```php
 // ❌ BURUK: query per baris
 foreach ($rows as $row) {
@@ -53,171 +53,121 @@ $uniqueValues = array_unique(array_filter(array_column($rows, 'handle_by')));
 $users = User::whereIn('nama', $uniqueValues)->get()->keyBy('nama');
 // lalu pakai $map[$value] di loop
 ```
-Ini diterapkan di `UndelImportService@buildHandleByMap`.
 
 ## Referensi
-- Migration indexes: `database/migrations/2026_07_25_005039_add_indexes_to_optimize_query_performance.php`
 - Batch spending: `SpendingHarianController@indexGeneral`
 - Batch summary: `TopUpController@index`
 
 ---
 
-# Fitur Selesai (25 Juli 2026)
+# Fitur Selesai
 
-## A. ✅ Upload Excel Undel (Excel ke-2)
-Update status `PaketTracking` dari file Excel Undel.
-
-### Implementasi:
-| File | Keterangan |
-|---|---|
-| `database/migrations/2026_07_25_010000_add_handle_by_to_paket_trackings.php` | Migration kolom `handle_by` + index `awb`, `handle_by` |
-| `app/Models/PaketTracking.php` | Tambah `handle_by` ke `$fillable` |
-| `app/Services/UndelImportService.php` | Parse Excel, resolve handle_by → user CS (batch), import by AWB |
-| `app/Http/Controllers/GudangController.php` | `excelUndelPreview()`, `excelUndelImport()` |
-| `resources/views/dashboard/admin.blade.php` | Card upload + modal + preview + import |
-
-### Endpoint:
-- `POST /gudang/kiriman/excel-undel-preview`
-- `POST /gudang/kiriman/excel-undel-import`
-
-### Flow:
-Upload → Parse → Match AWB → Resolve handle_by (batch cocokkan nama CS) → Update status + handle_by + catatan_kurir → Report sukses/gagal
-
-### Kolom Excel (dari Flik SPX):
-| Excel Column | Index | DB Field |
-|---|---|---|
-| Tracking No. | 0 | `PaketTracking.awb` (match key) |
-| Tracking Status | 5 | `PaketTracking.status` (update) |
-| HANDLE BY | 17 | `PaketTracking.handle_by` (ditambahkan manual admin) |
-| Delivery failed Reason | 45 | `PaketTracking.catatan_kurir` (update) |
-| Recipient Phone Number | 16 | `PaketTracking.no_telp` |
-
----
-
-## B. ✅ Dashboard CS
-### Route:
-- `GET /dashboard/cs` → `DashboardController@dashboardCs()`
-
-### Implementasi:
-| File | Keterangan |
-|---|---|
-| `app/Http/Controllers/DashboardController.php` | Method `dashboardCs()` + redirect role `cs` |
-| `resources/views/dashboard/cs.blade.php` | View: 4 kartu stat, tracking resi, tabel undel + WA, top produk |
-| `resources/views/layouts/app.blade.php` | Nav sidebar "📞 Dashboard CS" untuk role `cs` |
-
-### Statistik per CS:
-- Total Lead, Paid, Paid Ratio → dari `SpendingHarian` milik advertiser (via `$user->advertiser_id`)
-- Total Undel: `PaketTracking where handle_by = nama_cs and status in undelivered list`
-- WA button: `https://wa.me/62xxxx` per baris undel
-- Tabel daftar undel + status + catatan_kurir
-- Top Produk: `GROUP BY nama_produk` dari PaketTracking
-- Tracking Resi Mandiri: search AWB → tampilkan detail via `paketDetail()` API
-
----
-
-## C. ✅ Fitur Tambahan
-
-### Hapus per Tanggal di Rincian Stok
-- Tombol 🗑️ Hapus di setiap group tanggal → hapus semua movement produk+gudang+tanggal sekaligus
-- `POST /gudang/rincian-stok/delete-date` → `GudangController@stokRincianDeleteDate`
-
----
-
-## D. ✅ Auto-assign CS via Phone Number (Order Online → Kiriman Actual)
+## A. ✅ Shipment Terpadu — FLIK / SiCepat / SPX (3 Agustus 2026)
 
 ### Deskripsi
-Adv upload Excel Order Online (dari OO) yang berisi nomor telepon + CS name. Data ini disimpan di tabel `order_online_contacts`. Saat admin upload Kiriman Actual, nomor telepon dari tiap resi dicocokkan dengan data Order Online → `handle_by` otomatis terisi.
+Satu tabel `shipments` untuk gabungan data pengiriman dari 3 aggregator (FLIK, SiCepat, SPX). Kunci alami `(source, tracking_number)` unik. Setiap hari tarik 1 bulan ke belakang → UPSERT (data baru di-insert, data lama ditimpa bila berubah). Perubahan status dicatat ke `shipment_status_histories`.
+
+> **Catatan penamaan:** semua tabel/kolom/class/method berbahasa Inggris. Tampilan ke user (label view) tetap bahasa Indonesia.
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
-| `database/migrations/2026_07_25_020000_create_order_online_contacts_table.php` | Migration tabel `order_online_contacts` |
-| `app/Models/OrderOnlineContact.php` | Model dengan fillable, relasi ke User (advertiser) |
-| `app/Services/OrderOnlineImportService.php` | Parse Excel OO, normalisasi nomor, batch import (reset per adv) |
-| `app/Http/Controllers/OrderOnlineController.php` | `preview()` + `import()` — upload & preview |
-| `app/Http/Controllers/GudangController.php` | `kirimanExcelImport()` — tambah auto-set `handle_by` via phone lookup |
-| `resources/views/regional/index.blade.php` | Tombol upload Order Online (khusus role adv) + modal preview + modal import |
-| `routes/web.php` | `POST /order-online/preview`, `POST /order-online/import` |
+| `database/migrations/2026_08_02_100000_create_pengirimans_table.php` | Tabel awal (sebelum rename) |
+| `database/migrations/2026_08_03_000000_rename_pengiriman_tables_to_english.php` | Rename tabel/kolom ke Inggris (data dipertahankan) |
+| `app/Models/Shipment.php` | `$table = 'shipments'`, kolom Inggris |
+| `app/Models/ShipmentStatusHistory.php` | Riwayat status, FK cascade |
+| `app/Services/ShipmentImportService.php` | `parse()` + `import()`: detectSource, alias map header, normalize, upsert, diff, history |
+| `app/Http/Controllers/ShipmentController.php` | `index` (filter+paginate), `preview` (JSON), `store` (import) |
+| `app/Console/Commands/ImportShipments.php` | `shipment:import {file?}` — dukung path absolut |
+| `resources/views/shipment/index.blade.php` | Upload + preview modal + filter + datatable |
+| `routes/web.php` | `shipment.index`, `shipment.preview`, `shipment.import` (URL tetap `/pengiriman`) |
+| `routes/console.php` | `Schedule::command('shipment:import')->dailyAt('02:00')` |
+
+### Mapping kolom (Indonesia → Inggris)
+| Lama | Baru |
+|---|---|
+| `sumber` | `source` |
+| `no_resi` | `tracking_number` |
+| `kurir` | `courier` |
+| `nama_penerima` | `recipient_name` |
+| `telepon` | `phone` |
+| `alamat_lengkap` | `full_address` |
+| `kecamatan` | `district` |
+| `kota` | `city` |
+| `provinsi` | `province` |
+| `kode_pos` | `postal_code` |
+| `nama_produk` | `product_name` |
+| `jumlah` | `quantity` |
+| `ongkir` | `shipping_fee` |
+| `nilai_paket` | `parcel_value` |
+| `nominal_cod` | `cod_amount` |
+| `catatan_kurir` | `courier_note` |
+| `tanggal_buat` | `created_date` |
+| `tanggal_pickup` | `pickup_date` |
+| `tanggal_terkirim` | `delivered_date` |
+| `file_sumber` | `source_file` |
+| `pengiriman_id` (histories) | `shipment_id` |
+| `dilihat` (histories) | `viewed_at` |
 
 ### Endpoint
-- `POST /order-online/preview` — preview file OO
-- `POST /order-online/import` — import & replace data OO
+- `GET /pengiriman` — daftar + filter (search/source/bulan/status)
+- `POST /pengiriman/preview` — preview file CSV
+- `POST /pengiriman/import` — import & upsert
 
-### Flow
-1. Adv upload OO Excel → parse kolom E (phone) + AH (CS name) → normalisasi nomor → simpan ke `order_online_contacts` (data lama dihapus dulu)
-2. Admin upload Kiriman Actual → setelah insert `PaketTracking`, batch lookup `no_telp` yang dinormalisasi ke `order_online_contacts` → update `handle_by` yang null
+### Penting (service import)
+- `parse()` mengembalikan key `skips` (bukan `skip`)
+- Diff membandingkan string (trim), float (cast), tanggal (format Y-m-d) terpisah — hindari false-positive cast decimal `89000.00` vs `89000`
+- Deteksi sumber otomatis dari header (Tracking No → spx, Nomor Resi+Isi Paket → sicepat, Order ID+AWB → flik)
 
-### Normalisasi Nomor
-```
-08123456789  →  628123456789
-+628123456789 → 628123456789
-628-1234-56789 → 628123456789
-```
-
-### Kolom Excel OO (index 0-based)
-| Index | Isi |
-|---|---|
-| 0 | Order ID |
-| 2 | Nama Pembeli |
-| 4 | No Telepon |
-| 33 | Handle By / CS Name |
-
----
-
-## E. ✅ Akumulasi Stok Rincian 1 Row per Tanggal (28 Juli 2026)
+## C. ✅ Stok Jurnal + Barang Masuk (Purchase) (3 Agustus 2026)
 
 ### Deskripsi
-Import Kiriman sekarang mengakumulasi StockMovement jadi **1 baris per (product_id, gudang, tanggal)** — `barang_keluar` dijumlah, catatan digabung. View stok-rincian hanya tampilkan 1 baris per tanggal. Halaman edit: gudang & produk readonly.
+Stok produk kini dihitung otomatis dari jurnal (`stock_movements`): MASUK (in) dikurangi KELUAR (out) per produk. Pembelian manual ("Barang Masuk") menambah stok + update HPP rata-rata tertimbang. Shipment ("barang keluar") di-link ke produk via `product_id` dan otomatis memotong stok lewat jurnal `out`.
+
+> **Aturan kunci:** semua nama kode (tabel, kolom, class, method, route, key) BERBAHASA INGGRIS; label UI tetap Indonesia. Kolom tanggal bernama `date`.
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
-| `app/Http/Controllers/GudangController.php:658` | `StockMovement::create()` → `firstOrNew()` + increment + concat catatan |
-| `resources/views/gudang/stok-rincian.blade.php` | 1 baris akumulasi per tanggal, hapus checkbox/bulk-delete |
-| `resources/views/gudang/stok-rincian-edit.blade.php` | Gudang & produk disabled |
+| `database/migrations/2026_08_03_100000_create_stock_movements_table.php` | Jurnal: `product_id`, `gudang_id` (nullable), `date`, `type` (in/out), `quantity` (unsigned), `unit_price` (decimal nullable), `reference` (purchase/shipment/adjustment), `reference_id`, `note`, `created_by`; UNIQUE `(reference, reference_id, type)` = idempotent |
+| `database/migrations/2026_08_03_100001_create_purchases_table.php` | `date`, `supplier_id`, `product_id`, `quantity`, `unit_price`, `shipping_cost`, `note`, `created_by` |
+| `database/migrations/2026_08_03_100002_add_product_id_to_shipments_table.php` | `shipments.product_id` (nullable FK) + index |
+| `app/Models/StockMovement.php` | relasi product/gudang/creator |
+| `app/Models/Purchase.php` | relasi product/supplier/creator |
+| `app/Models/Shipment.php` | + `product_id` fillable, `product()` BelongsTo |
+| `app/Models/Product.php` | + `stockMovements()` dan `purchases()` |
+| `app/Services/StockService.php` | `recordIn/recordOut` (out validasi stok cukup), `reverseReference`, `recalculateStock`, `stockOf`, `hppRataRata`, `recalculateHpp`, `recalculateAll` |
+| `app/Services/ProductNameMatcher.php` | `buildIndex/match/normalize`: exact → contains → Levenshtein ≤ 2 |
+| `app/Services/ShipmentImportService.php` | `import()` cocokkan produk per baris; baris TIDAK cocok TIDAK disimpan (masuk `unmatched`), yang cocok set `product_id` + jurnal `out`; `matchReport()` untuk preview |
+| `app/Http/Controllers/PurchaseController.php` | `index` (filter), `store` (tambah stok+HPP), `destroy` (balik jurnal) |
+| `app/Http/Controllers/StockMovementController.php` | `index` filter jurnal |
+| `app/Console/Commands/ImportShipments.php` | laporan `unmatched=N (tidak disimpan)` + list produk tak dikenal |
+| `resources/views/purchase/index.blade.php` | Form Barang Masuk + datatable + Hapus |
+| `resources/views/stock_movement/index.blade.php` | Tabel jurnal (MASUK/KELUAR badge) |
+| `resources/views/layouts/app.blade.php` | Sidebar section "Gudang & Kiriman" |
+| `resources/views/product/form.blade.php` | Stok manual → tampilan read-only (stok otomatis jurnal) |
 
-### Catatan
-- Data lama perlu re-import setelah reset
-- Branch: `develop/arif`
-- Commit: `56f61c2`
+### Endpoint
+- `GET /barang-masuk` (purchase.index), `POST /barang-masuk` (purchase.store), `DELETE /barang-masuk/{purchase}` (purchase.destroy)
+- `GET /jurnal-stok` (stock-movement.index)
 
----
+### Penting
+- `products.stok` diturunkan dari jurnal (sum in − out). Jurnal pembuka (opening stock, `reference=adjustment`) dibuat agar stok lama tetap utuh.
+- `ProductController::store/update` TIDAK lagi memvalidasi `stok` (kolom diisi otomatis).
+- Idempotensi import: UNIQUE `(reference, reference_id, type)` → re-import CSV tidak menduplikasi jurnal/shipment.
+- `destroy` purchase: `reverseReference('purchase', id)` + recompute HPP + delete.
 
-## F. ✅ Skema Rotasi CS Bulanan (cs_assignments) — 2 Agustus 2026
+## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 
-### Deskripsi
-CS diputar (rolling) setiap bulan: CS A bisa menjadi CS Utama advertiser B bulan ini, tapi bulan lalu milik advertiser A. `users.advertiser_id` lama hanya snapshot kondisi sekarang → dibuatkan tabel histori `cs_assignments` per bulan.
+Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier`, dan `Gudang` (master tempat gudang, `gudang.master*`).
 
-### Keputusan Desain
-- **1 CS = 1 advertiser per bulan** → unique `(cs_user_id, bulan)`
-- **Tabel histori + pertahankan `users.advertiser_id`** sebagai penunjuk bulan berjalan (sinkron hanya saat edit bulan berjalan)
-- **Manual total**: admin mengisi penempatan per bulan lewat form edit user (bulan default = bulan berjalan)
-
-### Implementasi
-| File | Keterangan |
-|---|---|
-| `database/migrations/2026_08_02_000001_create_cs_assignments_table.php` | Tabel `cs_assignments` (cs_user_id, advertiser_id, bulan 'Y-m', created_by) + unique (cs,bulan) + index (advertiser_id,bulan) |
-| `app/Models/CsAssignment.php` | Model + relasi `csUser`, `advertiser`, `creator` + scope `bulan()` |
-| `app/Models/User.php` | Relasi `csAssignments()` (hasMany via cs_user_id) |
-| `app/Http/Controllers/UserController.php` | `update()`: upsert assignment per bulan; hanya bulan berjalan yang sinkron `advertiser_id`; role pindah dari CS → riwayat dihapus. `edit()`: kirim `$csAssignments` |
-| `resources/views/user/edit.blade.php` | Input `📅 Bulan Berlaku` (type=month) + select advertiser (sync JS per bulan) + kartu "Riwayat Penempatan CS" |
-| `app/Http/Controllers/TeamController.php` | `index()` & `performance()` month-aware: main/guest + subtitle "Utama untuk X" mengikuti bulan yang dipilih; fallback ke snapshot bila belum ada assignment bulan itu. `index()` kirim `$csHistory` (modal riwayat); `adminIndex()` kirim data matriks riwayat (`$semuaBulan`, `$assignmentRows`, `$semuaCs`, `$bulanBerjalan`) |
-| `resources/views/team/index.blade.php` | Tombol "🗂️ Riwayat CS Utama" (sisi advertiser) + modal daftar CS utama per bulan (badge Berjalan untuk bulan berjalan) |
-| `resources/views/team/admin-index.blade.php` | Section "🗂️ Riwayat Penempatan" — matriks CS × Bulan (12 bulan terakhir), kolom bulan berjalan di-highlight + tombol "🎯 Buat Penugasan" + modal pilih bulan |
-| `routes/web.php` | `GET/POST /tim/admin/penugasan` → `team.penugasan` / `team.penugasan.store` |
-| `app/Http/Controllers/TeamController.php` | `penugasan()` (board bulan terpilih, chip CS + zona advertiser + penempatan existing) & `penugasanStore()` (simpan massal, validasi batch CS/advertiser, sync snapshot hanya bulan berjalan) |
-| `resources/views/team/penugasan.blade.php` | Board drag & drop: kolam "Belum Ditugaskan" + zona per advertiser, fallback klik-chip-klik-zona, simpan via hidden JSON |
-| `resources/views/team/partials/penugasan-chip.blade.php` | Chip CS draggable (avatar + nama + badge Nonaktif) |
-
-### Alur Query
-- "CS A milik siapa bulan X?" → `CsAssignment::where('cs_user_id', A)->where('bulan', X)`
-- "CS Utama advertiser B bulan X?" → `CsAssignment::where('advertiser_id', B)->where('bulan', X)`
-- Fallback data lama (belum ada assignment): pakai `users.advertiser_id` (snapshot)
-
-### Catatan
-- Penulis snapshot `users.advertiser_id` hanya lewat `UserController@update` — 1 titik sinkron
-- Bulan dipakai format string `'Y-m'` (bukan date) agar mudah difilter & diindex
-- Data lama tidak di-seed otomatis; fallback snapshot menangani hingga admin mulai mengisi rotasi
+- Models dihapus: `PembelianBarang`, `StockMovement`, `StockRecap`, `KirimanActual`, `KirimanActualProduct`, `PaketTracking`, `RtsRecap`, `Dashboard`
+- Services dihapus: `KirimanImportService`, `UndelImportService`, `OrderOnlineImportService`
+- Controller dihapus: `OrderOnlineController`; command dihapus: `BackfillPaketTrackingProductId`
+- Migration lama dihapus, views `gudang/*` dihapus (kecuali `master.blade.php`), dashboard `admin.blade.php` + `cs.blade.php` dihapus
+- `OrderOnlineContact` model + tabel DIPERTAHANKAN (dipakai `RegionalController`/`TeamController`)
+- `RegionalImportService` kini punya `normalizePhone()` sendiri (menggantikan `OrderOnlineImportService::normalizePhone`)
+- `Product` model tidak lagi punya relasi `pembelianBarangs()` / `stockMovements()`
 
 ---
 

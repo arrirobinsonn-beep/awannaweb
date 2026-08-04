@@ -37,8 +37,11 @@
                     </select>
                 </div>
                 <div>
-                    <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;">Stok <span style="color:#f87171;">*</span></label>
-                    <input type="number" name="stok" min="0" value="{{ old('stok',$product->stok) }}" placeholder="100" class="clay-input">
+                    <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;">Stok</label>
+                    <div style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;font-weight:800;color:#374151;">
+                        {{ number_format($product->stok) }} {{ $product->satuan ?? 'pcs' }}
+                    </div>
+                    <div style="font-size:.7rem;color:#9ca3af;margin-top:4px;">Stok otomatis dari jurnal masuk/keluar. Kelola lewat menu Barang Masuk.</div>
                 </div>
                 <div>
                     <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;">Satuan</label>

@@ -5,17 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class StockMovement extends Model
+class Purchase extends Model
 {
     protected $fillable = [
-        'product_id',
-        'gudang_id',
         'date',
-        'type',
+        'supplier_id',
+        'product_id',
         'quantity',
         'unit_price',
-        'reference',
-        'reference_id',
+        'shipping_cost',
         'note',
         'created_by',
     ];
@@ -24,16 +22,17 @@ class StockMovement extends Model
         'date' => 'date',
         'quantity' => 'integer',
         'unit_price' => 'decimal:2',
+        'shipping_cost' => 'decimal:2',
     ];
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class);
+    }
 
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
-    }
-
-    public function gudang(): BelongsTo
-    {
-        return $this->belongsTo(Gudang::class);
     }
 
     public function creator(): BelongsTo

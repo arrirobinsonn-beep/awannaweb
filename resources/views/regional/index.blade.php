@@ -421,7 +421,7 @@
     <div style="display:flex;gap:10px;font-size:.72rem;color:#9ca3af;flex-wrap:wrap;">
         <span>📌 Kolom provinsi <strong>sticky</strong> — tetap terlihat saat scroll horizontal</span>
         <span>🔄 Gunakan date picker untuk mengubah rentang tanggal</span>
-        <span>📤 Klik "Upload File Excel" untuk import data Regional atau Order Online (format otomatis dikenali)</span>
+        <span>📤 Klik "Upload File Excel" untuk import data Regional</span>
     </div>
 </div>
 
@@ -435,7 +435,7 @@
         </div>
         <div class="modal-body">
             <div style="font-size:.78rem;color:#6b7280;margin-bottom:12px;">
-                Upload file Excel <strong>Regional</strong> (Lead/Paid per provinsi). File <strong>Order Online</strong> (mapping CS ke nomor telepon) juga bisa diupload lewat sini — format otomatis dikenali.
+                Upload file Excel <strong>Regional</strong> (Lead/Paid per provinsi) — format otomatis dikenali.
             </div>
 
             <div class="dropzone-wrap">
@@ -587,7 +587,6 @@
     let previewData  = null;
     let previewErrors = [];
     let previewPhoneContacts = [];
-    let uploadType   = null;
     let previewCsStats = []; // CS stats terbaru setelah edit
 
     // ── Helpers ──────────────────────────────────────
@@ -754,11 +753,6 @@
 
     // ── Show Preview Modal ──────────────────────────
     function showPreviewModal() {
-        if (uploadType === 'oo') {
-            showOOPreview();
-            return;
-        }
-
         previewSave.style.display = 'inline-flex';
         const data = previewData;
         const errors = previewErrors;
@@ -1000,95 +994,9 @@
         });
     });
 
-    // ── Show OO Preview ─────────────────────────────
-    function showOOPreview() {
-        previewErrors = [];
-        var data = previewData || {};
-        var errs = data.errors || [];
-
-        previewTitle.textContent = '📊 Preview Order Online — ' + (data.total || 0) + ' Kontak';
-
-        statsEl.innerHTML =
-            '<div class="preview-stat"><div class="val">' + (data.total || 0) + '</div><div class="lbl">Kontak</div></div>' +
-            '<div class="preview-stat"><div class="val">' + (data.unique_cs_count || 0) + '</div><div class="lbl">CS Unik</div></div>' +
-            (errs.length ? '<div class="preview-stat" style="background:#fef2f2;"><div class="val" style="color:#991b1b;">' + errs.length + '</div><div class="lbl">Error</div></div>' : '');
-
-        if (errs.length) {
-            errorsEl.innerHTML = '<strong>⚠️ ' + errs.length + ' error:</strong><br>' + errs.join('<br>');
-            errorsEl.style.display = 'block';
-        } else {
-            errorsEl.style.display = 'none';
-        }
-
-        var rows = data.rows || [];
-        if (rows.length) {
-            var tbl = '<table class="modal-table" style="font-size:.72rem;">';
-            tbl += '<thead><tr><th style="text-align:left;background:#4472C4;width:22%;">Order ID</th><th style="background:#4472C4;width:22%;">Nama</th><th style="background:#4472C4;width:22%;">No Telepon</th><th style="background:#4472C4;width:22%;">CS</th></tr></thead><tbody>';
-            rows.forEach(function(r) {
-                tbl += '<tr><td>' + (r.order_id || '-') + '</td><td>' + (r.buyer_name || '-') + '</td><td>' + (r.phone_normalized || '-') + '</td><td><strong>' + (r.cs_name || '-') + '</strong></td></tr>';
-            });
-            tbl += '</tbody></table>';
-            tbl += '<div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">Menampilkan semua ' + rows.length + ' kontak</div>';
-            tablesEl.innerHTML = tbl;
-        }
-
-        if (data.total > 0) {
-            previewSave.style.display = 'inline-flex';
-        } else {
-            previewSave.style.display = 'none';
-        }
-
-        mPreview.classList.add('active');
-        document.body.style.overflow = 'hidden';
-    }
-
     // ── Save Preview ─────────────────────────────────
     previewSave.addEventListener('click', function() {
         if (!previewData) return;
-
-        if (uploadType === 'oo') {
-            // ─── Save OO via order-online.import ──────
-            previewSave.disabled = true;
-            previewSave.innerHTML = '<span class="spinner-sm"></span> Importing...';
-
-            var fd = new FormData();
-            // Ambil file dari input yang terakhir di-upload
-            var file = document.getElementById('file-input').files[0];
-            if (!file) {
-                previewSave.disabled = false;
-                previewSave.innerHTML = '💾 Simpan Data';
-                return;
-            }
-            fd.append('file', file);
-            fd.append('_token', '{{ csrf_token() }}');
-
-            fetch('{{ route('order-online.import') }}', {
-                method: 'POST',
-                body: fd,
-                headers: { 'Accept': 'application/json' },
-            })
-            .then(function(res) {
-                if (!res.ok) return res.json().then(function(e) { throw new Error(e.message || 'Gagal'); });
-                return res.json();
-            })
-            .then(function(res) {
-                if (res.success) {
-                    alert('✅ ' + res.message);
-                    closePreviewModal();
-                    location.reload();
-                } else {
-                    alert('Gagal: ' + (res.message || 'Unknown error'));
-                }
-            })
-            .catch(function(err) {
-                alert('Gagal: ' + err.message);
-            })
-            .finally(function() {
-                previewSave.disabled = false;
-                previewSave.innerHTML = '💾 Simpan Data';
-            });
-            return;
-        }
 
         previewSave.disabled = true;
         previewSave.innerHTML = '<span class="spinner-sm"></span> Memeriksa...';

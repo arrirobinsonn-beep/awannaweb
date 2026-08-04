@@ -91,6 +91,7 @@
                     @if($user->hasRole('cs') && $user->advertiser)
                     <div style="margin-top:8px;padding:8px 12px;border-radius:10px;background:#F0FFFE;border:1.5px solid rgba(78,205,196,.3);font-size:.78rem;color:#065f46;">
                         ⭐ Saat ini CS utama untuk <strong>{{ $user->advertiser->display_name }}</strong>
+                        ⭐ Saat ini CS utama untuk <strong>{{ $user->advertiser->display_name }}</strong>
                     </div>
                     @endif
                 </div>
