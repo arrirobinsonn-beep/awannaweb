@@ -265,4 +265,3 @@
 })();
 </script>
 @endpush
-@endsection
