@@ -8,6 +8,7 @@ use App\Models\RegionalReport;
 use App\Models\SpendingHarian;
 use App\Models\User;
 use App\Models\Whitelist;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -196,10 +197,46 @@ class SpendingHarianController extends Controller
         // Whitelist milik advertiser ini (untuk form filter/info)
         $myWhitelists = Whitelist::where('user_id', $user->id)->aktif()->get();
 
+        // Guard tombol "+ Input Spending": user wajib punya minimal 1 whitelist
+        $hasWhitelist = Whitelist::where('user_id', $user->id)->exists();
+
+        // ─── Quick-change tanggal: tanggal yang sudah punya data (whitelist+produk sama)
+        //     harus dinonaktifkan di date picker agar tidak terjadi double data. ──
+        $recentRecords = SpendingHarian::where('user_id', $user->id)
+            ->whereBetween('tanggal', [now()->subDays(180)->format('Y-m-d'), now()->format('Y-m-d')])
+            ->get(['tanggal', 'whitelist_id', 'product_id']);
+
+        // Map combo (whitelist|produk) → tanggal-tanggal yang sudah memakainya
+        $comboDates = [];
+        foreach ($recentRecords as $rec) {
+            $combo = $rec->whitelist_id . '|' . $rec->product_id;
+            $comboDates[$combo][$rec->tanggal->format('Y-m-d')] = true;
+        }
+
+        $dateChangeRestrictions = [];
+        foreach ($summaries as $dateKey => $s) {
+            $combos = [];
+            foreach ($s['by_product'] as $prodData) {
+                foreach ($prodData['whitelists'] as $item) {
+                    $combos[$item->whitelist_id . '|' . $item->product_id] = true;
+                }
+            }
+
+            $disabled = [];
+            foreach (array_keys($combos) as $combo) {
+                foreach (array_keys($comboDates[$combo] ?? []) as $d) {
+                    if ($d !== $dateKey) {
+                        $disabled[$d] = true;
+                    }
+                }
+            }
+            $dateChangeRestrictions[$dateKey] = array_keys($disabled);
+        }
+
         return view('spending.index-advertiser', compact(
             'summaries', 'dari', 'sampai', 'myWhitelists', 'user',
             'hasDiscrepancy', 'discrepancies', 'discrepantDates',
-            'csDiscrepancy'
+            'csDiscrepancy', 'hasWhitelist', 'dateChangeRestrictions'
         ));
     }
 
@@ -367,9 +404,15 @@ class SpendingHarianController extends Controller
 
     // ─── Create ────────────────────────────────────────────────────
 
-public function create(): View
+    public function create(): View|RedirectResponse
     {
         $user = Auth::user();
+
+        // Guard: advertiser belum boleh input spending sebelum punya whitelist
+        if ($user->hasRole('advertiser') && ! Whitelist::where('user_id', $user->id)->exists()) {
+            return redirect()->route('whitelist.index')
+                ->with('error', 'Ups, kamu belum memiliki satupun akun WL. Silakan buat akun Whitelist terlebih dahulu.');
+        }
 
         $whitelists = Whitelist::aktif()->with('user');
 
@@ -470,6 +513,65 @@ public function create(): View
             ->with('success', "Berhasil menyimpan {$imported} data spending.");
     }
 
+    // ─── Ubah Tanggal (quick-change dari halaman advertiser) ───────
+
+    public function changeDate(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'sumber' => ['required', 'date'],
+            // Tanggal masa depan tidak bisa dipilih (sama seperti date picker)
+            'target' => ['required', 'date', 'before_or_equal:today'],
+        ]);
+
+        $user = Auth::user();
+        $sumber = $validated['sumber'];
+        $target = $validated['target'];
+
+        // Memilih tanggal yang sama = tidak ada perubahan (no-op)
+        if ($target === $sumber) {
+            return response()->json(['success' => true, 'moved' => 0, 'message' => 'Tidak ada perubahan tanggal.'], 200);
+        }
+
+        $records = SpendingHarian::where('user_id', $user->id)
+            ->whereDate('tanggal', $sumber)
+            ->get();
+
+        if ($records->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Data tanggal sumber tidak ditemukan.',
+            ], 404);
+        }
+
+        $ids = $records->pluck('id');
+
+        // Cegah double data: target tidak boleh sudah punya whitelist+produk yang sama.
+        // Record yang sedang dipindah (id dalam $ids) dikecualikan agar tidak false-positive.
+        foreach ($records as $r) {
+            $exists = SpendingHarian::where('user_id', $user->id)
+                ->whereDate('tanggal', $target)
+                ->where('whitelist_id', $r->whitelist_id)
+                ->where('product_id', $r->product_id)
+                ->whereNotIn('id', $ids)
+                ->exists();
+
+            if ($exists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Tanggal {$target} sudah memiliki data untuk whitelist/produk yang sama. Pilih tanggal lain.",
+                ], 422);
+            }
+        }
+
+        SpendingHarian::whereIn('id', $ids)->update(['tanggal' => $target]);
+
+        return response()->json([
+            'success' => true,
+            'moved' => $records->count(),
+            'message' => "Tanggal berhasil diubah ke {$target}.",
+        ]);
+    }
+
     // ─── Show ──────────────────────────────────────────────────────
 
     public function show(SpendingHarian $spending): View
@@ -507,7 +609,7 @@ public function create(): View
 
     // ─── Update ────────────────────────────────────────────────────
 
-    public function update(Request $request, SpendingHarian $spending): RedirectResponse
+    public function update(Request $request, SpendingHarian $spending): JsonResponse|RedirectResponse
     {
         $this->authorizeAccess($spending);
 
@@ -536,6 +638,23 @@ public function create(): View
 
         // ─── Notifikasi ke advertiser jika CS yang edit ───────
         $this->notifyWhitelistOwner($spending);
+
+        // AJAX (modal edit di halaman advertiser) → balas JSON
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Data spending berhasil diperbarui.',
+                'data' => [
+                    'id' => $spending->id,
+                    'spending' => (float) $data['spending'],
+                    'lead' => (int) $data['lead'],
+                    'paid' => (int) $data['paid'],
+                    'paid_ratio' => $data['paid_ratio'],
+                    'cpa_lead' => $data['cpa_lead'],
+                    'cpa_paid' => $data['cpa_paid'],
+                ],
+            ]);
+        }
 
         return redirect()->route('spending.index')
             ->with('success', 'Data spending berhasil diperbarui.');
@@ -582,7 +701,10 @@ public function create(): View
     {
         $user = Auth::user();
         if ($user->hasRole('advertiser') && $spending->user_id !== $user->id) {
-            abort(403, 'Anda tidak memiliki akses ke data ini.');
+            // AJAX (modal edit) → balas JSON; request biasa → 403 HTML
+            abort(request()->wantsJson()
+                ? response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke data ini.'], 403)
+                : 403, 'Anda tidak memiliki akses ke data ini.');
         }
     }
 

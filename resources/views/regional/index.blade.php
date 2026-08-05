@@ -552,6 +552,27 @@
     </div>
 </div>
 
+{{-- ═══════════════ ALERT CS BELUM DITUGASKAN ═══════════════ --}}
+<div class="modal-regional" id="modal-cs-alert">
+    <div class="modal-backdrop" id="cs-alert-backdrop"></div>
+    <div class="modal-container modal-container-sm" style="max-width:400px;">
+        <div class="modal-header">
+            <h2>👥 Belum Ada CS</h2>
+            <button class="modal-close" id="cs-alert-close" type="button">✕</button>
+        </div>
+        <div class="modal-body" style="text-align:center;padding:28px 24px;">
+            <div style="font-size:2.6rem;margin-bottom:12px;line-height:1;">🤝</div>
+            <p style="font-size:.92rem;color:#374151;font-weight:600;line-height:1.65;margin:0;">
+                Ups, tampaknya belum ada CS yang ditugaskan khusus untukmu.
+                Segera hubungi <strong style="color:var(--color-primary,#FF6B6B);">Guru</strong> untuk menugaskan seorang CS untuk anda!
+            </p>
+        </div>
+        <div class="modal-footer" style="justify-content:center;">
+            <button class="clay-btn clay-btn-primary" id="cs-alert-ok" type="button">Mengerti</button>
+        </div>
+    </div>
+</div>
+
 @endsection
 
 @push('scripts')
@@ -561,6 +582,14 @@
 
     // ── DOM refs ────────────────────────────────────
     const uploadBtn     = document.getElementById('btn-upload-modal');
+
+    // Guard: advertiser wajib punya CS yang ditugaskan sebelum upload
+    const hasAssignedCs = {{ ($hasAssignedCs ?? true) ? 'true' : 'false' }};
+
+    const mCsAlert      = document.getElementById('modal-cs-alert');
+    const csAlertClose  = document.getElementById('cs-alert-close');
+    const csAlertBackdrop = document.getElementById('cs-alert-backdrop');
+    const csAlertOk     = document.getElementById('cs-alert-ok');
 
     const mUpload       = document.getElementById('modal-upload');
     const uploadClose   = document.getElementById('upload-close-btn');
@@ -605,7 +634,14 @@
     }
 
     // ── Open/Close Upload Modal ─────────────────────
-    uploadBtn.addEventListener('click', function() { mUpload.classList.add('active'); });
+    uploadBtn.addEventListener('click', function() {
+        // Belum ada CS yang ditugaskan → tampilkan alert, jangan buka modal upload
+        if (!hasAssignedCs) {
+            mCsAlert.classList.add('active');
+            return;
+        }
+        mUpload.classList.add('active');
+    });
 
     function closeUploadModal() {
         mUpload.classList.remove('active');
@@ -614,6 +650,12 @@
     }
     uploadClose.addEventListener('click', closeUploadModal);
     uploadBackdrop.addEventListener('click', closeUploadModal);
+
+    // ── Open/Close CS Alert Modal ───────────────────
+    function closeCsAlert() { mCsAlert.classList.remove('active'); }
+    csAlertClose.addEventListener('click', closeCsAlert);
+    csAlertBackdrop.addEventListener('click', closeCsAlert);
+    csAlertOk.addEventListener('click', closeCsAlert);
 
     // ── Open/Close Preview Modal ────────────────────
     function closePreviewModal() {

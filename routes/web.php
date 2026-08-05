@@ -58,6 +58,7 @@ Route::middleware('auth')->group(function () {
         // Spending Harian
         Route::resource('spending', SpendingHarianController::class)->names('spending');
         Route::patch('/spending/{spending}/approve', [SpendingHarianController::class, 'approve'])->name('spending.approve');
+        Route::post('/spending/change-date', [SpendingHarianController::class, 'changeDate'])->name('spending.change-date');
 
         // Top Up
         Route::get('/top-up', [TopUpController::class, 'index'])->name('topup.index');

@@ -153,8 +153,8 @@ class UserSeeder extends Seeder
             [
                 'email' => 'toha@awanna.id',
                 'password' => Hash::make('password'),
-                'nama' => 'toha CS',
-                'panggilan' => 'toha CS',
+                'nama' => 'Opus CS',
+                'panggilan' => 'Opus CS',
                 'role' => 'CS',
                 'nohp' => '0815-4444-0001',
                 'alamat' => 'Jl. Mangga Dua No. 7, Jakarta',
