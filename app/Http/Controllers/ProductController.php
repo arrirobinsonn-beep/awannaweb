@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Gudang;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\Supplier;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -13,7 +15,9 @@ class ProductController extends Controller
 {
     public function index(Request $request): View
     {
-        $query = Product::with('supplier')->latest();
+        // variants.product ikut di-eager load agar accessor margin tidak memicu N+1 query.
+        // variants (bukan paketItems) juga dipakai accessor stok induk (gabungan stok varian).
+        $query = Product::with('supplier', 'variants.product')->latest();
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -34,7 +38,15 @@ class ProductController extends Controller
         $products = $query->paginate(10)->withQueryString();
         $kategoris = Product::distinct()->pluck('kategori')->filter()->sort()->values();
 
-        return view('product.index', compact('products', 'kategoris'));
+        // Data modal varian (hpp & url store per produk) — dihitung di sini agar @json di view
+        // tidak perlu expression ber-koma (directive @json memecah argumen berdasarkan koma).
+        $pvProducts = $products->map(fn ($p) => [
+            'id' => $p->id,
+            'hpp' => (float) $p->harga_beli,
+            'store_url' => route('product.variant.store', $p),
+        ])->keyBy('id');
+
+        return view('product.index', compact('products', 'kategoris', 'pvProducts'));
     }
 
     public function create(): View
@@ -104,5 +116,58 @@ class ProductController extends Controller
 
         return redirect()->route('product.index')
             ->with('success', 'Produk berhasil dihapus.');
+    }
+
+    // ─── Varian Produk ───────────────────────────────────────────
+
+    public function variantStore(Request $request, Product $product): JsonResponse
+    {
+        $data = $request->validate([
+            'kode' => ['required', 'string', 'max:50', 'unique:product_variants,kode'],
+            'nama' => ['required', 'string', 'max:150'],
+            'stok' => ['required', 'integer', 'min:0'],
+            'pcs_per_pack' => ['required', 'integer', 'min:1'],
+            'harga_jual' => ['required', 'numeric', 'min:0'],
+            'status' => ['required', 'in:aktif,nonaktif'],
+        ]);
+
+        $data['product_id'] = $product->id;
+        $data['jenis'] = 'varian';
+
+        ProductVariant::create($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Variasi isi paket berhasil ditambahkan.',
+        ]);
+    }
+
+    public function variantUpdate(Request $request, ProductVariant $variant): JsonResponse
+    {
+        $data = $request->validate([
+            'kode' => ['required', 'string', 'max:50', 'unique:product_variants,kode,'.$variant->id],
+            'nama' => ['required', 'string', 'max:150'],
+            'stok' => ['required', 'integer', 'min:0'],
+            'pcs_per_pack' => ['required', 'integer', 'min:1'],
+            'harga_jual' => ['required', 'numeric', 'min:0'],
+            'status' => ['required', 'in:aktif,nonaktif'],
+        ]);
+
+        $variant->update($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Variasi isi paket berhasil diperbarui.',
+        ]);
+    }
+
+    public function variantDestroy(ProductVariant $variant): JsonResponse
+    {
+        $variant->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Varian berhasil dihapus.',
+        ]);
     }
 }

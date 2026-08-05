@@ -52,6 +52,11 @@ Route::middleware('auth')->group(function () {
         // Produk
         Route::resource('product', ProductController::class)->names('product');
 
+        // Varian Produk (kelola di dalam list expandable produk)
+        Route::post('/product/{product}/variant', [ProductController::class, 'variantStore'])->name('product.variant.store');
+        Route::put('/product/variant/{variant}', [ProductController::class, 'variantUpdate'])->name('product.variant.update');
+        Route::delete('/product/variant/{variant}', [ProductController::class, 'variantDestroy'])->name('product.variant.destroy');
+
         // Whitelist
         Route::resource('whitelist', WhitelistController::class)->names('whitelist');
 

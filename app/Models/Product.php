@@ -65,6 +65,12 @@ class Product extends Model
         return $this->hasMany(Purchase::class);
     }
 
+    /** Varian harga jual produk (kacamata berbagai ukuran, dll) */
+    public function variants(): HasMany
+    {
+        return $this->hasMany(ProductVariant::class);
+    }
+
     // ─── Accessor ─────────────────────────────────────────────
 
     public function getGambarUrlAttribute(): string
@@ -81,6 +87,20 @@ class Product extends Model
         }
 
         return round((($this->harga_jual - $this->harga_beli) / $this->harga_beli) * 100, 0);
+    }
+
+    /**
+     * Stok induk produk = gabungan stok semua varian (isi paket).
+     * Berlaku saat relasi variants di-load (halaman produk); jika tidak ada varian
+     * atau variants belum di-load, fallback ke kolom stok (jurnal).
+     */
+    public function getStokAttribute(): int
+    {
+        if ($this->relationLoaded('variants') && $this->variants->isNotEmpty()) {
+            return (int) $this->variants->sum('stok');
+        }
+
+        return (int) ($this->attributes['stok'] ?? 0);
     }
 
     // ─── Scope ────────────────────────────────────────────────
