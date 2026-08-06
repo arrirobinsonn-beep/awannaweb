@@ -404,7 +404,7 @@ class SpendingHarianController extends Controller
 
     // ─── Create ────────────────────────────────────────────────────
 
-    public function create(): View|RedirectResponse
+    public function create(Request $request): View|RedirectResponse
     {
         $user = Auth::user();
 
@@ -414,7 +414,7 @@ class SpendingHarianController extends Controller
                 ->with('error', 'Ups, kamu belum memiliki satupun akun WL. Silakan buat akun Whitelist terlebih dahulu.');
         }
 
-        $whitelists = Whitelist::aktif()->with('user');
+        $whitelists = Whitelist::aktif();
 
         if ($user->hasRole('advertiser')) {
             $whitelists = $whitelists->where('user_id', $user->id);
@@ -422,14 +422,18 @@ class SpendingHarianController extends Controller
             $whitelists = $whitelists->where('user_id', $user->advertiser_id);
         }
 
-        $whitelists = $whitelists->get(['id', 'nama', 'kode', 'user_id']);
+        $whitelists = $whitelists->get(['id', 'nama', 'kode', 'platform']);
 
         $products = Product::aktif()->get(['id', 'nama_produk', 'kode_produk']);
+
+        // Dukung deep-link ?tanggal= dari halaman index (tombol "＋" per tanggal)
+        $tanggal = $request->query('tanggal', now()->format('Y-m-d'));
 
         return view('spending.form', [
             'spending' => new SpendingHarian,
             'whitelists' => $whitelists,
             'products' => $products,
+            'tanggal' => $tanggal,
             'mode' => 'create',
         ]);
     }
@@ -589,13 +593,13 @@ class SpendingHarianController extends Controller
         $this->authorizeAccess($spending);
 
         $user = Auth::user();
-        $whitelists = Whitelist::aktif()->with('user');
+        $whitelists = Whitelist::aktif();
 
         if ($user->hasRole('advertiser')) {
             $whitelists = $whitelists->where('user_id', $user->id);
         }
 
-        $whitelists = $whitelists->get(['id', 'nama', 'kode', 'user_id']);
+        $whitelists = $whitelists->get(['id', 'nama', 'kode', 'platform']);
 
         $products = Product::aktif()->get(['id', 'nama_produk', 'kode_produk']);
 
@@ -679,6 +683,56 @@ class SpendingHarianController extends Controller
 
         return redirect()->route('spending.index')
             ->with('success', 'Data spending berhasil dihapus.');
+    }
+
+    // ─── Bulk Destroy (hapus massal via centang di detail spending) ─
+
+    public function bulkDestroy(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $user = Auth::user();
+        $ids = array_map('intval', $validated['ids']);
+
+        // Advertiser hanya boleh menghapus data miliknya sendiri
+        $query = SpendingHarian::with('whitelist')->whereIn('id', $ids);
+        if ($user->hasRole('advertiser')) {
+            $query->where('user_id', $user->id);
+        }
+
+        $rows = $query->get();
+        if ($rows->isEmpty()) {
+            return back()->with('error', 'Tidak ada data yang valid untuk dihapus.');
+        }
+
+        // ─── Notifikasi ke pemilik whitelist bila yang menghapus adalah CS ──
+        foreach ($rows as $spending) {
+            $this->notifyWhitelistOwner($spending);
+        }
+
+        DB::transaction(function () use ($rows) {
+            foreach ($rows as $spending) {
+                $spending->delete();
+            }
+        });
+
+        // ─── Rekalkulasi total_spending whitelist yang terdampak (batch) ──
+        $wlIds = $rows->pluck('whitelist_id')->unique()->values();
+        if ($wlIds->isNotEmpty()) {
+            $totals = SpendingHarian::whereIn('whitelist_id', $wlIds)
+                ->selectRaw('whitelist_id, COALESCE(SUM(spending),0) as total')
+                ->groupBy('whitelist_id')
+                ->pluck('total', 'whitelist_id');
+
+            Whitelist::whereIn('id', $wlIds)->get()->each(function ($wl) use ($totals) {
+                $wl->update(['total_spending' => (float) ($totals[$wl->id] ?? 0)]);
+            });
+        }
+
+        return back()->with('success', $rows->count().' data spending berhasil dihapus.');
     }
 
     // ─── Approve ───────────────────────────────────────────────────

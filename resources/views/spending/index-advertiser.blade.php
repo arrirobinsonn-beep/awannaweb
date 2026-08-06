@@ -167,6 +167,13 @@
                              onmouseenter="this.style.background='#f3f4f6'"
                              onmouseleave="this.style.background=''">
 
+                            {{-- Select-all whitelist produk ini (bulk delete) --}}
+                            <label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0;"
+                                   onclick="event.stopPropagation()"
+                                   title="Pilih semua whitelist produk ini untuk dihapus">
+                                <input type="checkbox" class="bd-check-all" data-prod="{{ $dateKey }}-{{ $prodId }}">
+                            </label>
+
                             <span id="chev-{{ $lvl2Id }}"
                                   style="display:inline-block;transition:transform .22s;
                                          color:var(--color-secondary);font-size:.75rem;flex-shrink:0;">▶</span>
@@ -232,11 +239,21 @@
                                 <tr onmouseenter="this.style.background='#f0fffe'"
                                     onmouseleave="this.style.background=''">
                                     <td style="padding:8px 20px 8px 36px;">
-                                        <div style="font-weight:600;font-size:.8rem;">
-                                            {{ $item->whitelist->nama ?? '-' }}
-                                        </div>
-                                        <div style="font-size:.66rem;color:#9ca3af;">
-                                            {{ $item->whitelist->kode ?? '' }}
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            {{-- Checkbox bulk delete --}}
+                                            <input type="checkbox" class="bd-check"
+                                                   data-id="{{ $item->id }}"
+                                                   data-prod="{{ $dateKey }}-{{ $prodId }}"
+                                                   title="Pilih untuk dihapus"
+                                                   style="flex-shrink:0;">
+                                            <div style="min-width:0;">
+                                                <div style="font-weight:600;font-size:.8rem;">
+                                                    {{ $item->whitelist->nama ?? '-' }}
+                                                </div>
+                                                <div style="font-size:.66rem;color:#9ca3af;">
+                                                    {{ $item->whitelist->kode ?? '' }}
+                                                </div>
+                                            </div>
                                         </div>
                                     </td>
                                     <td style="padding:8px 10px;text-align:right;font-weight:700;
@@ -425,6 +442,17 @@
     </div>
 </div>
 
+{{-- ═══════════════ BULK DELETE (centang produk/whitelist) ═══════════════ --}}
+<form method="POST" action="{{ route('spending.bulk-destroy') }}" id="bulk-delete-form">
+    @csrf
+    <div id="bulk-ids"></div>
+</form>
+<div class="bulk-bar" id="bulk-bar">
+    <span style="font-size:.8rem;font-weight:700;color:#b91c1c;">🗑 <span id="bulk-count">0</span> data terpilih</span>
+    <button type="button" id="bulk-clear" class="clay-btn clay-btn-outline" style="padding:6px 14px;font-size:.75rem;">Batal</button>
+    <button type="button" id="bulk-confirm" class="clay-btn clay-btn-danger" style="padding:6px 14px;font-size:.75rem;">Hapus Terpilih</button>
+</div>
+
 @push('styles')
 <style>
     /* ── Modal Ubah Tanggal ──────────────────────────── */
@@ -490,6 +518,23 @@
         color: #d1d5db !important; cursor: not-allowed; pointer-events: none;
         text-decoration: line-through;
     }
+
+    /* ── Bulk delete ────────────────────────────────────── */
+    .bulk-bar {
+        position: fixed; bottom: 20px; right: 24px; z-index: 60;
+        display: none; align-items: center; gap: 10px;
+        background: #fff; border: 1px solid #fecaca;
+        border-radius: 16px; padding: 10px 14px;
+        box-shadow: 0 12px 32px rgba(220,38,38,.18);
+        animation: bulkIn .25s ease;
+    }
+    @keyframes bulkIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: none; }
+    }
+    .bd-check { width: 16px; height: 16px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
+    .bd-check-all { width: 15px; height: 15px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
+    tr.bd-row-selected { background: #fff0f0 !important; }
 </style>
 @endpush
 
@@ -876,4 +921,95 @@ function toggle(id) {
 </script>
 @endpush
 @endif
+
+@push('scripts')
+<script>
+{{-- ── Bulk Delete (centang produk & whitelist) ─────────────────────────── --}}
+(function() {
+    'use strict';
+
+    var form = document.getElementById('bulk-delete-form');
+    if (!form) return;
+
+    var bar     = document.getElementById('bulk-bar');
+    var countEl = document.getElementById('bulk-count');
+    var selected = new Set();
+
+    function updateUI() {
+        var n = selected.size;
+        if (bar) bar.style.display = n ? 'flex' : 'none';
+        if (countEl) countEl.textContent = n;
+
+        // Update checkbox select-all per produk (tristate)
+        document.querySelectorAll('.bd-check-all').forEach(function(cb) {
+            var group = document.querySelectorAll('.bd-check[data-prod="' + cb.dataset.prod + '"]');
+            if (!group.length) { cb.checked = false; cb.indeterminate = false; return; }
+            var allChecked = Array.from(group).every(function(c) { return selected.has(c.dataset.id); });
+            var anyChecked = Array.from(group).some(function(c) { return selected.has(c.dataset.id); });
+            cb.checked = allChecked;
+            cb.indeterminate = anyChecked && !allChecked;
+        });
+
+        // Highlight baris terpilih
+        document.querySelectorAll('.bd-check').forEach(function(c) {
+            var row = c.closest('tr');
+            if (row) row.classList.toggle('bd-row-selected', selected.has(c.dataset.id));
+        });
+    }
+
+    // Checkbox per baris whitelist
+    document.querySelectorAll('.bd-check').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            if (cb.checked) selected.add(cb.dataset.id);
+            else selected.delete(cb.dataset.id);
+            updateUI();
+        });
+    });
+
+    // Checkbox select-all per produk
+    document.querySelectorAll('.bd-check-all').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            var group = document.querySelectorAll('.bd-check[data-prod="' + cb.dataset.prod + '"]');
+            group.forEach(function(c) {
+                if (cb.checked) selected.add(c.dataset.id);
+                else selected.delete(c.dataset.id);
+                c.checked = cb.checked;
+            });
+            updateUI();
+        });
+    });
+
+    // Batal (bersihkan semua pilihan)
+    var clearBtn = document.getElementById('bulk-clear');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            selected.clear();
+            document.querySelectorAll('.bd-check').forEach(function(c) { c.checked = false; });
+            updateUI();
+        });
+    }
+
+    // Konfirmasi & submit
+    var confirmBtn = document.getElementById('bulk-confirm');
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', function() {
+            if (!selected.size) return;
+            if (!confirm('Hapus ' + selected.size + ' data spending yang terpilih? Tindakan ini tidak dapat dibatalkan.')) return;
+            var box = document.getElementById('bulk-ids');
+            box.innerHTML = '';
+            selected.forEach(function(id) {
+                var inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'ids[]';
+                inp.value = id;
+                box.appendChild(inp);
+            });
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<span class="spinner-sm"></span> Menghapus...';
+            form.submit();
+        });
+    }
+})();
+</script>
+@endpush
 @endsection
