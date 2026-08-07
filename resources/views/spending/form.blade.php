@@ -3,7 +3,7 @@
 @section('page-title', $mode==='edit' ? '✏️ Edit Spending Harian' : '➕ Input Spending Harian')
 @section('page-subtitle', $mode==='edit'
     ? 'Edit data spending iklan harian — whitelist ' . ($spending->whitelist->nama ?? '') . ' (' . ($spending->whitelist->kode ?? '') . ')'
-    : 'Catat spending, lead & paid — pilih tanggal, seret produk, centang whitelist')
+    : 'Catat spending, lead & paid — pilih tanggal, seret produk, centang whitelist, atau upload Excel Meta Ads')
 
 @push('styles')
 <style>
@@ -42,7 +42,7 @@
     }
     .palette-item:active { cursor: grabbing; }
     .palette-item.is-dragging { opacity: .45; }
-    /* Produk yang sudah diseret ke area → hilang dari palette */
+    /* Produk yang sudah dipakai (di tanggal mana pun) → hilang dari palette */
     .palette-item.is-dropped { display: none !important; }
     .palette-item .palette-icon {
         width: 30px; height: 30px; flex-shrink: 0; border-radius: 9px;
@@ -88,6 +88,25 @@
         color: var(--color-primary, #FF6B6B);
         background: #fff7f7;
     }
+
+    /* ── Group per tanggal (multi-tanggal) ────────────────── */
+    .date-group { margin-bottom: 20px; }
+    .date-group:last-child { margin-bottom: 0; }
+    .date-group-head {
+        display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .date-chip {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: #1e1b2e; color: #fff;
+        font-size: .72rem; font-weight: 800; padding: 5px 12px; border-radius: 999px;
+    }
+    .date-group-meta { font-size: .7rem; color: #9ca3af; font-weight: 600; }
+    .date-group-remove {
+        margin-left: auto; border: none; background: transparent; color: #9ca3af;
+        font-size: .72rem; font-weight: 700; cursor: pointer;
+        padding: 5px 10px; border-radius: 8px; transition: all .15s;
+    }
+    .date-group-remove:hover { background: #fef2f2; color: #ef4444; }
 
     /* ── Grid produk: maks 3 per baris ────────────────────── */
     .product-grid {
@@ -268,6 +287,150 @@
         letter-spacing: .05em; color: #9ca3af;
     }
     .grand-totals .gt-value { font-weight: 800; font-size: .95rem; }
+
+    /* ── Tombol upload Excel ──────────────────────────────── */
+    .btn-upload {
+        display: inline-flex; align-items: center; gap: 8px;
+        background: linear-gradient(135deg, #16a34a, #22c55e);
+        color: #fff; border: none; border-radius: 12px;
+        box-shadow: 0 4px 0 #15803d;
+        padding: 10px 18px; font-size: .85rem; font-weight: 800; cursor: pointer;
+        transition: all .15s; font-family: inherit;
+    }
+    .btn-upload:hover { transform: translateY(2px); box-shadow: 0 2px 0 #15803d; }
+    .btn-upload:active { transform: translateY(3px); box-shadow: 0 1px 0 #15803d; }
+
+    /* ── Modal upload Excel Meta Ads ──────────────────────── */
+    #upload-modal {
+        position: fixed; inset: 0; z-index: 1100;
+        display: none; align-items: center; justify-content: center; padding: 20px;
+    }
+    #upload-modal.open { display: flex; }
+    .up-backdrop {
+        position: absolute; inset: 0;
+        background: rgba(30,27,46,.5); backdrop-filter: blur(3px);
+    }
+    .up-panel {
+        position: relative; width: 100%; max-width: 740px; max-height: 90vh;
+        display: flex; flex-direction: column;
+        background: #fff; border-radius: 20px;
+        box-shadow: 0 24px 60px rgba(0,0,0,.28);
+        overflow: hidden;
+        animation: cardIn .22s ease;
+    }
+    .up-head {
+        display: flex; align-items: flex-start; gap: 10px;
+        padding: 18px 22px; border-bottom: 1px solid #f3f4f6;
+        background: linear-gradient(135deg, #fff5f5, #fff);
+    }
+    .up-x {
+        margin-left: auto; border: none; background: #f3f4f6; color: #6b7280;
+        width: 30px; height: 30px; border-radius: 10px; cursor: pointer;
+        font-size: .8rem; font-weight: 800; transition: all .15s;
+    }
+    .up-x:hover { background: #fef2f2; color: #ef4444; }
+    .up-body { flex: 1; overflow-y: auto; padding: 18px 22px; }
+    .up-foot {
+        display: flex; justify-content: flex-end; gap: 10px;
+        padding: 14px 22px; border-top: 1px solid #f3f4f6;
+    }
+    .up-format-hint {
+        background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px;
+        padding: 10px 14px; font-size: .74rem; color: #6b7280; margin-bottom: 14px; line-height: 1.6;
+    }
+
+    /* ── Dua area upload bersampingan: Ads Manager + Regional ── */
+    .up-dual {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        align-items: stretch;
+    }
+    @media (max-width: 640px) { .up-dual { grid-template-columns: 1fr; } }
+    .up-col {
+        display: flex; flex-direction: column;
+        border: 1px solid #eef0f3; border-radius: 14px;
+        background: #fcfcfd; padding: 12px;
+    }
+    .up-col-head {
+        display: flex; align-items: center; gap: 6px;
+        margin-bottom: 8px; font-size: .78rem; font-weight: 800; color: #1e1b2e;
+    }
+    .up-col-head .tag {
+        background: #1e1b2e; color: #fff;
+        font-size: .6rem; font-weight: 800; padding: 2px 7px; border-radius: 999px;
+        flex-shrink: 0;
+    }
+    .up-col-head .sub {
+        font-size: .62rem; font-weight: 600; color: #9ca3af;
+        margin-left: auto; white-space: nowrap;
+    }
+    .up-col .up-dropzone {
+        flex: 1;
+        padding: 18px 12px;
+    }
+    .up-col .up-file-list { margin-top: 8px; }
+    .up-format-hint code {
+        background: #fff; border: 1px solid #e5e7eb; border-radius: 6px;
+        padding: 1px 6px; font-size: .68rem; color: #4338ca;
+    }
+    .up-dropzone {
+        border: 2px dashed #e5e7eb; border-radius: 16px; padding: 26px 16px;
+        text-align: center; cursor: pointer; transition: all .15s;
+    }
+    .up-dropzone:hover, .up-dropzone.drag { border-color: var(--color-primary, #FF6B6B); background: #fff7f7; }
+    .up-file-chip {
+        display: flex; align-items: center; gap: 8px;
+        background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px;
+        padding: 8px 12px; font-size: .76rem; margin-top: 8px;
+    }
+    .up-file-chip .x {
+        margin-left: auto; border: none; background: transparent; color: #9ca3af;
+        cursor: pointer; font-size: .8rem; font-weight: 800;
+    }
+    .up-file-chip .x:hover { color: #ef4444; }
+    .up-summary {
+        margin-top: 14px; font-size: .78rem; font-weight: 700; color: #166534;
+        background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 9px 12px;
+    }
+    .up-result {
+        border: 1px solid #e5e7eb; border-radius: 14px; margin-top: 12px; overflow: hidden;
+    }
+    .up-result-head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 11px 14px; background: #fafafa; border-bottom: 1px solid #f3f4f6; flex-wrap: wrap;
+    }
+    .up-result-head .name {
+        font-weight: 700; font-size: .78rem; color: #1e1b2e;
+        min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .up-result-body { padding: 12px 14px; }
+    .up-group { border-top: 1px solid #f3f4f6; padding: 12px 14px; }
+    .up-group-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .up-group-check { display: flex; align-items: center; gap: 6px; font-size: .75rem; font-weight: 700; color: #1e1b2e; cursor: pointer; }
+    .up-prods { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .up-prod-chip {
+        background: #fff7f7; border: 1px solid #fecaca; color: #9a3412;
+        border-radius: 8px; padding: 3px 10px; font-size: .7rem; font-weight: 600;
+    }
+    .up-err-msg { color: #dc2626; font-size: .78rem; padding: 12px 14px; }
+    .up-warn {
+        background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+        font-size: .72rem; border-radius: 8px; padding: 8px 10px;
+    }
+    .up-warn code { background: #fff; border: 1px solid #fde68a; border-radius: 5px; padding: 0 4px; font-size: .66rem; }
+
+    /* ── Toast (flash JS) ─────────────────────────────────── */
+    .sp-toast {
+        position: fixed; bottom: 26px; left: 50%;
+        transform: translateX(-50%) translateY(24px);
+        background: #1e1b2e; color: #fff; font-size: .8rem; font-weight: 600;
+        padding: 13px 22px; border-radius: 14px;
+        box-shadow: 0 12px 34px rgba(0,0,0,.3);
+        opacity: 0; transition: all .25s; z-index: 1300;
+        max-width: 92vw; text-align: center;
+    }
+    .sp-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
 @endpush
 
@@ -279,16 +442,29 @@
 
     {{-- ═══ Langkah 1: Pilih Tanggal ═══════════════════════════ --}}
     <div class="clay-card" style="padding:20px;margin-bottom:14px;" data-reveal>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
             <span class="step-chip">1 · Pilih Tanggal</span>
-            <span style="font-size:.72rem;color:#9ca3af;">Pilih tanggal terlebih dahulu — produk akan muncul setelahnya</span>
+            <span style="font-size:.72rem;color:#9ca3af;">Pilih tanggal untuk drag & drop manual — atau langsung upload Excel Meta Ads</span>
+            @if($mode!=='edit')
+            <span style="margin-left:auto;">
+                <button type="button" id="btn-open-upload" class="btn-upload" title="Unggah export Meta Ads Manager (.xlsx)">
+                    📤 Upload Excel Meta Ads
+                </button>
+            </span>
+            @endif
         </div>
-        <input type="date" name="tanggal" id="input-tanggal"
-               value="{{ old('tanggal', $mode==='edit' ? $spending->tanggal->format('Y-m-d') : ($tanggal ?? now()->format('Y-m-d'))) }}"
-               class="clay-input" style="max-width:340px;font-size:1rem;font-weight:700;" required>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <input type="date" name="tanggal" id="input-tanggal"
+                   value="{{ old('tanggal', $mode==='edit' ? $spending->tanggal->format('Y-m-d') : ($tanggal ?? now()->format('Y-m-d'))) }}"
+                   class="clay-input" style="max-width:340px;font-size:1rem;font-weight:700;" required>
+            @if($mode!=='edit')
+            <span style="font-size:.7rem;color:#9ca3af;" id="drop-count">0 produk</span>
+            @endif
+        </div>
         @if($mode!=='edit')
         <p style="font-size:.72rem;color:#9ca3af;margin-top:10px;">
-            📌 Langkah berikutnya: <strong>seret produk</strong> dari kotak produk ke area di bawah, centang whitelist yang mengiklankan produk itu, lalu klik <strong>"Catat Spending"</strong>.
+            📌 <strong>Manual:</strong> seret produk dari kotak di bawah ke area, centang whitelist, klik <strong>"Catat Spending"</strong>.
+            &nbsp;·&nbsp; 📤 <strong>Upload:</strong> cukup pilih file export Meta Ads — produk, whitelist & spending terisi otomatis, tinggal isi lead & paid.
         </p>
         @endif
     </div>
@@ -334,19 +510,18 @@
             <span class="step-chip" style="background:#fff0f0;color:#dc2626;">3 · Catat Spending</span>
             <span style="font-size:.72rem;color:#9ca3af;">
                 @if($mode==='edit') Ubah nilai spending, lead & paid di bawah ini. @else
-                Produk maksimal 3 per baris — produk berikutnya otomatis ke baris baru. @endif
+                Data otomatis terpisah per tanggal — produk maksimal 3 per baris. @endif
             </span>
-            @if($mode!=='edit')
-            <span style="margin-left:auto;font-size:.72rem;color:#9ca3af;" id="drop-count">0 produk</span>
-            @endif
         </div>
 
         <div id="drop-zone" class="drop-zone">
             <div id="drop-placeholder" class="drop-placeholder">
                 🖐️ <strong>Seret produk</strong> dari kotak di atas ke sini
-                <div style="font-size:.68rem;font-weight:500;margin-top:4px;">Setelah produk masuk, centang whitelist-nya lalu klik "Catat Spending"</div>
+                <div style="font-size:.68rem;font-weight:500;margin-top:4px;">
+                    Setelah produk masuk, centang whitelist-nya lalu klik "Catat Spending" — atau gunakan 📤 Upload Excel Meta Ads
+                </div>
             </div>
-            <div id="product-cards" class="product-grid"></div>
+            <div id="date-groups"></div>
         </div>
 
         <div class="grand-totals" id="grand-totals" style="margin-top:16px;display:none;">
@@ -373,7 +548,7 @@
         <a href="{{ route('spending.index') }}" class="clay-btn clay-btn-outline" data-page-link>Batal</a>
     </div>
     <p style="font-size:.72rem;color:#9ca3af;margin-top:12px;text-align:center;">
-        Semua data akan disimpan dalam 1 kali aksi. Pastikan data sudah benar sebelum menyimpan.
+        Semua data (termasuk beberapa tanggal sekaligus) akan disimpan dalam 1 kali aksi. Pastikan data sudah benar sebelum menyimpan.
     </p>
 </form>
 @endsection
@@ -409,7 +584,7 @@
     var paletteSearch = document.getElementById('palette-search');
     var dropZone      = document.getElementById('drop-zone');
     var placeholderEl = document.getElementById('drop-placeholder');
-    var cardsEl       = document.getElementById('product-cards');
+    var groupsEl      = document.getElementById('date-groups');
     var submitBtn     = document.getElementById('btn-submit');
     var dropCount     = document.getElementById('drop-count');
 
@@ -418,16 +593,35 @@
     // Whitelist milik advertiser (id, nama, kode, platform)
     var WL_LIST = @json($whitelists);
 
-    // state: productId -> { name, phase(1|2), checked:Set, values:{wlId:{spending,lead,paid}} }
-    var state = new Map();
+    // ─── State: group per tanggal ──────────────────────────
+    // groups: Map<tanggal, { tanggal, wrap, head, grid, cards: Map<pid, st> }>
+    // st = { name, phase(1|2), checked:Set, values:{wlId:{spending,lead,paid}}, wlFallback? }
+    var groups = new Map();
+    var dragTgl = null;
+
+    var BULAN_INDO = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
 
     function fmtNum(n) { return Number(n || 0).toLocaleString('id-ID'); }
+    function fmtTgl(s) {
+        if (!s) return '';
+        var p = s.split('-');
+        return parseInt(p[2], 10) + ' ' + BULAN_INDO[parseInt(p[1], 10) - 1] + ' ' + p[0];
+    }
     function esc(s) {
         return String(s == null ? '' : s)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
     function attr(s) { return esc(s); }
+    function showFlash(msg) {
+        var t = document.createElement('div');
+        t.className = 'sp-toast';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        requestAnimationFrame(function() { t.classList.add('show'); });
+        setTimeout(function() { t.classList.remove('show'); }, 4200);
+        setTimeout(function() { t.remove(); }, 4600);
+    }
 
     // ─── Langkah 1: tampilkan palette setelah tanggal dipilih ──
     function showPalette() { if (paletteWrap) paletteWrap.style.display = ''; }
@@ -440,7 +634,7 @@
         if (tanggalInput.value) showPalette();
     }
 
-    // ─── Filter produk di palette (produk yang sudah diseret tetap tersembunyi) ─
+    // ─── Filter produk di palette (produk yang sudah dipakai tetap tersembunyi) ─
     if (paletteSearch) {
         paletteSearch.addEventListener('input', function() {
             var q = this.value.trim().toLowerCase();
@@ -451,6 +645,96 @@
         });
     }
 
+    // ─── Group per tanggal ─────────────────────────────────
+    function getOrCreateGroup(tgl) {
+        if (groups.has(tgl)) return groups.get(tgl);
+        var g = { tanggal: tgl, cards: new Map() };
+
+        var wrap = document.createElement('div');
+        wrap.className = 'date-group';
+        wrap.dataset.tgl = tgl;
+
+        var head = document.createElement('div');
+        head.className = 'date-group-head';
+        head.innerHTML =
+            '<span class="date-chip">📅 ' + fmtTgl(tgl) + '</span>'
+            + '<span class="date-group-meta">0 produk</span>'
+            + '<button type="button" class="date-group-remove" title="Hapus semua produk tanggal ini">🗑 Hapus tanggal</button>';
+
+        var grid = document.createElement('div');
+        grid.className = 'product-grid';
+
+        wrap.appendChild(head);
+        wrap.appendChild(grid);
+        groupsEl.appendChild(wrap);
+
+        g.wrap = wrap; g.head = head; g.grid = grid;
+        groups.set(tgl, g);
+
+        head.querySelector('.date-group-remove').addEventListener('click', function() {
+            if (g.cards.size > 0 && !confirm('Hapus semua produk pada tanggal ' + fmtTgl(g.tanggal) + ' dari area?')) return;
+            removeGroup(g.tanggal);
+        });
+
+        updatePlaceholder();
+        return g;
+    }
+
+    function removeGroup(tgl) {
+        var g = groups.get(tgl);
+        if (!g) return;
+        g.wrap.remove();
+        groups.delete(tgl);
+        refreshPalette();
+        updatePlaceholder();
+        updateDropCount();
+        updateGroupMeta();
+        updateGrandTotals();
+    }
+
+    function updateGroupMeta() {
+        groups.forEach(function(g) {
+            var cards = g.grid.querySelectorAll('.prod-card').length;
+            var sp = 0;
+            g.grid.querySelectorAll('.wl-spending').forEach(function(inp) { sp += parseFloat(inp.value) || 0; });
+            var meta = g.wrap.querySelector('.date-group-meta');
+            if (meta) meta.textContent = cards + ' produk · Rp ' + fmtNum(sp);
+        });
+    }
+
+    function updatePlaceholder() {
+        var hasAny = groups.size > 0 || dropSlot.classList.contains('active');
+        if (placeholderEl) placeholderEl.style.display = hasAny ? 'none' : '';
+    }
+
+    function updateDropCount() {
+        if (!dropCount) return;
+        var total = 0;
+        groups.forEach(function(g) { total += g.grid.querySelectorAll('.prod-card').length; });
+        dropCount.textContent = total + ' produk';
+    }
+
+    // ─── Palette state (produk yang dipakai di tanggal mana pun → hilang) ─
+    function isProductUsed(pid) {
+        var used = false;
+        groups.forEach(function(g) { if (g.cards.has(String(pid))) used = true; });
+        return used;
+    }
+    function refreshPalette() {
+        if (!paletteEl) return;
+        paletteEl.querySelectorAll('.palette-item').forEach(function(item) {
+            item.classList.toggle('is-dropped', isProductUsed(item.dataset.id));
+        });
+        updatePaletteEmptyHint();
+    }
+    function updatePaletteEmptyHint() {
+        var hint = document.getElementById('palette-empty-hint');
+        if (!hint || !paletteEl) return;
+        var total = paletteEl.querySelectorAll('.palette-item').length;
+        var used = paletteEl.querySelectorAll('.palette-item.is-dropped').length;
+        hint.style.display = (total > 0 && used >= total) ? '' : 'none';
+    }
+
     // ─── Drag & drop dari palette ─────────────────────────
     function makeDraggable() {
         if (!paletteEl) return;
@@ -459,6 +743,12 @@
             item.dataset.dragBound = '1';
 
             item.addEventListener('dragstart', function(e) {
+                if (!tanggalInput || !tanggalInput.value) {
+                    e.preventDefault();
+                    alert('Pilih tanggal terlebih dahulu di Langkah 1.');
+                    return;
+                }
+                dragTgl = tanggalInput.value;
                 e.dataTransfer.setData('text/plain', JSON.stringify({ id: item.dataset.id, nama: item.dataset.nama }));
                 e.dataTransfer.effectAllowed = 'copy';
                 item.classList.add('is-dragging');
@@ -466,10 +756,19 @@
             item.addEventListener('dragend', function() {
                 item.classList.remove('is-dragging');
                 hideDropSlot();
+                if (dragTgl) {
+                    var g = groups.get(dragTgl);
+                    if (g && g.cards.size === 0) removeGroup(dragTgl);
+                    dragTgl = null;
+                }
             });
             item.addEventListener('click', function(e) {
                 if (e.target.closest('.palette-add')) {
-                    addProductCard(item.dataset.id, item.dataset.nama);
+                    if (!tanggalInput || !tanggalInput.value) {
+                        alert('Pilih tanggal terlebih dahulu di Langkah 1.');
+                        return;
+                    }
+                    addProductCard(item.dataset.id, item.dataset.nama, tanggalInput.value);
                 }
             });
             var addChip = item.querySelector('.palette-add');
@@ -477,15 +776,19 @@
                 addChip.addEventListener('keydown', function(e) {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        addProductCard(item.dataset.id, item.dataset.nama);
+                        if (!tanggalInput || !tanggalInput.value) {
+                            alert('Pilih tanggal terlebih dahulu di Langkah 1.');
+                            return;
+                        }
+                        addProductCard(item.dataset.id, item.dataset.nama, tanggalInput.value);
                     }
                 });
             }
         });
     }
 
-    // Slot indikator posisi drop — muncul saat drag, menempati sel berikutnya
-    // di grid (otomatis turun ke baris baru jika 3 produk sudah penuh).
+    // Slot indikator posisi drop — muncul di grid group tanggal aktif,
+    // otomatis turun ke baris baru jika 3 produk sudah penuh.
     var dropSlot = document.createElement('div');
     dropSlot.className = 'drop-slot';
     dropSlot.id = 'drop-slot';
@@ -493,12 +796,10 @@
         + '<span style="font-size:1.2rem;">⬇</span>'
         + '<span>Lepaskan di sini — produk berikutnya turun ke baris baru</span>'
         + '</div>';
-    cardsEl.appendChild(dropSlot);
 
-    function showDropSlot() {
-        if (!dropSlot) return;
-        if (isEditMode) return;
-        if (cardsEl.querySelectorAll('.prod-card').length === 0) return;
+    function showDropSlot(g) {
+        if (!dropSlot || isEditMode) return;
+        g.grid.appendChild(dropSlot);
         dropSlot.classList.add('active');
     }
     function hideDropSlot() {
@@ -510,7 +811,11 @@
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
             dropZone.classList.add('drop-active');
-            showDropSlot();
+            if (dragTgl) {
+                var g = getOrCreateGroup(dragTgl);
+                showDropSlot(g);
+                updatePlaceholder();
+            }
         });
         dropZone.addEventListener('dragleave', function(e) {
             if (!dropZone.contains(e.relatedTarget)) {
@@ -523,57 +828,33 @@
             dropZone.classList.remove('drop-active');
             hideDropSlot();
             var raw = e.dataTransfer.getData('text/plain');
-            if (!raw) return;
+            if (!raw || !dragTgl) return;
             try {
                 var d = JSON.parse(raw);
-                addProductCard(d.id, d.nama);
+                addProductCard(d.id, d.nama, dragTgl);
             } catch (err) { /* ignore */ }
         });
     }
 
-    // ─── Kartu produk ─────────────────────────────────────
-    function getCardNumber(pid) {
-        var cards = Array.from(cardsEl.querySelectorAll('.prod-card'));
+    // ─── Kartu produk (per group) ──────────────────────────
+    function getCardNumber(g, pid) {
+        var cards = Array.from(g.grid.querySelectorAll('.prod-card'));
         var idx = cards.findIndex(function(c) { return c.dataset.pid === String(pid); });
         return idx + 1;
     }
 
-    function updateCardNumbers() {
-        Array.from(cardsEl.querySelectorAll('.prod-card')).forEach(function(card, i) {
+    function updateCardNumbers(g) {
+        Array.from(g.grid.querySelectorAll('.prod-card')).forEach(function(card, i) {
             var b = card.querySelector('.prod-card-badge');
             if (b) b.textContent = '#' + (i + 1);
         });
     }
 
-    function updatePlaceholder() {
-        var has = cardsEl.querySelectorAll('.prod-card').length > 0;
-        if (placeholderEl) placeholderEl.style.display = has ? 'none' : '';
-    }
-
-    function updateDropCount() {
-        if (dropCount) dropCount.textContent = cardsEl.querySelectorAll('.prod-card').length + ' produk';
-    }
-
-    // Tampilkan/sembunyikan item produk di palette (true = muncul lagi)
-    function setPaletteItemState(pid, visible) {
-        if (!paletteEl) return;
-        var item = paletteEl.querySelector('.palette-item[data-id="' + String(pid) + '"]');
-        if (item) item.classList.toggle('is-dropped', !visible);
-        updatePaletteEmptyHint();
-    }
-
-    function updatePaletteEmptyHint() {
-        var hint = document.getElementById('palette-empty-hint');
-        if (!hint || !paletteEl) return;
-        var total = paletteEl.querySelectorAll('.palette-item').length;
-        var dropped = paletteEl.querySelectorAll('.palette-item.is-dropped').length;
-        hint.style.display = (total > 0 && dropped >= total) ? '' : 'none';
-    }
-
-    function addProductCard(pid, name) {
-        if (!pid) return;
-        if (state.has(String(pid))) {
-            var ex = cardsEl.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
+    function addProductCard(pid, name, tgl) {
+        if (!pid || !tgl) return;
+        var g = getOrCreateGroup(tgl);
+        if (g.cards.has(String(pid))) {
+            var ex = g.grid.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
             if (ex) {
                 ex.style.animation = 'none';
                 ex.offsetHeight;
@@ -583,18 +864,51 @@
             return;
         }
 
-        state.set(String(pid), { name: name || 'Produk', phase: 1, checked: new Set(), values: {} });
+        g.cards.set(String(pid), { name: name || 'Produk', phase: 1, checked: new Set(), values: {} });
 
         var card = document.createElement('div');
         card.className = 'prod-card';
         card.dataset.pid = String(pid);
-        cardsEl.appendChild(card);
+        g.grid.appendChild(card);
 
-        // Produk yang sudah diseret hilang dari pilihan palette
-        setPaletteItemState(pid, false);
-
+        refreshPalette();
         updatePlaceholder();
-        renderCard(String(pid));
+        renderCard(g, String(pid));
+    }
+
+    // Tambah produk dari hasil upload Excel (langsung fase 2, whitelist dicentang + spending/lead/paid terisi)
+    function addProductImport(pid, name, spending, wl, tgl, lead, paid) {
+        if (!pid || !tgl) return;
+        var g = getOrCreateGroup(tgl);
+        var wid = String(wl.id);
+
+        var st = g.cards.get(String(pid));
+        if (st) {
+            st.checked.add(wid);
+            st.values[wid] = { spending: spending, lead: lead ?? '', paid: paid ?? '' };
+            st.phase = 2;
+            renderCard(g, String(pid));
+            return;
+        }
+
+        st = {
+            name: name || 'Produk',
+            phase: 2,
+            checked: new Set([wid]),
+            values: {},
+            wlFallback: { id: wl.id, nama: wl.nama || ('Whitelist #' + wl.id), kode: wl.kode || '' }
+        };
+        st.values[wid] = { spending: spending, lead: lead ?? '', paid: paid ?? '' };
+        g.cards.set(String(pid), st);
+
+        var card = document.createElement('div');
+        card.className = 'prod-card';
+        card.dataset.pid = String(pid);
+        g.grid.appendChild(card);
+
+        refreshPalette();
+        updatePlaceholder();
+        renderCard(g, String(pid));
     }
 
     function findWl(wid, fallback) {
@@ -604,10 +918,10 @@
         return fallback || null;
     }
 
-    function renderCard(pid) {
-        var st = state.get(pid);
+    function renderCard(g, pid) {
+        var st = g.cards.get(pid);
         if (!st) return;
-        var card = cardsEl.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
+        var card = g.grid.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
         if (!card) return;
 
         var headHtml, bodyHtml, footHtml;
@@ -627,7 +941,7 @@
             }).join('');
 
             headHtml =
-                '<span class="prod-card-badge">#' + getCardNumber(pid) + '</span>'
+                '<span class="prod-card-badge">#' + getCardNumber(g, pid) + '</span>'
                 + '<span class="prod-card-title">📦 ' + esc(st.name) + '</span>'
                 + '<button type="button" class="btn-delete-prod" title="Hapus produk">✕</button>';
 
@@ -664,7 +978,7 @@
             }).join('');
 
             headHtml =
-                '<span class="prod-card-badge">#' + getCardNumber(pid) + '</span>'
+                '<span class="prod-card-badge">#' + getCardNumber(g, pid) + '</span>'
                 + '<span class="prod-card-title">📦 ' + esc(st.name) + '</span>'
                 + '<span class="clay-badge clay-badge-green" style="flex-shrink:0;">✅ ' + st.checked.size + ' tercatat</span>'
                 + '<button type="button" class="btn-delete-prod" title="Hapus produk">✕</button>';
@@ -693,15 +1007,16 @@
             + '<div class="prod-card-body">' + bodyHtml + '</div>'
             + (footHtml ? '<div class="prod-card-foot">' + footHtml + '</div>' : '');
 
-        bindCardEvents(pid);
-        updateCardNumbers();
+        bindCardEvents(g, pid);
+        updateCardNumbers(g);
         updateDropCount();
+        updateGroupMeta();
         updateGrandTotals();
     }
 
-    function updatePhase1UI(pid) {
-        var st = state.get(pid);
-        var card = cardsEl.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
+    function updatePhase1UI(g, pid) {
+        var st = g.cards.get(pid);
+        var card = g.grid.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
         if (!st || !card) return;
         var countEl = card.querySelector('#wl-count-' + pid);
         if (countEl) countEl.textContent = '(' + st.checked.size + ' dipilih)';
@@ -709,8 +1024,8 @@
         if (btn) btn.disabled = st.checked.size === 0;
     }
 
-    function updateProductTotals(pid) {
-        var card = cardsEl.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
+    function updateProductTotals(g, pid) {
+        var card = g.grid.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
         if (!card) return;
         var sp = 0, lead = 0, paid = 0;
         card.querySelectorAll('.wl-box').forEach(function(box) {
@@ -738,11 +1053,13 @@
 
     function updateGrandTotals() {
         var sp = 0, lead = 0, paid = 0, boxes = 0;
-        cardsEl.querySelectorAll('.wl-box').forEach(function(box) {
-            sp += parseFloat(box.querySelector('.wl-spending').value) || 0;
-            lead += parseInt(box.querySelector('.wl-lead').value) || 0;
-            paid += parseInt(box.querySelector('.wl-paid').value) || 0;
-            boxes++;
+        groups.forEach(function(g) {
+            g.grid.querySelectorAll('.wl-box').forEach(function(box) {
+                sp += parseFloat(box.querySelector('.wl-spending').value) || 0;
+                lead += parseInt(box.querySelector('.wl-lead').value) || 0;
+                paid += parseInt(box.querySelector('.wl-paid').value) || 0;
+                boxes++;
+            });
         });
         var gt = document.getElementById('grand-totals');
         if (gt) {
@@ -756,9 +1073,9 @@
         }
     }
 
-    function bindCardEvents(pid) {
-        var st = state.get(pid);
-        var card = cardsEl.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
+    function bindCardEvents(g, pid) {
+        var st = g.cards.get(pid);
+        var card = g.grid.querySelector('.prod-card[data-pid="' + String(pid) + '"]');
         if (!card || !st) return;
 
         // ── Hapus kartu produk ──
@@ -766,13 +1083,17 @@
         if (delBtn) {
             delBtn.addEventListener('click', function() {
                 if (!confirm('Hapus produk "' + st.name + '" dari area?')) return;
-                state.delete(pid);
+                g.cards.delete(pid);
                 card.remove();
-                // Produk kembali ke pilihan palette
-                setPaletteItemState(pid, true);
+                refreshPalette();
+                if (g.cards.size === 0) {
+                    removeGroup(g.tanggal);
+                    return;
+                }
                 updatePlaceholder();
-                updateCardNumbers();
+                updateCardNumbers(g);
                 updateDropCount();
+                updateGroupMeta();
                 updateGrandTotals();
             });
         }
@@ -785,7 +1106,7 @@
                     if (cb.checked) st.checked.add(String(wid));
                     else st.checked.delete(String(wid));
                     cb.closest('.wl-check').classList.toggle('checked', cb.checked);
-                    updatePhase1UI(pid);
+                    updatePhase1UI(g, pid);
                 });
             });
 
@@ -795,11 +1116,11 @@
                 catat.addEventListener('click', function() {
                     if (st.checked.size === 0) return;
                     st.phase = 2;
-                    renderCard(pid);
+                    renderCard(g, pid);
                 });
             }
         } else {
-            // ── Kotak whitelist: input + preview + hapus ──
+            // ── Kotak whitelist: input + hapus ──
             card.querySelectorAll('.wl-box').forEach(function(box) {
                 var wid = box.dataset.wlid;
                 var spInp = box.querySelector('.wl-spending');
@@ -811,7 +1132,8 @@
                     st.values[wid].spending = spInp.value;
                     st.values[wid].lead = leadInp.value;
                     st.values[wid].paid = paidInp.value;
-                    updateProductTotals(pid);
+                    updateProductTotals(g, pid);
+                    updateGroupMeta();
                     updateGrandTotals();
                 };
                 spInp.addEventListener('input', onInput);
@@ -822,17 +1144,17 @@
                     st.checked.delete(String(wid));
                     delete st.values[wid];
                     if (st.checked.size === 0) {
-                        // Semua whitelist dihapus → kembali ke fase 1
                         st.phase = 1;
-                        renderCard(pid);
+                        renderCard(g, pid);
                     } else {
-                        renderCard(pid);
+                        renderCard(g, pid);
                     }
                 });
             });
 
-            // Tampilkan total & metrik segera (penting untuk prefill edit mode)
-            updateProductTotals(pid);
+            // Tampilkan total & metrik segera (penting untuk prefill edit mode / import)
+            updateProductTotals(g, pid);
+            updateGroupMeta();
             updateGrandTotals();
 
             // ── Kembali ke pilihan whitelist ──
@@ -840,7 +1162,7 @@
             if (back) {
                 back.addEventListener('click', function() {
                     st.phase = 1;
-                    renderCard(pid);
+                    renderCard(g, pid);
                 });
             }
         }
@@ -871,16 +1193,17 @@
         hidePalette();
 
         // Buat kartu produk langsung ke fase 2
+        var g = getOrCreateGroup(data.tanggal);
         var pid = String(data.product_id);
         var wid = String(data.whitelist_id);
-        state.set(pid, {
+        g.cards.set(pid, {
             name: data.product_name || 'Produk',
             phase: 2,
             checked: new Set([wid]),
             values: {},
             wlFallback: { id: wid, nama: data.whitelist_name || 'Whitelist #' + wid, kode: data.whitelist_code || '' }
         });
-        state.get(pid).values[wid] = {
+        g.cards.get(pid).values[wid] = {
             spending: data.spending,
             lead: data.lead,
             paid: data.paid
@@ -889,9 +1212,14 @@
         var card = document.createElement('div');
         card.className = 'prod-card';
         card.dataset.pid = pid;
-        cardsEl.appendChild(card);
+        g.grid.appendChild(card);
+
+        // Tidak boleh hapus satu-satunya tanggal di edit mode
+        var rm = g.wrap.querySelector('.date-group-remove');
+        if (rm) rm.style.display = 'none';
+
         updatePlaceholder();
-        renderCard(pid);
+        renderCard(g, pid);
     }
 
     // ─── Submit ─────────────────────────────────────────────
@@ -909,39 +1237,33 @@
 
     if (submitBtn) {
         submitBtn.addEventListener('click', function() {
-            var tanggal = tanggalInput.value;
-            if (!tanggal) {
-                alert('Pilih tanggal terlebih dahulu.');
-                tanggalInput.focus();
-                return;
-            }
-
             removeReindexInputs();
 
             if (!isEditMode) {
-                // Create: kumpulkan items[] dari semua kartu
+                // Create: kumpulkan items[] dari semua group tanggal
                 var items = [];
-                cardsEl.querySelectorAll('.prod-card').forEach(function(card) {
-                    card.querySelectorAll('.wl-box').forEach(function(box) {
-                        var sp = box.querySelector('.wl-spending').value;
-                        var lead = box.querySelector('.wl-lead').value;
-                        var paid = box.querySelector('.wl-paid').value;
-                        items.push({
-                            product_id: card.dataset.pid,
-                            whitelist_id: box.dataset.wlid,
-                            spending: sp === '' ? '0' : sp,
-                            lead: lead === '' ? '0' : lead,
-                            paid: paid === '' ? '0' : paid
+                groups.forEach(function(g) {
+                    g.grid.querySelectorAll('.prod-card').forEach(function(card) {
+                        card.querySelectorAll('.wl-box').forEach(function(box) {
+                            items.push({
+                                tanggal: g.tanggal,
+                                product_id: card.dataset.pid,
+                                whitelist_id: box.dataset.wlid,
+                                spending: box.querySelector('.wl-spending').value === '' ? '0' : box.querySelector('.wl-spending').value,
+                                lead: box.querySelector('.wl-lead').value === '' ? '0' : box.querySelector('.wl-lead').value,
+                                paid: box.querySelector('.wl-paid').value === '' ? '0' : box.querySelector('.wl-paid').value
+                            });
                         });
                     });
                 });
 
                 if (items.length === 0) {
-                    alert('Belum ada data spending. Seret produk, centang whitelist, lalu klik "Catat Spending".');
+                    alert('Belum ada data spending. Seret produk / upload Excel, centang whitelist, lalu klik "Catat Spending".');
                     return;
                 }
 
                 items.forEach(function(it, idx) {
+                    addHidden('items[' + idx + '][tanggal]', it.tanggal);
                     addHidden('items[' + idx + '][product_id]', it.product_id);
                     addHidden('items[' + idx + '][whitelist_id]', it.whitelist_id);
                     addHidden('items[' + idx + '][spending]', it.spending);
@@ -949,8 +1271,9 @@
                     addHidden('items[' + idx + '][paid]', it.paid);
                 });
             } else {
-                // Edit: flat fields
-                var card = cardsEl.querySelector('.prod-card');
+                // Edit: flat fields (tanggal dari hidden input)
+                var card = null;
+                groups.forEach(function(g) { if (!card) card = g.grid.querySelector('.prod-card'); });
                 var box = card ? card.querySelector('.wl-box') : null;
                 if (!card || !box) {
                     alert('Data tidak ditemukan.');
@@ -969,12 +1292,466 @@
         });
     }
 
+    // ─── Modal Upload Excel Meta Ads ────────────────────────
+    var PARSE_URL = "{{ route('spending.parse-upload') }}";
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    var CSRF = csrfMeta ? csrfMeta.getAttribute('content') : '';
+
+    var upFiles = [];      // File ads manager terpilih
+    var regFiles = [];     // File regional terpilih (lead & paid)
+    var upCombined = [];   // hasil gabungan dari server
+    var upRegUnmatched = [];
+    var upRegUnmatchedCount = 0;
+
+    function initUploadModal() {
+        var modal  = document.getElementById('upload-modal');
+        if (!modal) return;
+
+        var closeBtn  = document.getElementById('up-close');
+        var cancelBtn = document.getElementById('up-cancel');
+        var backdrop  = document.querySelector('#upload-modal .up-backdrop');
+        var browseBtn = document.getElementById('up-browse');
+        var fileInput = document.getElementById('up-file-input');
+        var dz        = document.getElementById('up-dropzone');
+        var regBrowseBtn = document.getElementById('reg-browse');
+        var regFileInput = document.getElementById('reg-file-input');
+        var regDz        = document.getElementById('reg-dropzone');
+        var parseBtn  = document.getElementById('up-parse');
+        var applyBtn  = document.getElementById('up-apply');
+
+        function open() {
+            modal.classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+        function close() {
+            modal.classList.remove('open');
+            document.body.style.overflow = '';
+        }
+
+        var openBtn = document.getElementById('btn-open-upload');
+        if (openBtn) openBtn.addEventListener('click', open); // tidak ada di mode edit
+        if (closeBtn) closeBtn.addEventListener('click', close);
+        if (cancelBtn) cancelBtn.addEventListener('click', close);
+        if (backdrop) backdrop.addEventListener('click', close);
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && modal.classList.contains('open')) close();
+        });
+
+        if (browseBtn) browseBtn.addEventListener('click', function() { fileInput.click(); });
+        if (dz) {
+            dz.addEventListener('click', function(e) {
+                if (e.target.closest('#up-browse')) return;
+                fileInput.click();
+            });
+            ['dragenter', 'dragover'].forEach(function(ev) {
+                dz.addEventListener(ev, function(e) { e.preventDefault(); dz.classList.add('drag'); });
+            });
+            ['dragleave', 'drop'].forEach(function(ev) {
+                dz.addEventListener(ev, function(e) { e.preventDefault(); dz.classList.remove('drag'); });
+            });
+            dz.addEventListener('drop', function(e) {
+                addFiles(Array.from(e.dataTransfer.files));
+            });
+        }
+        if (fileInput) {
+            fileInput.addEventListener('change', function() {
+                addFiles(Array.from(this.files));
+                this.value = '';
+            });
+        }
+
+        // ── Area regional ──
+        if (regBrowseBtn) regBrowseBtn.addEventListener('click', function() { regFileInput.click(); });
+        if (regDz) {
+            regDz.addEventListener('click', function(e) {
+                if (e.target.closest('#reg-browse')) return;
+                regFileInput.click();
+            });
+            ['dragenter', 'dragover'].forEach(function(ev) {
+                regDz.addEventListener(ev, function(e) { e.preventDefault(); regDz.classList.add('drag'); });
+            });
+            ['dragleave', 'drop'].forEach(function(ev) {
+                regDz.addEventListener(ev, function(e) { e.preventDefault(); regDz.classList.remove('drag'); });
+            });
+            regDz.addEventListener('drop', function(e) {
+                addRegFiles(Array.from(e.dataTransfer.files));
+            });
+        }
+        if (regFileInput) {
+            regFileInput.addEventListener('change', function() {
+                addRegFiles(Array.from(this.files));
+                this.value = '';
+            });
+        }
+
+        if (parseBtn) parseBtn.addEventListener('click', parseFiles);
+        if (applyBtn) applyBtn.addEventListener('click', applyResults);
+    }
+
+    function addFiles(list) {
+        list.forEach(function(f) {
+            if (!/\.(xlsx|xls|csv)$/i.test(f.name)) {
+                showFlash('⚠️ "' + f.name + '" bukan file Excel (.xlsx/.xls/.csv) — dilewati.');
+                return;
+            }
+            if (f.size > 10 * 1024 * 1024) {
+                showFlash('⚠️ "' + f.name + '" lebih dari 10MB — dilewati.');
+                return;
+            }
+            upFiles.push(f);
+        });
+        renderFileList();
+        // Hasil lama tidak relevan lagi
+        upCombined = [];
+        renderResults();
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) applyBtn.disabled = true;
+    }
+
+    function addRegFiles(list) {
+        list.forEach(function(f) {
+            if (!/\.(xlsx|xls|csv)$/i.test(f.name)) {
+                showFlash('⚠️ "' + f.name + '" bukan file Excel (.xlsx/.xls/.csv) — dilewati.');
+                return;
+            }
+            if (f.size > 10 * 1024 * 1024) {
+                showFlash('⚠️ "' + f.name + '" lebih dari 10MB — dilewati.');
+                return;
+            }
+            regFiles.push(f);
+        });
+        renderRegFileList();
+        upCombined = [];
+        renderResults();
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) applyBtn.disabled = true;
+    }
+
+    function renderFileList() {
+        var wrap = document.getElementById('up-file-list');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        upFiles.forEach(function(f, i) {
+            var chip = document.createElement('div');
+            chip.className = 'up-file-chip';
+            chip.innerHTML = '<span>📄</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                + esc(f.name) + '</span><span style="font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size / 1024) + ' KB)</span>'
+                + '<button type="button" class="x" title="Hapus file">✕</button>';
+            chip.querySelector('.x').addEventListener('click', function() {
+                upFiles.splice(i, 1);
+                renderFileList();
+                upCombined = [];
+                renderResults();
+                var applyBtn = document.getElementById('up-apply');
+                if (applyBtn) applyBtn.disabled = true;
+            });
+            wrap.appendChild(chip);
+        });
+    }
+
+    function renderRegFileList() {
+        var wrap = document.getElementById('reg-file-list');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        regFiles.forEach(function(f, i) {
+            var chip = document.createElement('div');
+            chip.className = 'up-file-chip';
+            chip.innerHTML = '<span>🗺️</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                + esc(f.name) + '</span><span style="font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size / 1024) + ' KB)</span>'
+                + '<button type="button" class="x" title="Hapus file">✕</button>';
+            chip.querySelector('.x').addEventListener('click', function() {
+                regFiles.splice(i, 1);
+                renderRegFileList();
+                upCombined = [];
+                renderResults();
+                var applyBtn = document.getElementById('up-apply');
+                if (applyBtn) applyBtn.disabled = true;
+            });
+            wrap.appendChild(chip);
+        });
+        var actions = document.getElementById('up-actions');
+        if (actions) actions.style.display = (upFiles.length || regFiles.length) ? '' : 'none';
+    }
+
+    function setParseState(loading) {
+        var parseBtn = document.getElementById('up-parse');
+        if (parseBtn) {
+            parseBtn.disabled = loading;
+            parseBtn.innerHTML = loading ? '<span class="spinner-sm"></span> Memproses file…' : '🔍 Proses & Parsing';
+        }
+    }
+
+    function parseFiles() {
+        if (!upFiles.length || !regFiles.length) {
+            showFlash('⚠️ Unggah minimal 1 file Ads Manager DAN 1 file Regional di kedua area.');
+            return;
+        }
+        var fd = new FormData();
+        upFiles.forEach(function(f) { fd.append('files[]', f); });
+        regFiles.forEach(function(f) { fd.append('regional[]', f); });
+
+        setParseState(true);
+        fetch(PARSE_URL, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': CSRF, 'Accept': 'application/json' },
+            body: fd
+        })
+        .then(function(r) {
+            return r.json().then(function(d) { return { ok: r.ok, d: d }; });
+        })
+        .then(function(res) {
+            setParseState(false);
+            if (!res.ok) {
+                showFlash('❌ Gagal memproses file: ' + (res.d.message || 'terjadi kesalahan server.'));
+                return;
+            }
+            upCombined = res.d.combined || [];
+            upRegUnmatched = res.d.regional_unmatched || [];
+            upRegUnmatchedCount = res.d.regional_unmatched_count || 0;
+            renderResults();
+        })
+        .catch(function() {
+            setParseState(false);
+            showFlash('❌ Koneksi gagal. Coba lagi.');
+        });
+    }
+
+    function renderResults() {
+        var wrap = document.getElementById('up-results');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+
+        var totalDates = upCombined.length;
+        var totalProducts = 0, totalSpending = 0, totalLead = 0, totalPaid = 0;
+        upCombined.forEach(function(dt) {
+            dt.whitelists.forEach(function(w) {
+                totalProducts += w.products.length;
+                totalSpending += w.total_spending;
+                totalLead += w.total_lead;
+                totalPaid += w.total_paid;
+            });
+        });
+
+        if (totalDates) {
+            var summary = document.createElement('div');
+            summary.className = 'up-summary';
+            summary.textContent = totalDates + ' tanggal · ' + totalProducts + ' produk siap dimuat — 💸 Rp ' + fmtNum(totalSpending)
+                + ' · 👤 ' + fmtNum(totalLead) + ' lead · 💳 ' + fmtNum(totalPaid) + ' paid';
+            wrap.appendChild(summary);
+        }
+
+        // Peringatan baris regional yang tidak bisa dipetakan
+        if (upRegUnmatchedCount > 0) {
+            var warn = document.createElement('div');
+            warn.className = 'up-warn';
+            warn.style.marginTop = '10px';
+            warn.innerHTML = '⚠️ <strong>' + upRegUnmatchedCount + ' baris regional</strong> tidak bisa dipetakan (whitelist/produk tak dikenal) — detail di bawah.';
+            wrap.appendChild(warn);
+        }
+
+        // Per tanggal → per whitelist → produk (spending + lead + paid)
+        upCombined.forEach(function(dt, di) {
+            var box = document.createElement('div');
+            box.className = 'up-result';
+
+            var head = document.createElement('div');
+            head.className = 'up-result-head';
+            var dtTotal = 0;
+            dt.whitelists.forEach(function(w) { dtTotal += w.total_spending; });
+            head.innerHTML =
+                '<span style="font-size:1rem;">📅</span>'
+                + '<span class="name">' + fmtTgl(dt.tanggal) + '</span>'
+                + '<span class="clay-badge clay-badge-green" style="margin-left:auto;">Rp ' + fmtNum(dtTotal) + '</span>';
+            box.appendChild(head);
+
+            dt.whitelists.forEach(function(w, wi) {
+                var wlEl = document.createElement('div');
+                wlEl.className = 'up-group';
+                wlEl.dataset.di = di;
+                wlEl.dataset.wi = wi;
+
+                var chips = w.products.map(function(p) {
+                    return '<span class="up-prod-chip" style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;">'
+                        + '<span>📦 ' + esc(p.product_name) + '</span>'
+                        + '<span style="font-weight:800;">💸 Rp ' + fmtNum(p.spending) + '</span>'
+                        + '<span style="font-size:.64rem;color:#6b7280;">👤 ' + fmtNum(p.lead) + ' lead · 💳 ' + fmtNum(p.paid) + ' paid</span>'
+                        + '</span>';
+                }).join('');
+
+                wlEl.innerHTML =
+                    '<div class="up-group-row">'
+                    +   '<label class="up-group-check">'
+                    +       '<input type="checkbox" checked> Terapkan'
+                    +   '</label>'
+                    +   '<span class="clay-badge clay-badge-purple" style="flex-shrink:0;">WL ' + esc(w.whitelist.kode) + '</span>'
+                    +   '<strong style="font-size:.78rem;color:#1e1b2e;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(w.whitelist.nama) + '</strong>'
+                    +   '<span style="margin-left:auto;font-size:.7rem;color:#6b7280;white-space:nowrap;">Rp ' + fmtNum(w.total_spending) + ' · 👤 ' + fmtNum(w.total_lead) + ' · 💳 ' + fmtNum(w.total_paid) + '</span>'
+                    + '</div>'
+                    + '<div class="up-prods">' + chips + '</div>';
+                box.appendChild(wlEl);
+            });
+
+            wrap.appendChild(box);
+        });
+
+        // Detail baris regional yang tidak dipetakan (jika ada)
+        try {
+            if (upRegUnmatched && upRegUnmatched.length) {
+                var um = document.createElement('div');
+                um.className = 'up-warn';
+                um.style.marginTop = '10px';
+                um.innerHTML = '⚠️ Baris regional tak dikenal (tidak dimuat):<ul style="margin:4px 0 0 16px;padding:0;">'
+                    + upRegUnmatched.slice(0, 8).map(function(u) { return '<li>' + esc(u) + '</li>'; }).join('')
+                    + (upRegUnmatched.length > 8 ? '<li>…dan ' + (upRegUnmatched.length - 8) + ' lainnya</li>' : '')
+                    + '</ul>';
+                wrap.appendChild(um);
+            }
+        } catch (e) {}
+
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) {
+            applyBtn.disabled = totalDates === 0;
+            applyBtn.innerHTML = totalDates ? ('✅ Terapkan ke Form (' + totalProducts + ' produk)') : '✅ Terapkan ke Form';
+        }
+    }
+
+    function applyResults() {
+        var applied = 0, groupsApplied = 0, firstTgl = null;
+
+        upCombined.forEach(function(dt, di) {
+            var anyWlApplied = false;
+            dt.whitelists.forEach(function(w, wi) {
+                var row = document.querySelector('#up-results .up-group[data-di="' + di + '"][data-wi="' + wi + '"]');
+                if (!row) return;
+                var cb = row.querySelector('.up-group-check input');
+                if (cb && !cb.checked) return;
+                if (!firstTgl) firstTgl = dt.tanggal;
+                w.products.forEach(function(p) {
+                    addProductImport(String(p.product_id), p.product_name, p.spending, w.whitelist, dt.tanggal, p.lead, p.paid);
+                    applied++;
+                });
+                anyWlApplied = true;
+            });
+            if (anyWlApplied) groupsApplied++;
+        });
+
+        if (applied === 0) {
+            showFlash('⚠️ Tidak ada data yang diterapkan. Centang minimal 1 baris whitelist.');
+            return;
+        }
+
+        // Sinkronkan input tanggal global dengan tanggal pertama yang dimuat
+        if (tanggalInput && !isEditMode) {
+            tanggalInput.value = firstTgl;
+            showPalette();
+        }
+
+        var modal = document.getElementById('upload-modal');
+        if (modal) modal.classList.remove('open');
+        document.body.style.overflow = '';
+
+        var dz = document.getElementById('drop-zone');
+        if (dz) dz.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        refreshPalette();
+        updateDropCount();
+        updateGroupMeta();
+        updateGrandTotals();
+        showFlash('✅ ' + applied + ' produk dari ' + groupsApplied + ' tanggal berhasil dimuat — spending, lead & paid terisi otomatis. Tinjau lalu klik Simpan.');
+    }
+
     // ─── Init ───────────────────────────────────────────────
     makeDraggable();
     if (isEditMode) {
         initEditMode();
     }
 
+    // Elemen modal dirender di bagian akhir halaman → tunggu DOM siap
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initUploadModal);
+    } else {
+        initUploadModal();
+    }
+
 })();
 </script>
+@endpush
+
+@push('body-end')
+
+{{-- ─── Modal Upload Excel Meta Ads ─────────────────────────────── --}}
+<div id="upload-modal" role="dialog" aria-modal="true" aria-labelledby="up-title">
+    <div class="up-backdrop"></div>
+    <div class="up-panel">
+        <div class="up-head">
+            <div>
+                <div id="up-title" style="font-weight:800;font-size:1rem;color:#1e1b2e;">📤 Upload Excel Meta Ads</div>
+                <div style="font-size:.72rem;color:#9ca3af;">Bulk upload — 1 file = 1 akun whitelist untuk satu periode laporan</div>
+            </div>
+            <button type="button" class="up-x" id="up-close" title="Tutup">✕</button>
+        </div>
+
+        <div class="up-body">
+            <div class="up-format-hint">
+                <strong>2 file wajib unggah:</strong><br>
+                <strong>1 · Excel Ads Manager</strong> → spending. Nama file memuat kode whitelist + rentang tanggal
+                (<code>OO---13722---...---5-Agu-2026---5-Agu-2026.xlsx</code>); nama kampanye diawali kode produk
+                (<code>KSP - tes konten - 7/8/26</code>); spending dari kolom <em>"Jumlah yang dibelanjakan (IDR)"</em>.<br>
+                <strong>2 · Excel Regional</strong> → lead & paid. Kolom <em>"product"</em> berbentuk
+                <code>P.1 - Kacamata ... - 22760</code> (kode teritorial - nama produk - kode whitelist), kolom
+                <em>"payment_status"</em> (baris = lead, "paid" = paid), kolom <em>"created_at"</em> (tanggal).
+            </div>
+
+            <div class="up-dual">
+                {{-- Kolom 1: Ads Manager --}}
+                <div class="up-col">
+                    <div class="up-col-head">
+                        <span class="tag">1</span>
+                        <span>Ads Manager</span>
+                        <span class="sub">💸 Spending</span>
+                    </div>
+                    <div id="up-dropzone" class="up-dropzone">
+                        <div style="font-size:1.4rem;">📁</div>
+                        <div style="font-weight:700;color:#1e1b2e;font-size:.82rem;">Seret file export Ads Manager</div>
+                        <div style="font-size:.7rem;color:#9ca3af;">atau</div>
+                        <button type="button" class="clay-btn clay-btn-outline" id="up-browse" style="margin-top:6px;padding:6px 14px;font-size:.75rem;">Pilih File…</button>
+                        <div style="font-size:.62rem;color:#9ca3af;margin-top:6px;">Bisa banyak file (maks 20 · .xlsx/.xls/.csv · 10MB/file)</div>
+                    </div>
+                    <input type="file" id="up-file-input" multiple accept=".xlsx,.xls,.csv" hidden>
+                    <div id="up-file-list" class="up-file-list"></div>
+                </div>
+
+                {{-- Kolom 2: Regional (lead & paid) --}}
+                <div class="up-col">
+                    <div class="up-col-head">
+                        <span class="tag">2</span>
+                        <span>Regional</span>
+                        <span class="sub">👤 Lead & 💳 Paid</span>
+                    </div>
+                    <div id="reg-dropzone" class="up-dropzone">
+                        <div style="font-size:1.4rem;">🗺️</div>
+                        <div style="font-weight:700;color:#1e1b2e;font-size:.82rem;">Seret file export regional</div>
+                        <div style="font-size:.7rem;color:#9ca3af;">atau</div>
+                        <button type="button" class="clay-btn clay-btn-outline" id="reg-browse" style="margin-top:6px;padding:6px 14px;font-size:.75rem;">Pilih File…</button>
+                        <div style="font-size:.62rem;color:#9ca3af;margin-top:6px;">Kolom product / payment_status / created_at</div>
+                    </div>
+                    <input type="file" id="reg-file-input" multiple accept=".xlsx,.xls,.csv" hidden>
+                    <div id="reg-file-list" class="up-file-list"></div>
+                </div>
+            </div>
+
+            <div id="up-actions" style="display:none;margin-top:14px;">
+                <button type="button" class="clay-btn clay-btn-primary" id="up-parse" style="width:100%;justify-content:center;">🔍 Proses & Parsing</button>
+            </div>
+
+            <div id="up-results"></div>
+        </div>
+
+        <div class="up-foot">
+            <button type="button" class="clay-btn clay-btn-outline" id="up-cancel">Batal</button>
+            <button type="button" class="clay-btn clay-btn-primary" id="up-apply" disabled>✅ Terapkan ke Form</button>
+        </div>
+    </div>
+</div>
+
 @endpush

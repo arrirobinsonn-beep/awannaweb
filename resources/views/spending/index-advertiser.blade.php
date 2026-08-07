@@ -117,7 +117,7 @@
                     {{ $s['tanggal']->translatedFormat('l, d M Y') }}
                     {{-- Pensil khusus ubah tanggal — diletakkan tepat di samping tanggal --}}
                     <a href="javascript:void(0)" onclick="event.stopPropagation(); openDateChange('{{ $dateKey }}')"
-                       title="Ubah tanggal data ini" data-page-link
+                       title="Ubah tanggal data ini"
                        style="display:inline-flex;align-items:center;justify-content:center;
                               width:22px;height:22px;margin-left:6px;vertical-align:middle;
                               border-radius:7px;background:#f3f4f6;border:1px solid transparent;
@@ -276,9 +276,9 @@
                                     </td>
                                     <td style="padding:8px 10px;text-align:right;">
                                         <div style="display:flex;justify-content:flex-end;gap:4px;">
-                                            <a href="javascript:void(0)" onclick="openSpendingEdit(this)"
+                                            <a href="javascript:void(0)" onclick="event.stopPropagation(); openSpendingEdit(this)"
                                                class="clay-btn clay-btn-secondary"
-                                               style="padding:3px 8px;font-size:.65rem;" data-page-link
+                                               style="padding:3px 8px;font-size:.65rem;"
                                                title="Edit spending, lead & paid"
                                                data-url="{{ route('spending.update', $item) }}"
                                                data-id="{{ $item->id }}"
@@ -904,6 +904,7 @@ function toggle(id) {
     document.querySelectorAll('[data-require-whitelist]').forEach(function(el) {
         el.addEventListener('click', function(e) {
             e.preventDefault();
+            e.stopPropagation(); // cegah PageLinkHandler global me-fade-out halaman
             var modal = getModal();
             if (modal) modal.classList.add('active');
         });
