@@ -342,13 +342,15 @@
     /* ── Dua area upload bersampingan: Ads Manager + Regional ── */
     .up-dual {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        /* minmax(0,1fr) → kolom TETAP 50%: nama file panjang tidak bisa melebarkan kolom */
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 14px;
         align-items: stretch;
     }
     @media (max-width: 640px) { .up-dual { grid-template-columns: 1fr; } }
     .up-col {
         display: flex; flex-direction: column;
+        min-width: 0;
         border: 1px solid #eef0f3; border-radius: 14px;
         background: #fcfcfd; padding: 12px;
     }
@@ -369,7 +371,7 @@
         flex: 1;
         padding: 18px 12px;
     }
-    .up-col .up-file-list { margin-top: 8px; }
+    .up-col .up-file-list { margin-top: 8px; min-width: 0; overflow: hidden; }
     .up-format-hint code {
         background: #fff; border: 1px solid #e5e7eb; border-radius: 6px;
         padding: 1px 6px; font-size: .68rem; color: #4338ca;
@@ -381,6 +383,7 @@
     .up-dropzone:hover, .up-dropzone.drag { border-color: var(--color-primary, #FF6B6B); background: #fff7f7; }
     .up-file-chip {
         display: flex; align-items: center; gap: 8px;
+        width: 100%; min-width: 0; box-sizing: border-box;
         background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px;
         padding: 8px 12px; font-size: .76rem; margin-top: 8px;
     }
@@ -1434,8 +1437,8 @@
         upFiles.forEach(function(f, i) {
             var chip = document.createElement('div');
             chip.className = 'up-file-chip';
-            chip.innerHTML = '<span>📄</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
-                + esc(f.name) + '</span><span style="font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size / 1024) + ' KB)</span>'
+            chip.innerHTML = '<span style="flex-shrink:0;">📄</span><span title="' + attr(f.name) + '" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                + esc(f.name) + '</span><span style="flex-shrink:0;font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size / 1024) + ' KB)</span>'
                 + '<button type="button" class="x" title="Hapus file">✕</button>';
             chip.querySelector('.x').addEventListener('click', function() {
                 upFiles.splice(i, 1);
@@ -1456,8 +1459,8 @@
         regFiles.forEach(function(f, i) {
             var chip = document.createElement('div');
             chip.className = 'up-file-chip';
-            chip.innerHTML = '<span>🗺️</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
-                + esc(f.name) + '</span><span style="font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size / 1024) + ' KB)</span>'
+            chip.innerHTML = '<span style="flex-shrink:0;">🗺️</span><span title="' + attr(f.name) + '" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                + esc(f.name) + '</span><span style="flex-shrink:0;font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size / 1024) + ' KB)</span>'
                 + '<button type="button" class="x" title="Hapus file">✕</button>';
             chip.querySelector('.x').addEventListener('click', function() {
                 regFiles.splice(i, 1);

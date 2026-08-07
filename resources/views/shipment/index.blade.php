@@ -109,7 +109,7 @@
                 @forelse($shipments as $p)
                     <tr>
                         <td><span class="badge-sumb src-{{ $p->source }}">{{ strtoupper($p->source) }}</span></td>
-                        <td class="sel-nowrap">{{ $p->tracking_number }}</td>
+                        <td class="sel-nowrap selectable">{{ $p->tracking_number }}</td>
                         <td>{{ $p->recipient_name }}</td>
                         <td>{{ $p->city }}</td>
                         <td style="font-size:.8rem;">{{ $p->product_name }}</td>
@@ -252,7 +252,7 @@
             if (d.sampel && d.sampel.length) {
                 html += '<table class="clay-table"><thead><tr><th>Resi</th><th>Penerima</th><th>Kota</th><th>Produk</th><th>Status</th></tr></thead><tbody>' +
                     d.sampel.map(function (r) {
-                        return '<tr><td>' + esc(r.tracking_number) + '</td><td>' + esc(r.recipient_name) + '</td><td>' + esc(r.city) +
+                        return '<tr><td class="selectable">' + esc(r.tracking_number) + '</td><td>' + esc(r.recipient_name) + '</td><td>' + esc(r.city) +
                                '</td><td>' + esc(r.product_name) + '</td><td>' + esc(r.status) + '</td></tr>';
                     }).join('') + '</tbody></table>';
             } else {

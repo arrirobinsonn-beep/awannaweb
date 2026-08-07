@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('title','Spending Harian')
 @section('page-title','💸 Spending Harian Saya')
-@section('page-subtitle','Data iklan harian — {{ $user->display_name }}')
+@section('page-subtitle', 'Data iklan harian — ' . $user->display_name)
 
 @section('content')
 
