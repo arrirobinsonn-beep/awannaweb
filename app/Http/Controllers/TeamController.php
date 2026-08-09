@@ -172,9 +172,9 @@ class TeamController extends Controller
 
                 // Subtitle mengikuti penempatan pada BULAN yang sedang dilihat
                 if ($useAssignments && isset($assignments[$cs->id]) && $assignments[$cs->id]->advertiser) {
-                    $subtitle = 'Utama untuk ' . $assignments[$cs->id]->advertiser->display_name;
+                    $subtitle = 'Utama untuk '.$assignments[$cs->id]->advertiser->display_name;
                 } elseif ($cs->advertiser) {
-                    $subtitle = 'Utama untuk ' . $cs->advertiser->display_name;
+                    $subtitle = 'Utama untuk '.$cs->advertiser->display_name;
                 } else {
                     $subtitle = 'CS Tamu';
                 }

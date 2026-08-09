@@ -17,10 +17,10 @@ class PurchaseController extends Controller
     public function index(Request $request): View
     {
         $query = Purchase::query()
-            ->with(['product', 'supplier', 'creator']);
+            ->with(['variant.product', 'supplier', 'creator']);
 
-        if ($request->filled('product_id')) {
-            $query->where('product_id', $request->product_id);
+        if ($request->filled('variant_id')) {
+            $query->where('product_variant_id', $request->variant_id);
         }
         if ($request->filled('supplier_id')) {
             $query->where('supplier_id', $request->supplier_id);
@@ -31,7 +31,7 @@ class PurchaseController extends Controller
 
         $purchases = $query->orderByDesc('date')->orderByDesc('id')->paginate(25)->withQueryString();
 
-        $products = Product::aktif()->orderBy('nama_produk')->get();
+        $products = Product::aktif()->with('variants')->orderBy('name')->get();
         $suppliers = Supplier::orderBy('nama_supplier')->get();
         $monthList = Purchase::selectRaw("DATE_FORMAT(date, '%Y-%m') as bulan")
             ->distinct()
@@ -46,7 +46,7 @@ class PurchaseController extends Controller
         $data = $request->validate([
             'date' => ['required', 'date'],
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
-            'product_id' => ['required', 'exists:products,id'],
+            'product_variant_id' => ['required', 'exists:product_variants,id'],
             'quantity' => ['required', 'integer', 'min:1'],
             'unit_price' => ['required', 'numeric', 'min:0'],
             'shipping_cost' => ['nullable', 'numeric', 'min:0'],
@@ -61,19 +61,20 @@ class PurchaseController extends Controller
         try {
             $purchase = Purchase::create($data);
 
-            $product = Product::findOrFail($purchase->product_id);
+            $variant = $purchase->variant;
+            $product = $variant->product;
             $hpp = $this->stock->hppRataRata($product, $purchase->quantity, $purchase->unit_price, $purchase->shipping_cost);
 
-            $product->update(['harga_beli' => $hpp]);
+            $product->update(['purchase_price' => $hpp]);
 
             $this->stock->recordIn(
-                $product->id,
+                $variant->id,
                 $purchase->date->format('Y-m-d'),
                 $purchase->quantity,
                 $purchase->unit_price,
                 'purchase',
                 $purchase->id,
-                'Pembelian '.($purchase->supplier?->nama ?? '-'),
+                'Pembelian '.($purchase->supplier?->nama_supplier ?? '-'),
                 auth()->id(),
             );
 
@@ -87,11 +88,14 @@ class PurchaseController extends Controller
     public function destroy(int $id): RedirectResponse
     {
         $purchase = Purchase::findOrFail($id);
-        $productId = $purchase->product_id;
+        $productId = $purchase->variant?->product_id;
 
         $this->stock->reverseReference('purchase', $purchase->id);
         $purchase->delete();
-        $this->stock->recalculateHpp($productId);
+
+        if ($productId) {
+            $this->stock->recalculateHpp($productId);
+        }
 
         return redirect()->route('purchase.index')
             ->with('success', 'Pembelian dihapus. Stok & HPP dikembalikan.');

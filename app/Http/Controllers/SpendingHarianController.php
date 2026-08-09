@@ -209,7 +209,7 @@ class SpendingHarianController extends Controller
         // Map combo (whitelist|produk) → tanggal-tanggal yang sudah memakainya
         $comboDates = [];
         foreach ($recentRecords as $rec) {
-            $combo = $rec->whitelist_id . '|' . $rec->product_id;
+            $combo = $rec->whitelist_id.'|'.$rec->product_id;
             $comboDates[$combo][$rec->tanggal->format('Y-m-d')] = true;
         }
 
@@ -218,7 +218,7 @@ class SpendingHarianController extends Controller
             $combos = [];
             foreach ($s['by_product'] as $prodData) {
                 foreach ($prodData['whitelists'] as $item) {
-                    $combos[$item->whitelist_id . '|' . $item->product_id] = true;
+                    $combos[$item->whitelist_id.'|'.$item->product_id] = true;
                 }
             }
 
@@ -424,7 +424,7 @@ class SpendingHarianController extends Controller
 
         $whitelists = $whitelists->get(['id', 'nama', 'kode', 'platform']);
 
-        $products = Product::aktif()->get(['id', 'nama_produk', 'kode_produk']);
+        $products = Product::aktif()->get(['id', 'name', 'code']);
 
         // Dukung deep-link ?tanggal= dari halaman index (tombol "＋" per tanggal)
         $tanggal = $request->query('tanggal', now()->format('Y-m-d'));
@@ -601,7 +601,7 @@ class SpendingHarianController extends Controller
 
         $whitelists = $whitelists->get(['id', 'nama', 'kode', 'platform']);
 
-        $products = Product::aktif()->get(['id', 'nama_produk', 'kode_produk']);
+        $products = Product::aktif()->get(['id', 'name', 'code']);
 
         return view('spending.form', [
             'spending' => $spending,

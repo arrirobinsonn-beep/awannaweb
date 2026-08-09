@@ -13,41 +13,27 @@ class Product extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'kode_produk',
-        'nama_produk',
-        'kategori',
-        'deskripsi',
-        'supplier_id',
-        'gudang_id',
-        'harga_beli',
-        'harga_jual',
-        'stok',
-        'satuan',
-        'gambar',
+        'code',
+        'name',
+        'category',
+        'description',
+        'inventory_id',
+        'purchase_price',
+        'selling_price',
+        'unit',
         'status',
     ];
 
     protected $casts = [
-        'harga_beli' => 'decimal:2',
-        'harga_jual' => 'decimal:2',
-        'stok' => 'integer',
+        'purchase_price' => 'decimal:2',
+        'selling_price' => 'decimal:2',
     ];
 
     // ─── Relasi ────────────────────────────────────────────────
 
-    public function supplier(): BelongsTo
+    public function inventory(): BelongsTo
     {
-        return $this->belongsTo(Supplier::class);
-    }
-
-    public function gudang(): BelongsTo
-    {
-        return $this->belongsTo(Gudang::class);
-    }
-
-    public function whitelists(): HasMany
-    {
-        return $this->hasMany(Whitelist::class);
+        return $this->belongsTo(Inventory::class);
     }
 
     public function spendingHarians(): HasMany
@@ -55,17 +41,7 @@ class Product extends Model
         return $this->hasMany(SpendingHarian::class);
     }
 
-    public function stockMovements(): HasMany
-    {
-        return $this->hasMany(StockMovement::class);
-    }
-
-    public function purchases(): HasMany
-    {
-        return $this->hasMany(Purchase::class);
-    }
-
-    /** Varian harga jual produk (kacamata berbagai ukuran, dll) */
+    /** Varian produk (ukuran/power) — stok disimpan di sini */
     public function variants(): HasMany
     {
         return $this->hasMany(ProductVariant::class);
@@ -73,40 +49,45 @@ class Product extends Model
 
     // ─── Accessor ─────────────────────────────────────────────
 
-    public function getGambarUrlAttribute(): string
-    {
-        return $this->gambar
-            ? asset('storage/'.$this->gambar)
-            : asset('images/no-image.png');
-    }
-
     public function getMarginAttribute(): float
     {
-        if ($this->harga_beli == 0) {
+        if ((float) $this->purchase_price <= 0) {
             return 0;
         }
 
-        return round((($this->harga_jual - $this->harga_beli) / $this->harga_beli) * 100, 0);
+        return round(((float) $this->selling_price - (float) $this->purchase_price) / (float) $this->purchase_price * 100, 0);
     }
 
     /**
-     * Stok induk produk = gabungan stok semua varian (isi paket).
-     * Berlaku saat relasi variants di-load (halaman produk); jika tidak ada varian
-     * atau variants belum di-load, fallback ke kolom stok (jurnal).
+     * Stok induk produk = gabungan stok semua varian (ukuran).
+     * Berlaku saat relasi variants di-load; fallback ke sum jurnal stok varian.
      */
     public function getStokAttribute(): int
     {
         if ($this->relationLoaded('variants') && $this->variants->isNotEmpty()) {
-            return (int) $this->variants->sum('stok');
+            return (int) $this->variants->sum('stock');
         }
 
-        return (int) ($this->attributes['stok'] ?? 0);
+        return (int) ProductVariant::where('product_id', $this->id)->sum('stock');
+    }
+
+    /**
+     * Varian default: varian aktif pertama (urutan power terkecil).
+     * Dipakai untuk shipment / order online yang tidak menyebut ukuran.
+     */
+    public function defaultVariant(): ?ProductVariant
+    {
+        return $this->variants()
+            ->where('status', 'active')
+            ->orderBy('power')
+            ->orderBy('id')
+            ->first();
     }
 
     // ─── Scope ────────────────────────────────────────────────
 
     public function scopeAktif($query)
     {
-        return $query->where('status', 'aktif');
+        return $query->where('status', 'active');
     }
 }

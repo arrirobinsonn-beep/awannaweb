@@ -24,8 +24,8 @@ class ProductNameMatcher
     {
         $index = [];
 
-        foreach (Product::query()->get(['id', 'nama_produk']) as $product) {
-            $normal = $this->normalize($product->nama_produk);
+        foreach (Product::query()->get(['id', 'name']) as $product) {
+            $normal = $this->normalize($product->name);
             if ($normal !== '') {
                 $index[$normal] = $product;
             }

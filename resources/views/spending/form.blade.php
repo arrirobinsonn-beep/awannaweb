@@ -305,15 +305,15 @@
         <div id="product-palette" class="palette-grid">
             @foreach($products as $p)
             <div class="palette-item" draggable="true" data-id="{{ $p->id }}"
-                 data-nama="{{ $p->nama_produk }} ({{ $p->kode_produk }})"
-                 data-search="{{ mb_strtolower($p->nama_produk) }} {{ mb_strtolower($p->kode_produk) }}">
+                 data-nama="{{ $p->name }} ({{ $p->code }})"
+                 data-search="{{ mb_strtolower($p->name) }} {{ mb_strtolower($p->code) }}">
                 <span class="palette-icon">📦</span>
                 <span style="min-width:0;flex:1;">
-                    <span class="palette-nama">{{ $p->nama_produk }}</span>
-                    <span class="palette-kode">{{ $p->kode_produk }}</span>
+                    <span class="palette-nama">{{ $p->name }}</span>
+                    <span class="palette-kode">{{ $p->code }}</span>
                 </span>
                 <span class="palette-add" title="Tambah ke area" role="button" tabindex="0"
-                      aria-label="Tambah {{ $p->nama_produk }} ke area catat spending">＋</span>
+                      aria-label="Tambah {{ $p->name }} ke area catat spending">＋</span>
             </div>
             @endforeach
             @if($products->isEmpty())
@@ -386,7 +386,7 @@
 {
     "tanggal": "{{ $spending->tanggal->format('Y-m-d') }}",
     "product_id": {{ $spending->product_id }},
-    "product_name": "{{ $spending->product?->nama_produk }} ({{ $spending->product?->kode_produk }})",
+    "product_name": "{{ $spending->product?->name }} ({{ $spending->product?->code }})",
     "whitelist_id": {{ $spending->whitelist_id }},
     "whitelist_name": "{{ $spending->whitelist?->nama }}",
     "whitelist_code": "{{ $spending->whitelist?->kode }}",

@@ -1,17 +1,21 @@
 @extends('layouts.app')
 @section('title','Jurnal Stok')
 @section('page-title','📊 Jurnal Stok')
-@section('page-subtitle','Riwayat semua pergerakan stok masuk & keluar')
+@section('page-subtitle','Riwayat semua pergerakan stok masuk & keluar per varian')
 
 @section('content')
 
 {{-- Filter --}}
 <div class="clay-card" style="padding:0;margin-bottom:20px;" data-reveal>
     <form method="GET" action="{{ route('stock-movement.index') }}" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:16px;">
-        <select name="product_id" class="clay-input" style="min-width:200px;flex:1;">
-            <option value="">Semua Produk</option>
+        <select name="variant_id" class="clay-input" style="min-width:200px;flex:1;">
+            <option value="">Semua Produk / Varian</option>
             @foreach($products as $p)
-                <option value="{{ $p->id }}" @selected(request('product_id') == $p->id)>{{ $p->nama_produk }}</option>
+                <optgroup label="{{ $p->name }}">
+                    @foreach($p->variants as $v)
+                        <option value="{{ $v->id }}" @selected(request('variant_id') == $v->id)>{{ $v->nama }} {{ (float)$v->power > 0 ? '(+'.number_format($v->power,2,',','.').')' : '' }}</option>
+                    @endforeach
+                </optgroup>
             @endforeach
         </select>
         <select name="type" class="clay-input">
@@ -37,7 +41,7 @@
             <thead>
                 <tr>
                     <th>Tanggal</th>
-                    <th>Produk</th>
+                    <th>Produk / Varian</th>
                     <th>Tipe</th>
                     <th>Qty</th>
                     <th>Harga</th>
@@ -55,7 +59,10 @@
                     @endphp
                     <tr>
                         <td class="sel-nowrap">{{ $m->date->format('d/m/Y') }}</td>
-                        <td style="font-weight:600;">{{ $m->product->nama_produk }}</td>
+                        <td style="font-weight:600;">
+                            {{ $m->variant?->product?->name ?? '-' }}
+                            <div style="font-size:.72rem;color:#9ca3af;">{{ $m->variant?->nama }} {{ (float)($m->variant?->power ?? 0) > 0 ? '(+'.number_format($m->variant->power,2,',','.').')' : '' }}</div>
+                        </td>
                         <td>
                             <span style="font-weight:800;font-size:.72rem;padding:2px 10px;border-radius:8px;{{ $badge }}">
                                 {{ $m->type === 'in' ? 'MASUK' : 'KELUAR' }}

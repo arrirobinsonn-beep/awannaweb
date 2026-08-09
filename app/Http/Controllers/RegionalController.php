@@ -299,7 +299,7 @@ class RegionalController extends Controller
                 $existingMap = RegionalReport::where('user_id', $targetUserId)
                     ->whereIn('tanggal', $dates)
                     ->get()
-                    ->keyBy(fn ($r) => $r->tanggal->format('Y-m-d') . '|' . $r->province);
+                    ->keyBy(fn ($r) => $r->tanggal->format('Y-m-d').'|'.$r->province);
 
                 foreach ($items as $item) {
                     $data = [
@@ -312,7 +312,7 @@ class RegionalController extends Controller
 
                     RegionalReport::computeRatio($data);
 
-                    $key = $item['tanggal'] . '|' . $item['province'];
+                    $key = $item['tanggal'].'|'.$item['province'];
                     $existing = $existingMap[$key] ?? null;
 
                     if ($existing) {

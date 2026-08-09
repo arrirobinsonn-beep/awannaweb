@@ -18,16 +18,14 @@ return new class extends Migration
             $table->foreignId('product_id')
                 ->constrained('products')
                 ->cascadeOnDelete();
-            $table->string('kode')->unique();
-            $table->string('nama');
-            $table->integer('stok')->default(0);
-            $table->integer('pcs_per_pack')->default(1);
-            $table->decimal('harga_jual', 15, 2)->default(0);
-            $table->enum('status', ['aktif', 'nonaktif'])->default('aktif');
+            $table->string('code')->unique();
+            $table->string('name');
+            $table->integer('stock')->default(0);
+            $table->decimal('power', 5, 2)->default(0);
+            $table->enum('status', ['active', 'inactive'])->default('active');
             $table->timestamps();
-            $table->softDeletes();
-
             $table->index('product_id');
+            $table->index(['product_id', 'power']);
         });
     }
 

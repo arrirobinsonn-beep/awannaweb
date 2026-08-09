@@ -330,6 +330,15 @@
             </a>
             @endif
 
+            @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs']))
+            <a href="{{ route('orders.index') }}"
+               class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
+               data-page-link data-tip="Upload Data Mentah & Export Template">
+                <span class="nav-icon">📥</span>
+                <span class="sidebar-label">Data Mentah</span>
+            </a>
+            @endif
+
             @if($u->hasRole(['owner','super_admin','mentor','advertiser']))
             <a href="{{ route('topup.index') }}"
                class="nav-item {{ request()->routeIs('topup.*') ? 'active' : '' }}"
@@ -379,11 +388,11 @@
             </a>
             @endif
 
-            <a href="{{ route('gudang.master') }}"
-               class="nav-item {{ request()->routeIs('gudang.master*') ? 'active' : '' }}"
-               data-page-link data-tip="Gudang">
+            <a href="{{ route('inventory.master') }}"
+               class="nav-item {{ request()->routeIs('inventory.master*') ? 'active' : '' }}"
+               data-page-link data-tip="Inventory">
                 <span class="nav-icon">🏭</span>
-                <span class="sidebar-label">Master Gudang</span>
+                <span class="sidebar-label">Master Inventory</span>
             </a>
 
             <a href="{{ route('product.index') }}"

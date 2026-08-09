@@ -2,8 +2,9 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\GudangController;
+use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OrderOnlineController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PurchaseController;
@@ -50,12 +51,14 @@ Route::middleware('auth')->group(function () {
         Route::resource('supplier', SupplierController::class)->names('supplier');
 
         // Produk
-        Route::resource('product', ProductController::class)->names('product');
+        Route::resource('product', ProductController::class)->except('show')->names('product');
 
         // Varian Produk (kelola di dalam list expandable produk)
         Route::post('/product/{product}/variant', [ProductController::class, 'variantStore'])->name('product.variant.store');
         Route::put('/product/variant/{variant}', [ProductController::class, 'variantUpdate'])->name('product.variant.update');
         Route::delete('/product/variant/{variant}', [ProductController::class, 'variantDestroy'])->name('product.variant.destroy');
+        Route::patch('/product/{product}/toggle-status', [ProductController::class, 'toggleStatus'])->name('product.toggle-status');
+        Route::patch('/product/variant/{variant}/toggle-status', [ProductController::class, 'toggleVariantStatus'])->name('product.variant.toggle-status');
 
         // Whitelist
         Route::resource('whitelist', WhitelistController::class)->names('whitelist');
@@ -107,15 +110,22 @@ Route::middleware('auth')->group(function () {
         Route::post('/tim/admin/penugasan', [TeamController::class, 'penugasanStore'])->name('team.penugasan.store');
         Route::get('/tim/phone-list', [TeamController::class, 'phoneList'])->name('team.phone-list');
 
-        // Master Gudang (tempat gudang)
-        Route::get('/gudang/master', [GudangController::class, 'gudangMaster'])->name('gudang.master');
-        Route::post('/gudang/master', [GudangController::class, 'gudangMasterStore'])->name('gudang.master.store');
-        Route::delete('/gudang/master/{gudang}', [GudangController::class, 'gudangMasterDestroy'])->name('gudang.master.destroy');
+        // Master Inventory (gudang)
+        Route::get('/inventory/master', [InventoryController::class, 'master'])->name('inventory.master');
+        Route::post('/inventory/master', [InventoryController::class, 'masterStore'])->name('inventory.master.store');
+        Route::delete('/inventory/master/{inventory}', [InventoryController::class, 'masterDestroy'])->name('inventory.master.destroy');
 
         // Shipment (Import CSV FLIK/SiCepat/SPX)
         Route::get('/pengiriman', [ShipmentController::class, 'index'])->name('shipment.index');
         Route::post('/pengiriman/preview', [ShipmentController::class, 'preview'])->name('shipment.preview');
         Route::post('/pengiriman/import', [ShipmentController::class, 'store'])->name('shipment.import');
+
+        // Order Online (Data Mentah + Export Template Excel)
+        Route::get('/orders', [OrderOnlineController::class, 'index'])->name('orders.index');
+        Route::post('/orders/preview', [OrderOnlineController::class, 'preview'])->name('orders.preview');
+        Route::post('/orders/import', [OrderOnlineController::class, 'store'])->name('orders.import');
+        Route::put('/orders/{shippingOrder}', [OrderOnlineController::class, 'update'])->name('orders.update');
+        Route::get('/orders/{batch}/export/{template}/{courier?}', [OrderOnlineController::class, 'export'])->name('orders.export');
 
         // Purchase (Barang Masuk) & Stock Movement (Jurnal Stok)
         Route::get('/barang-masuk', [PurchaseController::class, 'index'])->name('purchase.index');

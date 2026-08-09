@@ -1,0 +1,16 @@
+Penerima,No.HP Penerima,Jumlah Paket,No.Referensi (Maksimal 50 Karakter),Alamat Penerima,Kecamatan,Kota/Kabupaten,Kode Pos,Layanan,Jenis Paket,Isi Paket,Berat Paket (Kg),Panjang Paket,Lebar Paket,Tinggi Paket,"Harga Paket
+(Wajib diisi ketika menggunakan proteksi paket dan COD)","Packing Kayu
+(Member Only & Tidak Tersedia Untuk Multikoli)",Proteksi Paket?,"Total COD
+(Tidak Tersedia Untuk Pengiriman Multikoli)","COD Ongkir? 
+(Tidak Tersedia Untuk Pengiriman Multikoli)",Catatan Pengiriman,Tipe DO Balik,"Tipe Alamat DO Balik 
+(Wajib Di Isi Jika Menggunakan Tipe DO Balik Fisik)","Alamat DO Balik 
+(Wajib Di Isi Jika Memilih Alamat DO Balik Lainnya)","Kecamatan DO Balik 
+(Wajib Di Isi Jika Memilih Alamat DO Balik Lainnya)",Kota/Kabupaten DO Balik,Kode Pos DO Balik
+John Doe,628121234567,3,DO/FGCKP/260600423,Alamat Penerima,Pamulang,,,REG (Pengiriman Standar),Barang,Pakaian,1,,,,,,,,,,,,,,,
+John Doe,628121234567,1,DO/FGCKP/260600423-2,Alamat Penerima,Pamulang,,,REG (Pengiriman Standar),Barang,,,,,,,,,,,,,,,,,
+John Doe,628121234567,1,DO/FGCKP/260600423-3,Alamat Penerima,Depok,,,REG (Pengiriman Standar),Barang,,,,,,,,,,,,,,,,,
+John Doe,628121234567,,,Alamat Penerima,Depok,,,REG (Pengiriman Standar),Barang,,,,,,,,,,,,,,,,,
+John Doe,628121234567,,,Alamat Penerima,Pal merah,,,REG (Pengiriman Standar),Barang,,,,,,,,,,,,,,,,,
+John Doe,628121234567,,,Alamat Penerima,Palmerah,,,REG (Pengiriman Standar),Barang,,,,,,,,,,,,,,,,,
+John Doe,628121234567,,,Alamat Penerima,Palmerah,,,REG (Pengiriman Standar),Barang,,,,,,,,,,,,,,,,,
+John Doe,628121234567,,,Alamat Penerima,Argomulyo,,,REG (Pengiriman Standar),Barang,,,,,,,,,,,,,,,,,

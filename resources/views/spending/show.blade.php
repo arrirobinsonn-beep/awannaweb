@@ -68,7 +68,7 @@
         {{-- Detail Info --}}
         <div class="space-y-2 text-sm mb-6">
             @if($spending->supplier) <div class="flex gap-3"><span class="text-gray-400 w-28">🏭 Supplier</span><span class="font-600">{{ $spending->supplier->nama_supplier }}</span></div> @endif
-            @if($spending->product)  <div class="flex gap-3"><span class="text-gray-400 w-28">📦 Produk</span><span class="font-600">{{ $spending->product->nama_produk }}</span></div> @endif
+            @if($spending->product)  <div class="flex gap-3"><span class="text-gray-400 w-28">📦 Produk</span><span class="font-600">{{ $spending->product->name }}</span></div> @endif
             @if($spending->whitelist)<div class="flex gap-3"><span class="text-gray-400 w-28">✅ Whitelist</span><span class="font-600">{{ $spending->whitelist->nama }}</span></div> @endif
             @if($spending->nama_akun)<div class="flex gap-3"><span class="text-gray-400 w-28">📢 Nama Akun</span><span>{{ $spending->nama_akun }}</span></div> @endif
             @if($spending->catatan)  <div class="flex gap-3"><span class="text-gray-400 w-28">📝 Catatan</span><span>{{ $spending->catatan }}</span></div> @endif

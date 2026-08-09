@@ -391,6 +391,16 @@ class ShipmentImportService
                 }
                 $matched++;
 
+                $variant = $product->defaultVariant();
+                if ($variant === null) {
+                    $unmatched[] = [
+                        'tracking_number' => $trackingNumber,
+                        'product_name' => $row['product_name'] ?? '',
+                    ];
+
+                    continue;
+                }
+
                 $row['product_id'] = $product->id;
                 $has = $existing->get($trackingNumber);
 
@@ -413,8 +423,8 @@ class ShipmentImportService
                     }
 
                     $has->update($row);
-                    $this->stock->recordOut(
-                        $product->id,
+                    $this->stock->recordOutWithPackaging(
+                        $variant->id,
                         $row['created_date'] ?? now()->format('Y-m-d'),
                         $row['quantity'] ?: 1,
                         'shipment',
@@ -432,8 +442,8 @@ class ShipmentImportService
                             'courier_note' => null,
                         ];
                     }
-                    $this->stock->recordOut(
-                        $product->id,
+                    $this->stock->recordOutWithPackaging(
+                        $variant->id,
                         $row['created_date'] ?? now()->format('Y-m-d'),
                         $row['quantity'] ?: 1,
                         'shipment',

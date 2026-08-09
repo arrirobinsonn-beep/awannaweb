@@ -14,7 +14,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('product_variants', function (Blueprint $table) {
-            $table->string('jenis')->default('varian')->after('nama');
+            $table->string('jenis')->nullable()->after('name');
         });
 
         Schema::create('product_variant_items', function (Blueprint $table) {

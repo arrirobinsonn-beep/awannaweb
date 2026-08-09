@@ -37,12 +37,17 @@
                 </select>
             </div>
             <div style="grid-column: span 2;">
-                <label class="field-label">PRODUK</label>
-                <select name="product_id" required class="clay-input">
-                    <option value="">— Pilih Produk —</option>
+                <label class="field-label">VARIAN PRODUK</label>
+                <select name="product_variant_id" required class="clay-input">
+                    <option value="">— Pilih Produk / Varian —</option>
                     @foreach($products as $p)
-                        <option value="{{ $p->id }}" @selected(old('product_id') == $p->id)>
-                            {{ $p->nama_produk }} (stok {{ $p->stok }})</option>
+                        <optgroup label="{{ $p->name }}">
+                            @foreach($p->variants as $v)
+                                <option value="{{ $v->id }}" @selected(old('product_variant_id') == $v->id)>
+                                    {{ $v->nama }} {{ (float)$v->power > 0 ? '(+'.number_format($v->power,2,',','.').')' : '' }} — stok {{ $v->stock }}
+                                </option>
+                            @endforeach
+                        </optgroup>
                     @endforeach
                 </select>
             </div>
@@ -72,10 +77,14 @@
 {{-- Filter --}}
 <div class="clay-card" style="padding:0;margin-bottom:20px;" data-reveal>
     <form method="GET" action="{{ route('purchase.index') }}" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:16px;">
-        <select name="product_id" class="clay-input" style="min-width:200px;flex:1;">
-            <option value="">Semua Produk</option>
+        <select name="variant_id" class="clay-input" style="min-width:200px;flex:1;">
+            <option value="">Semua Produk / Varian</option>
             @foreach($products as $p)
-                <option value="{{ $p->id }}" @selected(request('product_id') == $p->id)>{{ $p->nama_produk }}</option>
+                <optgroup label="{{ $p->name }}">
+                    @foreach($p->variants as $v)
+                        <option value="{{ $v->id }}" @selected(request('variant_id') == $v->id)>{{ $v->nama }} {{ (float)$v->power > 0 ? '(+'.number_format($v->power,2,',','.').')' : '' }}</option>
+                    @endforeach
+                </optgroup>
             @endforeach
         </select>
         <select name="supplier_id" class="clay-input" style="min-width:180px;">
@@ -102,7 +111,7 @@
             <thead>
                 <tr>
                     <th>Tanggal</th>
-                    <th>Produk</th>
+                    <th>Produk / Varian</th>
                     <th>Supplier</th>
                     <th>Qty</th>
                     <th>Harga Satuan</th>
@@ -117,7 +126,10 @@
                     @php $total = $pu->quantity * $pu->unit_price + $pu->shipping_cost; @endphp
                     <tr>
                         <td class="sel-nowrap">{{ $pu->date->format('d/m/Y') }}</td>
-                        <td style="font-weight:600;">{{ $pu->product->nama_produk }}</td>
+                        <td style="font-weight:600;">
+                            {{ $pu->variant?->product?->name ?? '-' }}
+                            <div style="font-size:.72rem;color:#9ca3af;">{{ $pu->variant?->nama }} {{ (float)($pu->variant?->power ?? 0) > 0 ? '(+'.number_format($pu->variant->power,2,',','.').')' : '' }}</div>
+                        </td>
                         <td>{{ $pu->supplier->nama_supplier ?? '-' }}</td>
                         <td>{{ number_format($pu->quantity,0,',','.') }}</td>
                         <td>Rp {{ number_format((float)$pu->unit_price,0,',','.') }}</td>

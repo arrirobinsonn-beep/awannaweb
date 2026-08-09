@@ -12,10 +12,10 @@ class StockMovementController extends Controller
     public function index(Request $request): View
     {
         $query = StockMovement::query()
-            ->with(['product', 'gudang', 'creator']);
+            ->with(['variant.product', 'inventory', 'creator']);
 
-        if ($request->filled('product_id')) {
-            $query->where('product_id', $request->product_id);
+        if ($request->filled('variant_id')) {
+            $query->where('product_variant_id', $request->variant_id);
         }
         if ($request->filled('type')) {
             $query->where('type', $request->type);
@@ -26,7 +26,7 @@ class StockMovementController extends Controller
 
         $movements = $query->orderByDesc('date')->orderByDesc('id')->paginate(25)->withQueryString();
 
-        $products = Product::orderBy('nama_produk')->get();
+        $products = Product::with('variants')->orderBy('name')->get();
         $monthList = StockMovement::selectRaw("DATE_FORMAT(date, '%Y-%m') as bulan")
             ->distinct()
             ->orderByDesc('bulan')

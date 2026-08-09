@@ -193,10 +193,10 @@
                                                  font-size:.62rem;font-weight:700;padding:2px 8px;
                                                  border-radius:999px;flex-shrink:0;">📦 Produk</span>
                                     <span style="font-weight:700;font-size:.85rem;color:#1e1b2e;">
-                                        {{ $prodData['product']->nama_produk ?? 'Tidak Diketahui' }}
+                                        {{ $prodData['product']->name ?? 'Tidak Diketahui' }}
                                     </span>
                                     <span style="font-size:.68rem;color:#9ca3af;">
-                                        {{ $prodData['product']->kode_produk ?? '' }}
+                                        {{ $prodData['product']->code ?? '' }}
                                     </span>
                                 </div>
                                 <div style="font-size:.67rem;color:#9ca3af;margin-top:2px;padding-left:52px;">

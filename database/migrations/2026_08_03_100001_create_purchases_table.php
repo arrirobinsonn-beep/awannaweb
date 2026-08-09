@@ -11,8 +11,8 @@ return new class extends Migration
         Schema::create('purchases', function (Blueprint $table) {
             $table->id();
             $table->date('date');
-            $table->foreignId('supplier_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('product_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
+            $table->foreignId('product_variant_id')->constrained('product_variants')->cascadeOnDelete();
             $table->unsignedInteger('quantity');
             $table->decimal('unit_price', 15, 2);
             $table->decimal('shipping_cost', 15, 2)->default(0);
@@ -21,7 +21,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index('date');
-            $table->index('product_id');
+            $table->index('product_variant_id');
             $table->index('supplier_id');
         });
     }

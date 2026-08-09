@@ -10,7 +10,7 @@ class Purchase extends Model
     protected $fillable = [
         'date',
         'supplier_id',
-        'product_id',
+        'product_variant_id',
         'quantity',
         'unit_price',
         'shipping_cost',
@@ -30,9 +30,9 @@ class Purchase extends Model
         return $this->belongsTo(Supplier::class);
     }
 
-    public function product(): BelongsTo
+    public function variant(): BelongsTo
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
     }
 
     public function creator(): BelongsTo

@@ -8,8 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StockMovement extends Model
 {
     protected $fillable = [
-        'product_id',
-        'gudang_id',
+        'product_variant_id',
+        'inventory_id',
         'date',
         'type',
         'quantity',
@@ -26,14 +26,14 @@ class StockMovement extends Model
         'unit_price' => 'decimal:2',
     ];
 
-    public function product(): BelongsTo
+    public function variant(): BelongsTo
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
     }
 
-    public function gudang(): BelongsTo
+    public function inventory(): BelongsTo
     {
-        return $this->belongsTo(Gudang::class);
+        return $this->belongsTo(Inventory::class);
     }
 
     public function creator(): BelongsTo
