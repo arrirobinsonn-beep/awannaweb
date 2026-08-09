@@ -13,7 +13,7 @@
         </th>
         @endforeach
         {{-- Total kolom sticky kanan (colspan=3 — nempel di tepi kanan) --}}
-        <th colspan="3" class="cs-total-ratio" style="background:#0d9488;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;min-width:80px;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">
+        <th colspan="3" class="cs-total-ratio" style="background:#0d9488;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;width:240px;min-width:240px;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">
             📊 TOTAL
         </th>
     </tr>
@@ -26,8 +26,8 @@
         <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">PAID</th>
         <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.68rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">RATIO</th>
         @endforeach
-        <th class="cs-total-lead" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">LEAD</th>
-        <th class="cs-total-paid" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">PAID</th>
-        <th class="cs-total-ratio" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.68rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">RATIO</th>
+        <th class="cs-total-lead" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;width:80px;min-width:80px;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">LEAD</th>
+        <th class="cs-total-paid" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;width:80px;min-width:80px;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">PAID</th>
+        <th class="cs-total-ratio" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.68rem;width:80px;min-width:80px;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">RATIO</th>
     </tr>
 </thead>

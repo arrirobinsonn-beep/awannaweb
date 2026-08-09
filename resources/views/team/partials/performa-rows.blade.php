@@ -24,8 +24,8 @@
             <div>
                 <div style="display:flex;align-items:center;gap:6px;">
                     <span>{{ $csData->display_name ?? $csName }}</span>
-                    @if(!empty($badge))
-                    <span class="clay-badge clay-badge-green" style="font-size:.55rem;">{{ $badge }}</span>
+                    @if(!empty($badge) || (!empty($csData) && !empty($csData->is_utama)))
+                    <span class="clay-badge clay-badge-green" style="font-size:.55rem;">{{ $badge ?? 'Utama' }}</span>
                     @endif
                 </div>
                 @if($csData && !empty($csData->subtitle))
@@ -86,13 +86,13 @@
     </td>
     @endforeach
     @php $totalRatio = $csTotalLead > 0 ? round($csTotalPaid / $csTotalLead * 100, 1) : 0; @endphp
-    <td class="cs-total-lead" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">
+    <td class="cs-total-lead" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">
         {{ number_format($csTotalLead) }}
     </td>
-    <td class="cs-total-paid" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">
+    <td class="cs-total-paid" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">
         {{ number_format($csTotalPaid) }}
     </td>
-    <td class="cs-total-ratio" style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">
+    <td class="cs-total-ratio" style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">
         {{ $totalRatio > 0 ? number_format($totalRatio, 1) . '%' : '0%' }}
     </td>
 </tr>
@@ -123,8 +123,8 @@
         <td style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-top:2px solid #0d9488;" class="{{ $stripClass }}">{{ number_format($dayPaid) }}</td>
         <td style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-top:2px solid #0d9488;" class="{{ $stripClass }}">{{ $dayRatio > 0 ? number_format($dayRatio, 1) . '%' : '0%' }}</td>
     @endforeach
-    <td class="cs-total-lead" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#0d9488;border-top:2px solid #0d9488;background:#e6fffa;">{{ number_format($grandLead) }}</td>
-    <td class="cs-total-paid" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#059669;border-top:2px solid #0d9488;background:#e6fffa;">{{ number_format($grandPaid) }}</td>
-    <td class="cs-total-ratio" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:var(--color-primary);border-top:2px solid #0d9488;background:#e6fffa;">{{ $grandRatio > 0 ? number_format($grandRatio, 1) . '%' : '0%' }}</td>
+    <td class="cs-total-lead" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#0d9488;border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ number_format($grandLead) }}</td>
+    <td class="cs-total-paid" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#059669;border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ number_format($grandPaid) }}</td>
+    <td class="cs-total-ratio" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:var(--color-primary);border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ $grandRatio > 0 ? number_format($grandRatio, 1) . '%' : '0%' }}</td>
 </tr>
 @endif

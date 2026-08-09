@@ -32,6 +32,10 @@
         z-index: 5;
         background-clip: padding-box;
     }
+    /* ── Sub-kolom TOTAL: offset sticky per kolom (tiap kolom 80px; urut LEAD, RATIO, PAID) ── */
+    .reg-total-lead  { right: 160px; }
+    .reg-total-ratio { right: 80px;  }
+    .reg-total-paid  { right: 0;     }
     thead .reg-sticky-right { z-index: 6; top: 0; }
     thead tr:nth-child(2) .reg-sticky-right { top: var(--reg-head2, 38px); }
     tbody .reg-sticky-right { z-index: 3; }
@@ -313,7 +317,7 @@
                         </th>
                         @endforeach
                         {{-- TOTAL sticky kanan --}}
-                        <th colspan="3" class="reg-sticky-right" style="background:#0d9488;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;border:1px solid rgba(255,255,255,.15);min-width:80px;">
+                        <th colspan="3" class="reg-sticky-right reg-total-paid" style="background:#0d9488;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;border:1px solid rgba(255,255,255,.15);width:240px;min-width:240px;">
                             📊 TOTAL
                         </th>
                     </tr>
@@ -327,9 +331,9 @@
                             <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">RATIO</th>
                             <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">PAID</th>
                         @endforeach
-                        <th class="reg-sticky-right" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">LEAD</th>
-                        <th class="reg-sticky-right" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">RATIO</th>
-                        <th class="reg-sticky-right" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">PAID</th>
+                        <th class="reg-sticky-right reg-total-lead" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);width:80px;min-width:80px;">LEAD</th>
+                        <th class="reg-sticky-right reg-total-ratio" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);width:80px;min-width:80px;">RATIO</th>
+                        <th class="reg-sticky-right reg-total-paid" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);width:80px;min-width:80px;">PAID</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -381,9 +385,9 @@
                         @endforeach
                         {{-- Total per provinsi (sticky kanan) --}}
                         @php $provRatio = $provTotalLead > 0 ? round($provTotalPaid / $provTotalLead * 100, 1) : 0; @endphp
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">{{ number_format($provTotalLead) }}</td>
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">{{ $provRatio > 0 ? number_format($provRatio, 1) . '%' : '0%' }}</td>
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">{{ number_format($provTotalPaid) }}</td>
+                        <td class="reg-sticky-right reg-total-lead" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">{{ number_format($provTotalLead) }}</td>
+                        <td class="reg-sticky-right reg-total-ratio" style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">{{ $provRatio > 0 ? number_format($provRatio, 1) . '%' : '0%' }}</td>
+                        <td class="reg-sticky-right reg-total-paid" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">{{ number_format($provTotalPaid) }}</td>
                     </tr>
                     @endforeach
                     {{-- Grand Total Row (sticky bottom + sticky kanan) --}}
@@ -408,9 +412,9 @@
                             $grandPaid = collect($totalPerTanggal)->sum('paid');
                             $grandRatio = $grandLead > 0 ? round($grandPaid / $grandLead * 100, 1) : 0;
                         @endphp
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#0d9488;border-top:2px solid #0d9488;background:#e6fffa;">{{ number_format($grandLead) }}</td>
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:var(--color-primary);border-top:2px solid #0d9488;background:#e6fffa;">{{ $grandRatio > 0 ? number_format($grandRatio, 1) . '%' : '0%' }}</td>
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#059669;border-top:2px solid #0d9488;background:#e6fffa;">{{ number_format($grandPaid) }}</td>
+                        <td class="reg-sticky-right reg-total-lead" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#0d9488;border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ number_format($grandLead) }}</td>
+                        <td class="reg-sticky-right reg-total-ratio" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:var(--color-primary);border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ $grandRatio > 0 ? number_format($grandRatio, 1) . '%' : '0%' }}</td>
+                        <td class="reg-sticky-right reg-total-paid" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#059669;border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ number_format($grandPaid) }}</td>
                     </tr>
                 </tbody>
             </table>

@@ -191,6 +191,60 @@ class TeamController extends Controller
             }
         }
 
+        // ─── Sisi advertiser: gabungkan CS Utama + CS Tamu jadi 1 daftar berurutan ──
+        // Urutan: CS Utama (badge) paling atas → lalu CS lain dari porsi penerimaan
+        // data (total lead) terbesar. Lead/paid dihitung dengan logika matching yang
+        // sama persis dengan performa-rows (FK cs_user_id dulu, fallback nama).
+        $totalOf = function ($member) use ($stats): array {
+            $lead = 0;
+            $paid = 0;
+            foreach ($stats as $stat) {
+                $isMatch = false;
+                if (! empty($member->id) && ! empty($stat->cs_user_id)
+                    && (int) $stat->cs_user_id === (int) $member->id) {
+                    $isMatch = true;
+                } elseif (strtolower(trim((string) $stat->cs_panggilan)) === strtolower(trim((string) ($member->panggilan ?? '')))
+                    || strtolower(trim((string) $stat->cs_panggilan)) === strtolower(trim((string) ($member->nama ?? '')))) {
+                    $isMatch = true;
+                }
+                if ($isMatch) {
+                    $lead += (int) $stat->lead;
+                    $paid += (int) $stat->paid;
+                }
+            }
+
+            return [$lead, $paid];
+        };
+
+        // Tandai & hitung porsi data tiap anggota
+        foreach ($mainMembers as $member) {
+            $member->is_utama = true;
+            [$member->total_lead, $member->total_paid] = $totalOf($member);
+        }
+        foreach ($guestMembers as $member) {
+            $member->is_utama = false;
+            [$member->total_lead, $member->total_paid] = $totalOf($member);
+        }
+
+        // Gabung: CS Utama dulu (urut porsi data antar-utama), lalu CS lain (porsi data terbesar)
+        $members = $mainMembers->sortByDesc('total_lead')
+            ->concat($guestMembers->sortByDesc('total_lead'))
+            ->values();
+
+        // Data diagram doughnut: porsi lead per CS yang menerima lead (termasuk CS tamu).
+        // Hanya lead > 0 — CS tanpa lead tidak punya lengkungan di chart, jadi jangan
+        // ikut tampil di legend (menghindari pemetaan warna yang membingungkan).
+        $chartData = $members
+            ->filter(fn ($m) => ($m->total_lead ?? 0) > 0)
+            ->values()
+            ->map(fn ($m) => [
+                'label' => $m->display_name ?? $m->panggilan ?? $m->nama ?? 'CS',
+                'lead' => (int) ($m->total_lead ?? 0),
+                'paid' => (int) ($m->total_paid ?? 0),
+                'is_utama' => (bool) ($m->is_utama ?? false),
+            ])
+            ->all();
+
         // Bangun semua tanggal dalam range
         $allDates = [];
         $start = Carbon::parse($dari);
@@ -203,7 +257,7 @@ class TeamController extends Controller
         $allDates = array_values(array_filter($allDates, fn ($d) => $d <= $today));
 
         return view('team.performance', compact(
-            'byDate', 'mainMembers', 'guestMembers', 'totalPerCs', 'allDates',
+            'byDate', 'mainMembers', 'guestMembers', 'members', 'chartData', 'totalPerCs', 'allDates',
             'dari', 'sampai', 'user',
         ));
     }
