@@ -68,6 +68,7 @@ Route::middleware('auth')->group(function () {
         Route::patch('/spending/{spending}/approve', [SpendingHarianController::class, 'approve'])->name('spending.approve');
         Route::post('/spending/change-date', [SpendingHarianController::class, 'changeDate'])->name('spending.change-date');
         Route::post('/spending/bulk-delete', [SpendingHarianController::class, 'bulkDestroy'])->name('spending.bulk-destroy');
+        Route::post('/spending/parse-upload', [SpendingHarianController::class, 'parseUpload'])->name('spending.parse-upload');
 
         // Top Up
         Route::get('/top-up', [TopUpController::class, 'index'])->name('topup.index');

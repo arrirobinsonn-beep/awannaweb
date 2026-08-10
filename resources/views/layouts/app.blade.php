@@ -220,6 +220,39 @@
         @media (max-width: 480px) {
             .topbar-subtitle, .topbar-date { display: none; }
         }
+
+        /* ── Elemen tampilan (non-input): tidak bisa di-select & di-drag ──
+           Seluruh teks/gambar/ikon yang murni tampilan tidak bisa di-block
+           (disorot/di-select) maupun di-drag. Area pengisian data (input,
+           textarea, select, contenteditable) tetap normal. Elemen drag & drop
+           khusus (mis. palette produk di form spending) tetap berfungsi karena
+           memakai draggable="true" pada div, bukan img/a/button. */
+        body {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        /* Input & area pengisian data tetap bisa di-select/ketik normal */
+        input, textarea, select, [contenteditable="true"], [contenteditable=""] {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+        /* Gambar, ikon, link, tombol & elemen visual lain tidak bisa di-drag */
+        img, svg, canvas, video, iframe, a, button, [role="button"] {
+            -webkit-user-drag: none;
+            user-drag: none;
+        }
+        /* Escape hatch: nilai yang memang perlu di-copy (resi, nomor, kode) */
+        .selectable {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
     </style>
 </head>
 <body id="app-body" style="overflow-x:hidden;">
