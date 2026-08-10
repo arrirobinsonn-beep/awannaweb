@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\ShippingOrder;
 use App\Models\StockMovement;
+use App\Services\AggregatorTrackingImportService;
 use App\Services\CourierRuleService;
 use App\Services\OrderOnlineImportService;
 use App\Services\OrderTemplateExportService;
@@ -24,6 +25,7 @@ class OrderOnlineController extends Controller
         private readonly OrderTemplateExportService $export,
         private readonly CourierRuleService $couriers,
         private readonly StockService $stock,
+        private readonly AggregatorTrackingImportService $tracking,
     ) {}
 
     public function index(Request $request): View
@@ -180,6 +182,43 @@ class OrderOnlineController extends Controller
         }
 
         return back()->with('success', 'Data courier berhasil diperbarui.');
+    }
+
+    public function trackingImport(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:csv,txt,xlsx,xls', 'max:10240'],
+        ]);
+
+        try {
+            $path = $request->file('file')->store('order-online/tracking');
+            $result = $this->tracking->import(Storage::path($path));
+
+            $message = 'Tracking import ('.($result['source'] ?? '-').') | Total: '.$result['total']
+                .' | Terisi: '.$result['updated'];
+
+            if (($result['stock_returned'] ?? 0) > 0) {
+                $message .= ' | Stok dikembalikan: '.$result['stock_returned'];
+            }
+            if (! empty($result['ambiguous'])) {
+                $message .= ' | Ambigu (tidak diisi): '.count($result['ambiguous']);
+            }
+            if (! empty($result['unmatched'])) {
+                $message .= ' | Tak cocok: '.count($result['unmatched']);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'updated' => $result['updated'],
+                'stock_returned' => $result['stock_returned'],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal import tracking: '.$e->getMessage(),
+            ], 500);
+        }
     }
 
     public function export(OrderOnlineImportBatch $batch, string $template, ?string $courier = null): StreamedResponse

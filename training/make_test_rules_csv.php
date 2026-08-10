@@ -41,10 +41,10 @@ function row(array $data, string $status, string $paymentStatus, string $payment
 $rows = [
 
     // ── Status mapping ────────────────────────────────────────────────
-    row(['order_id' => 'RULES-001', 'product' => $prod, 'name' => 'EXP: real / flix-sicepat',
+    row(['order_id' => 'RULES-001', 'product' => $prod, 'name' => 'EXP: real / sicepat',
         'phone' => '08123450001', 'address' => 'Jl. Uji 1', 'province' => 'Jawa Barat', 'city' => 'Bandung', 'subdistrict' => 'Coblong', 'zip' => '40132',
         'variation' => 'Ukuran: Usia 44-45 Tahun Plus +1.50',
-        'notes' => 'status=processing -> real; cod+Jabar -> flix-sicepat; Plus +1.50 -> varian KMP+1.5'],
+        'notes' => 'status=processing -> real; cod+Jabar -> sicepat; Plus +1.50 -> varian KMP+1.5'],
         'processing', 'paid', 'cod', 'KMP'),
 
     row(['order_id' => 'RULES-002', 'product' => $prod, 'name' => 'EXP: tembakan / spx',
@@ -78,9 +78,9 @@ $rows = [
         'notes' => 'cod + provinsi Sumatera -> flix-idx; sekaligus uji kalibrasi "Sumatera"->"SUMATRA BARAT"'],
         'processing', 'paid', 'cod', 'KMP'),
 
-    row(['order_id' => 'RULES-008', 'product' => $prod, 'name' => 'EXP: flix-sicepat',
+    row(['order_id' => 'RULES-008', 'product' => $prod, 'name' => 'EXP: sicepat',
         'phone' => '08123450008', 'address' => 'Jl. Uji 8', 'province' => 'Jakarta', 'city' => 'Kebayoran Baru', 'subdistrict' => 'Kebayoran Baru', 'zip' => '12120',
-        'notes' => 'cod + Jawa/Bali -> flix-sicepat; sekaligus uji mapping "Jakarta" -> "DKI JAKARTA"'],
+        'notes' => 'cod + Jawa/Bali -> sicepat (template SiCepat); sekaligus uji mapping "Jakarta" -> "DKI JAKARTA"'],
         'processing', 'paid', 'cod', 'KMP'),
 
     row(['order_id' => 'RULES-009', 'product' => $prod, 'name' => 'EXP: flix-spx',
@@ -166,4 +166,4 @@ foreach ($rows as $r) {
 }
 fclose($handle);
 
-echo "OK: ".count($rows)." baris ditulis ke $path\n";
+echo 'OK: '.count($rows)." baris ditulis ke $path\n";

@@ -1,3 +1,45 @@
+# MEMORY — 10 Agustus 2026
+
+## Session: Test Kit Pipeline `filecoba/` (import → export → tracking → stok return)
+
+- **Folder `filecoba/`** (baru): kit uji end-to-end pipeline order-online yang menjalankan service ASLI (bukan mock). `generate_test_kit.php` (mandiri, tanpa boot Laravel, pola `training/make_test_rules_csv.php`) menulis 7 file CSV; `verify_pipeline.php` (boot Laravel, DB aktif `awannacoba`) menjalankan import → export+diff → tracking → cek stok → idempotent, mencetak PASS/FAIL per langkah. **98/98 PASS**, re-runnable.
+- **File**: `01_order_online_mentah.csv` (52 kolom, 10 order CBC-101..CBC-302), `02_export_{flik,sicepat,spx}.csv` (**referensi statis format RUNTIME** — FLIK 1-kolom HP "62", bukan template lama `FLIX template.csv` 2-kolom), `03_tracking_{flik,sicepat,spx}.csv` (header dashboard asli: FLIK 29 kolom, SICEPAT 43, SPX 47), `actual_export_*.csv` (artefak diff tiap run).
+- **Skenario 10 order**: CBC-101..105 bank_transfer → `flix-tf` (FLIK, KSP+2→**GTM** jadi 2 gudang → ZIP), CBC-201..203 cod Jawa/Bali → `sicepat`, CBC-301/302 pending+paid → `tembakan`→`spx`. Tracking mencakup semua 6 nilai: `waiting_pickup` (CBC-104), `in_transit` (102/202), `delivered` (101/201/301), `returning` (203), `returned` (103 FLIK, 302 SPX → uji balik stok), `problem` (105, 3PL "Problem:...").
+- **Keputusan teknis**:
+  - Export diff baris-per-baris dengan referensi; `product_price` DB decimal → sel "119000.00" (referensi pakai `number_format(…,2)`); `delivered_at` di-compare sebagai string (kolom ber-cast datetime → Carbon, `(string)` agar `===` cocok).
+  - `verify_pipeline.php` akses method protected `reserveStock`/`flikRows`/`sicepatRows`/`spxRows` via **ReflectionMethod** (tanpa mengubah kode produksi). `check()` param `$detail` bertipe `string` → jangan lempar `null` (`$mismatch ?? ''`).
+  - **Re-runnable**: di awal verify, order CBC-* lama dihapus + `StockService::reverseReference('order_online', $order->id)` → stok kembali baseline sebelum re-import.
+  - Skrip TIDAK menjalankan seeder (`CourierRuleSeeder` truncate) — precheck cuma pastikan `courier_rules` & `ProductVariant` terisi, kalau kosong minta seed manual.
+  - Packaging/split terverifikasi dari delta stok relatif dalam run: BOX/LAP −4 (CBC-102,104,202,301), KDF+1.25 −1 (split KBJ CBC-104 qty2 → KBJ −1 + KDF −1).
+- **Trap**: KBJ qty2 → KBJ −**1** (bukan −2) karena `ceil(2/2)`; awalnya assert −2 → salah, diperbaiki.
+- **Verifikasi**: `generate_test_kit.php` + `verify_pipeline.php` 98/98 PASS (2 run berurutan, deterministik). AGENTS.md seksi H ditulis.
+
+## Session: Upload Status Aggregator → awb/aggregator_status/delivered_at + stok return
+
+- **Fitur baru G** (`AggregatorTrackingImportService`): admin upload file dashboard FLIK/SiCepat/SPX (`.csv`/`.xlsx`, PhpSpreadsheet `IOFactory`) di halaman Data Mentah → isi `shipping_orders.awb`, `aggregator_status`, `delivered_at`. Route `POST /orders/tracking-import` (`orders.tracking-import`), kartu "Upload Status Aggregator" di `order/index.blade.php`, `OrderOnlineController::trackingImport`.
+- **Pencocokan WAJIB signature** (file TIDAK memuat order_id: SICEPAT "Nomor Referensi" 0/1902, SPX "Customer Reference" 0/673, FLIK Order ID = UUID): Tier 1 `phone_normalized + product_id + quantity + alamat`; Tier 2 (fallback, hanya bila unik) `phone_normalized + product_id + quantity`. 0 kandidat → `unmatched`, >1 → `ambiguous`. Batch `whereIn('phone_normalized')` + `ProductNameMatcher` (anti N+1).
+- **`aggregator_status` 6 nilai INGGRIS** (`ShippingOrder::TRACKING_STATUSES`): `waiting_pickup` (FLIK Dikonfirmasi / SICEPAT Menunggu pickup / SPX Pending Pickup), `in_transit` (Sedang Diantar / Proses pengiriman / In Transit+Delivering), `delivered` (Dicairkan+Terkirim / Terkirim / Delivered), `returning` (Dalam Transit Pengembalian / Proses retur / Returning), `returned` (**Dikembalikan** / Retur / Returned), `problem` (FLIK: Dikonfirmasi/Sedang Diantar + "Status Terakhir dari 3PL" diawali "Problem" — cuma 3 baris; SICEPAT: Bermasalah; SPX: Pending Pickup/In Transit/Delivering + "Delivery OnHold Reason" berisi — 63 baris). Raw tak dikenal → null.
+- **`delivered_at` hanya saat `delivered`**, dari kolom waktu file per sumber (parse per-source agar d/m SICEPAT tak tertukar m/d FLIK): FLIK `Terakhir Update` (`m/d/Y H:i`), SICEPAT `Tanggal Terkirim` (`d/m/Y H:i:s`), SPX `Delivered Time` (`d-m-Y H:i`). Status keluar dari delivered → nilai lama dibiarkan.
+- **Stok return**: saat `aggregator_status` jadi `returned` → `StockService::reverseReference('order_online', $order->id)` (stok yang keluar saat export dikembalikan). Idempotent: hanya saat transisi (sebelumnya bukan returned), re-import tidak menggandakan (test `import returned is idempotent for stock`).
+- **Detail teknis**: header xlsx bisa di baris 3 (SPX) → `detectSource` scan 8 baris pertama; sel kosong xlsx = `null` → `normalizeHeader(?string)`; `cellText()` tahan float/eksponensial (`2.63E17` → diperluas), `-` dianggap kosong. Kolom sudah ada di migration `2026_08_07_120000` → tanpa migrasi.
+- **Test** (`AggregatorTrackingImportTest`, 9 test): mapStatus semua sumber + problem, import FLIK/SICEPAT/SPX (awb/status/delivered_at), returned balikin stok, idempotent, tier-2 fallback, ambiguous, unmatched. Pakai DB `awannacoba` tanpa refresh → jangan assert global count (AWB '999515101688' & status lintas-test terkontaminasi), scope ke order spesifik.
+- **Verifikasi real file**: `training/flix.xlsx` (2404) → in_transit 1121, waiting_pickup 730, delivered 523, returning 24, returned 3, problem 3; `training/SICEPAT.xlsx` (1902) → delivered 1047, in_transit 329, waiting_pickup 221, returning 137, returned 32, problem 136; `training/SPX.xlsx` (673) → in_transit 321, waiting_pickup 171, delivered 109, returning 8, returned 1, problem 63. Semua cocok analisis.
+- **Status**: full suite 48 pass + ExampleTest pre-existing fail (302 redir login); pint pass utk file baru.
+
+## Session: FLIK 1 kolom HP (62), nama kacamata +power, rules sicepat
+
+- **FLIK export — 1 kolom HP saja**: kolom kedua `No HP Pelanggan (mulai dengan "8")` DIHAPUS (header + value `phoneWithoutCountryCode()` dihapus). Kini hanya `No HP Pelanggan (mulai dengan "62")` = `phone_normalized`. Indeks kolom FLIK bergeser −1 (Catatan Kurir idx 9, Panjang/Lebar/Tinggi 11/12/13, Nama Produk 15).
+- **Nama produk kacamata +power** (`OrderTemplateExportService::productDisplayName($o)`): untuk produk KMP/KSP/KBJ (cek `explode('+', product_code)[0]` di `StockService::KACAMATA_CODES`) ditulis `<nama> +<power> <qty> pcs` (contoh `Kacamata +1.50 2 pcs`). Power dari `product_variants.power` via eager-load `with('variant')` di `download()` (anti N+1), format `sprintf('+%.2f', ...)`. Suffix ` N pcs` lama di-strip dulu (`preg_replace('/\s+\d+\s*pcs$/i', '')`) agar tidak dobel. Produk non-kacamata → `product_name` apa adanya (cast `(string)` karena bisa null). Dipakai di kolom Nama Produk (FLIK idx 15), Isi Paket (SiCepat idx 10), Nama Barang (SPX idx 16).
+- **Rules courier flix-sicepat → sicepat** (10 Agustus):
+  - `CourierRuleSeeder` section 3 (COD BANTEN/DKI/JABAR/JATENG/JATIM/YOGYA/BALI) → `courier = 'sicepat'` (bukan `flix-sicepat`). Sudah di-re-seed di DB (verifikasi tinker: JAWA BARAT+cod → `sicepat`).
+  - `CourierRuleService::COURIERS` + `'sicepat'` (untuk validasi `orders.update` + dropdown edit).
+  - `flix-sicepat` tetap ada di `FLIK_COURIERS` + COURIERS sebagai override manual bila SiCepat bermasalah (TIDAK lagi dipilih otomatis).
+  - Badge baru `.cou-sicepat` (hijau tua) di `order/index.blade.php`.
+  - Generator training `make_test_rules_csv.php`: label `EXP` RULES-001 & RULES-008 → `sicepat`; CSV `TestRules_OrderOnline.csv` di-regenerasi.
+- **Test (OrderOnlineTest 35→38)**: `test_courier_rule_resolution` `resolve('cod','BALI')` → `'sicepat'`; indeks FLIK di `test_export_dimensions_and_courier_note_per_template` disesuaikan ([9]/[11]/[12]/[13]); baru: `flik export single phone 62 only` (header 1 kolom HP, `6281234567890` di [1][2]), `export kacamata product name with power` (`Kacamata +1.50 2 pcs`, pakai variant `KMP+1.5` — seeder menghasilkan code tanpa nol di belakang, bukan `KMP+1.50`), `export non kacamata name unchanged`.
+- **Penting**: variant code dari `ProductSeeder` = `rtrim(rtrim(number_format($power,2),'0'),'.')` → `KMP+1.5`, TAPI display power tetap `+1.50` via sprintf.
+- **Verifikasi**: `OrderOnlineTest` 38/38 pass (174 assertion); full test hanya `ExampleTest` 302 pre-existing; pint passed (fix single_quote di `make_test_rules_csv.php`).
+
 # MEMORY — 09 Agustus 2026
 
 ## Session: Re-import data sama → hard-delete `belum_diproses` lama + anti-double-export

@@ -59,6 +59,9 @@ class ShippingOrder extends Model
 
     public const STATUSES = ['real', 'tembakan', 'belum_diproses', 'cancel', 'duplikat'];
 
+    /** Nilai aggregator_status (tracking dari dashboard FLIK/SiCepat/SPX). */
+    public const TRACKING_STATUSES = ['waiting_pickup', 'in_transit', 'delivered', 'returning', 'returned', 'problem'];
+
     public function importBatch(): BelongsTo
     {
         return $this->belongsTo(OrderOnlineImportBatch::class, 'order_online_import_batch_id');

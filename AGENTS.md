@@ -167,7 +167,7 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 ### Hierarki courier (tabel `courier_rules`, dievaluasi by `sort_order`)
 - `bank_transfer` (semua provinsi) → **flix-tf**
 - `cod` provinsi {BENGKULU, JAMBI, LAMPUNG, RIAU, SUMATRA BARAT, SUMATRA SELATAN, SUMATRA UTARA} → **flix-idx**
-- `cod` provinsi {BANTEN, DKI JAKARTA, JAWA BARAT, JAWA TENGAH, JAWA TIMUR, DI YOGYAKARTA, BALI} → **flix-sicepat**
+- `cod` provinsi {BANTEN, DKI JAKARTA, JAWA BARAT, JAWA TENGAH, JAWA TIMUR, DI YOGYAKARTA, BALI} → **sicepat** (template SiCepat)
 - `cod` provinsi lainnya (Kalimantan, Sulawesi, Maluku, Papua, NTB, NTT, Aceh, Bangka, Kep. Riau, Gorontalo) → **flix-spx**
 - Tidak ada rule cocok (provinsi tak dikenal / payment method lain) → **spx** (fallback)
 - Admin bisa override manual per order; `courier = 'undeliverable'` + `courier_note` = label "paket tidak dapat terkirim" (tidak ikut export)
@@ -175,7 +175,7 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 ### Mapping courier → template export
 - `flix-tf`, `flix-idx`, `flix-sicepat`, `flix-spx` → template **FLIK** (export terpisah per courier via dropdown)
 - `spx` → template **SPX**
-- `sicepat` → template SiCepat (courier murni, belum dipakai rules default)
+- `sicepat` → template **SiCepat** (courier DEFAULT Jawa+Bali sejak 10 Agustus; `flix-sicepat` TIDAK lagi dipilih otomatis, hanya tersedia sebagai override manual bila SiCepat bermasalah)
 - `undeliverable` → TIDAK di-export
 
 ### Status order (enum `shipping_orders.status`)
@@ -194,7 +194,9 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 - Export dikelompokkan per gudang (`warehouseFor`): **1 gudang → .xlsx langsung**; **≥2 gudang → 1 ZIP** berisi file per gudang (alamat pickup tiap gudang berbeda, berlaku semua template).
 - Nama file per gudang: `Ymd_<template>[_<courier>]_<warehouse>_<batch>.xlsx` (contoh `20260808_spx_eresgestore_74.xlsx`, `20260808_flik_flixtf_GTM_74.xlsx`); ZIP: `Ymd_<template>[_<courier>]_<batch>.zip`.
 - **Khusus SPX biasa**: nomor HP dinormalisasi `phoneSpx()` → mulai `8` (hapus `0`/`62`/`+62`); provinsi/kota/kecamatan **CAPSLOCK**.
-- **Dimensi & catatan kurir (9 Agustus)**: konstanta `PACK_DIMENSIONS=[10,8,6]` & `DEFAULT_COURIER_NOTE='HUBUNGI KONSUMEN SEBELUM DIKIRIM'`. Panjang/Lebar/Tinggi=10/8/6 di kolom masing-masing template (FLIK idx 12/13/14, SiCepat 12/13/14, SPX 13/14/15). Catatan kurir = `$o->courier_note ?: DEFAULT_COURIER_NOTE` di kolom FLIK `Alamat: Catatan Kurir` (idx 10), SiCepat `Catatan Pengiriman` (idx 20), SPX `Instruksi Pengiriman` (idx 21). Volume TIDAK dijumlahkan — tiap template punya kolom sendiri; kolom `Berat` tetap `weight`.
+- **Kolom HP FLIK (10 Agustus)**: HANYA **1 kolom** `No HP Pelanggan (mulai dengan "62")` = `phone_normalized`. Kolom kedua yang berawalan `"8"` dihapus.
+- **Nama produk kacamata (10 Agustus)**: untuk produk KMP/KSP/KBJ, kolom Nama Produk (FLIK idx 15) / Isi Paket (SiCepat idx 10) / Nama Barang (SPX idx 16) memakai `productDisplayName()` = `<nama> +<power> <qty> pcs` (power dari `product_variants.power`, format `+1.50`; suffix `N pcs` lama di-strip dulu agar tidak dobel). Produk non-kacamata memakai `product_name` apa adanya. Ambil power via eager-load `with('variant')` (anti N+1).
+- **Dimensi & catatan kurir (9 Agustus)**: konstanta `PACK_DIMENSIONS=[10,8,6]` & `DEFAULT_COURIER_NOTE='HUBUNGI KONSUMEN SEBELUM DIKIRIM'`. Panjang/Lebar/Tinggi=10/8/6 di kolom masing-masing template (FLIK idx 11/12/13, SiCepat 12/13/14, SPX 13/14/15). Catatan kurir = `$o->courier_note ?: DEFAULT_COURIER_NOTE` di kolom FLIK `Alamat: Catatan Kurir` (idx 9), SiCepat `Catatan Pengiriman` (idx 20), SPX `Instruksi Pengiriman` (idx 21). Volume TIDAK dijumlahkan — tiap template punya kolom sendiri; kolom `Berat` tetap `weight`. (indeks FLIK bergeser −1 sejak kolom HP "8" dihapus)
 
 ### Parser kolom `product`, `variation`, & `meta_account` (9 Agustus)
 - **`product_name` (kolom `product` CSV)**: hanya sampai spasi sebelum `-` (mis. `A.3 Kacamata Multifokus Photocromic - 13722` → `A.3 Kacamata Multifokus Photocromic`). Angka setelah `-` (mis. `13722`) disimpan ke kolom baru `meta_account` (hanya DB, tidak tampil di UI). Tanpa `-` → nama polos, `meta_account=null`.
@@ -238,7 +240,7 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 | `resources/views/order/index.blade.php` | Upload (sender wajib) + preview modal + daftar batch + tabel orders (badge status incl. duplikat/cancel/belum_diproses, kolom produk+stock_note) + edit courier & product_code (dropdown per varian) inline + dropdown export FLIK per courier |
 | `database/migrations/2026_08_09_000000_add_meta_account_to_shipping_orders_table.php` | kolom `shipping_orders.meta_account` (string nullable) |
 | `resources/views/layouts/app.blade.php` | Sidebar section Iklan → "Data Mentah" |
-| `tests/Feature/OrderOnlineTest.php` | 35 test: courier resolve, status mapping (incl. completed skip, courier null), resolve product_id, render, duplikat (window/same file/repeat order/promosi), FLIK separated by courier+status, stok idempotent, skip stok kurang, undeliverable balikin stok, undeliverable→courier normal tidak dobel, undeliverable varian non-default balikin stok & varian tetap, edit courier product_code sama → varian tetap, ganti product_code dgn jurnal ada → stok varian lama balik, reimport real hapus belum_diproses lama, reimport real tidak dobel (double_real), warehouse mapping, ZIP split SH/KSP/sender, phoneSpx 8 + CAPSLOCK, filename sender, tembakan→spx, product meta_account split, dapat qty override + product_name, product_code = kode varian, warehouseFor varian, dimensi & catatan kurir per template |
+| `tests/Feature/OrderOnlineTest.php` | 38 test: courier resolve (incl. sicepat), status mapping (incl. completed skip, courier null), resolve product_id, render, duplikat (window/same file/repeat order/promosi), FLIK separated by courier+status, stok idempotent, skip stok kurang, undeliverable balikin stok, undeliverable→courier normal tidak dobel, undeliverable varian non-default balikin stok & varian tetap, edit courier product_code sama → varian tetap, ganti product_code dgn jurnal ada → stok varian lama balik, reimport real hapus belum_diproses lama, reimport real tidak dobel (double_real), warehouse mapping, ZIP split SH/KSP/sender, phoneSpx 8 + CAPSLOCK, filename sender, tembakan→spx, product meta_account split, dapat qty override + product_name, product_code = kode varian, warehouseFor varian, dimensi & catatan kurir per template, FLIK 1 kolom HP 62, nama kacamata +power, nama non-kacamata tetap |
 
 ### Endpoint
 - `GET /orders` — daftar batch + orders (filter search/courier/status per batch)
@@ -340,13 +342,88 @@ Contoh: KBJ qty 2 → 1 KBJ + 1 KDF + 1 BOX + 1 LAP; qty 1 → 1 KBJ (0 KDF/BOX/
 | `app/Services/OrderTemplateExportService.php` | `reserveStock` → `recordOutWithPackaging` (alur order-online) |
 | `app/Services/ShipmentImportService.php` | 2 call site `import()` → `recordOutWithPackaging` (alur resi aggregator) |
 | `database/seeders/ProductSeeder.php` | `SIZED_PRODUCTS` + `KDF`; tambah produk BOX/LAP/KDF + opening stock |
-| `tests/Feature/OrderOnlineTest.php` | +6 test packaging/split (total 35) |
+| `tests/Feature/OrderOnlineTest.php` | +6 test packaging/split (total 38) |
 
 ### Penting
 - **Key `updateOrCreate` `recordOut` WAJIB menyertakan `product_variant_id`** — kalau tidak, baris `out` berikutnya untuk ref sama (mis. BOX) menimpa varian baris sebelumnya (KMP), lalu LAP menimpa BOX → `firstOrFail()` final gagal → transaksi rollback → tidak ada jurnal sama sekali (ekspor diam-diam tidak mengurangi stok apa pun).
 - `powerList()` menghasilkan **9** power (1.00–3.00 step 0.25), bukan 10 → sized product total stok 999 (9×111).
 - `reverseReference` (undeliverable / ganti produk) otomatis membalik SEMUA movement pendamping (delete semua + recalc tiap varian).
 - Produk pendamping belum terdaftar/stok kurang → export: order dilewati + `stock_note` berisi pesan; import shipment: batch gagal (perilaku konsisten dgn stok produk utama kurang).
+
+---
+
+## G. ✅ Upload Status Aggregator → awb/aggregator_status/delivered_at + Stok Return (10 Agustus 2026)
+
+### Deskripsi
+Admin upload file dashboard aggregator (FLIK / SiCepat / SPX, `.csv` atau `.xlsx`) lewat halaman Data Mentah → kolom `shipping_orders.awb`, `aggregator_status`, `delivered_at` terisi. Baris file dihubungkan ke order memakai **signature**: Tier 1 = `phone_normalized + product_id + quantity + alamat` (normalisasi lowercase/kolaps spasi), Tier 2 (fallback) = `phone_normalized + product_id + quantity` bila tier 1 kosong dan kandidat unik. 0 kandidat → `unmatched`; >1 kandidat → `ambiguous` (tidak diisi).
+
+Saat `aggregator_status` berubah menjadi **`returned`**, stok yang di-reserve saat export (jurnal `order_online`) dikembalikan otomatis via `StockService::reverseReference` (idempotent — re-import file yang sama tidak menggandakan).
+
+### Nilai `aggregator_status` (6 nilai INGGRIS, `ShippingOrder::TRACKING_STATUSES`)
+| Nilai | FLIK (`Status`) | SICEPAT (`Status`) | SPX (`Tracking Status`) |
+|---|---|---|---|
+| `waiting_pickup` | Dikonfirmasi | Menunggu pickup | Pending Pickup |
+| `in_transit` | Sedang Diantar | Proses pengiriman | In Transit / Delivering |
+| `delivered` | Dicairkan / Terkirim | Terkirim | Delivered |
+| `returning` | Dalam Transit Pengembalian | Proses retur | Returning |
+| `returned` | Dikembalikan | Retur | Returned |
+| `problem` | Dikonfirmasi/Sedang Diantar **+** [14] "Status Terakhir dari 3PL" berawalan "Problem" | Bermasalah | Pending Pickup/In Transit/Delivering **+** [13] "Delivery OnHold Reason" berisi |
+
+Raw status tak dikenal → `aggregator_status = null` (tetap dihitung `unmatched`). `delivered_at` diisi dari kolom waktu file hanya saat `delivered`: FLIK `Terakhir Update` (format `m/d/Y H:i`), SICEPAT `Tanggal Terkirim` (`d/m/Y H:i:s`), SPX `Delivered Time` (`d-m-Y H:i`). Parse datetime memakai urutan format per-sumber agar d/m (SICEPAT) tidak tertukar m/d (FLIK).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Services/AggregatorTrackingImportService.php` | `parse` (readRows via PhpSpreadsheet IOFactory csv/xlsx, detectSource header tak selalu baris 1 — SPX di baris 3, mapHeaders aliases, mapStatus, isProblem), `import` (1 transaksi: batch `whereIn phone_normalized` + `ProductNameMatcher` → `resolveOrder` tier1/tier2 → update awb/status/delivered_at → reverseReference bila jadi returned) |
+| `app/Http/Controllers/OrderOnlineController.php` | `trackingImport` (validate `mimes:csv,txt,xlsx,xls` max 10MB, flash report: Total/Terisi/Stok dikembalikan/Ambigu/Tak cocok) |
+| `app/Models/ShippingOrder.php` | const `TRACKING_STATUSES` |
+| `resources/views/order/index.blade.php` | kartu "Upload Status Aggregator" (dropzone + JS fetch `orders.tracking-import`) |
+| `routes/web.php` | `POST /orders/tracking-import` (`orders.tracking-import`) |
+| `tests/Feature/AggregatorTrackingImportTest.php` | 9 test: mapStatus semua sumber, import per sumber (awb/status/delivered_at), returned balikin stok, idempotent re-import returned, tier-2 fallback, ambiguous, unmatched |
+
+### Penting
+- File dashboard aggregator **TIDAK memuat order_id kita** (SICEPAT "Nomor Referensi" & SPX "Customer Reference" kosong; FLIK Order ID = UUID) → pencocokan WAJIB signature, bukan order_id.
+- Kolom `awb`/`aggregator_status`/`delivered_at` sudah ada (migration `2026_08_07_120000`), **tanpa migrasi baru**.
+- xlsx: sel kosong bisa `null` → `normalizeHeader(?string)` dan `cellText()` (float → `%.0f`, eksponensial `2.63E17` diperluas) wajib tahan null/float.
+- `delivered_at` hanya di-set saat `delivered`; jika status berubah keluar dari delivered, nilai lama dibiarkan.
+- Test memakai DB `awannacoba` tanpa refresh → jangan pakai assert global count (AWB/status lintas-test terkontaminasi); scope ke order spesifik.
+
+---
+
+## H. ✅ Test Kit Pipeline di `filecoba/` (10 Agustus 2026)
+
+### Deskripsi
+Folder `filecoba/` berisi kit uji end-to-end pipeline order-online (import mentah → export 3 aggregator → tracking status + balik stok). Generator menulis 7 file CSV, lalu `verify_pipeline.php` menjalankan pipeline sungguhan (service asli) dan mencetak PASS/FAIL per langkah (saat ini **98/98 PASS**, bisa dijalankan ulang kapan saja).
+
+### File
+| File | Keterangan |
+|---|---|
+| `filecoba/generate_test_kit.php` | Generator mandiri (tanpa Laravel) → menulis 7 file di bawah |
+| `filecoba/01_order_online_mentah.csv` | Data mentah 52 kolom, 10 order CBC-101..CBC-302 (pola `training/make_test_rules_csv.php`) |
+| `filecoba/02_export_flik.csv` / `_sicepat` / `_spx` | **Referensi statis** format export RUNTIME saat ini (FLIK 1-kolom HP "62", bukan template lama 2-kolom) |
+| `filecoba/03_tracking_flik.csv` / `_sicepat` / `_spx` | File dashboard aggregator (header asli: FLIK 29 kolom, SICEPAT 43, SPX 47) |
+| `filecoba/verify_pipeline.php` | Boot Laravel → cleanup → import → export+diff → tracking → cek stok → idempotent |
+| `filecoba/actual_export_*.csv` | Hasil export nyata dari service (artefak tiap run verify) |
+
+### Skenario 10 order
+- **CBC-101..105** (bank_transfer semua provinsi) → `flix-tf` → template FLIK: KMP+1.50, KMP+1 (qty2), KSP+2 (**GTM**), KBJ+1.25 (qty2 → split), KCHP. FLIK jadi **2 gudang** (GTM + GUDANG-PUSAT) → ZIP (rule F).
+- **CBC-201..203** (cod Jawa/Bali) → `sicepat` → template SiCepat: KMP+1.75, KMP+2.25 (qty3), KCHP.
+- **CBC-301/302** (pending+paid → `tembakan`) → selalu `spx` → template SPX: KBJ+1.50 qty2 (variation "Dapat 2"), KMP+1.25.
+- Status tracking tersebar di 3 file mencakup **semua 6 nilai**: `waiting_pickup` (CBC-104), `in_transit` (CBC-102, CBC-202), `delivered` (CBC-101, CBC-201, CBC-301), `returning` (CBC-203), `returned` (CBC-103 FLIK, CBC-302 SPX — uji balik stok), `problem` (CBC-105 FLIK, 3PL "Problem...").
+
+### Verifikasi yang dicakup
+- Import: courier, status (real/tembakan), qty override "Dapat 2", `product_code` = kode varian (`KMP+1.5` dll), nama "... 2 pcs".
+- Export: hasil service **identik baris-per-baris** dengan referensi statis (dimensi 10/8/6, berat 1, catatan kurir default, nama kacamata `+power N pcs`, SPX phone mulai 8 + CAPSLOCK, warehouse per-baris).
+- Stok: `recordOutWithPackaging` (KBJ split: KBJ −ceil(qty/2), KDF −floor(qty/2), BOX/LAP −floor(qty/2)); `returned` → `reverseReference` balikin stok varian asal; delivered/in_transit tetap ter-reserve; **re-import idempotent** (`stock_returned=0`).
+
+### Menjalankan
+```
+php filecoba/generate_test_kit.php        # tulis ulang 7 file (opsional)
+php filecoba/verify_pipeline.php          # jalankan pipeline & cek PASS/FAIL
+```
+- Skrip memakai DB aktif (`.env`, `awannacoba`) dan **TIDAK** menjalankan seeder (precheck hanya memastikan `courier_rules` + produk/varian ter-seed; `CourierRuleSeeder` bersifat truncate). Bila kosong, seed manual dulu.
+- Re-runnable: di awal verify, order CBC-* lama dihapus + jurnal `order_online` dibalik (`reverseReference`) sehingga stok kembali baseline.
+- `product_price` DB decimal → sel export "119000.00" (bukan "119000"); compare `delivered_at` sebagai string (kolom ber-cast datetime → Carbon).
 
 ---
 

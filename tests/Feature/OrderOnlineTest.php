@@ -99,7 +99,7 @@ class OrderOnlineTest extends TestCase
         $svc = new CourierRuleService;
 
         $this->assertSame('flix-tf', $svc->resolve('bank_transfer', 'JAWA BARAT'));
-        $this->assertSame('flix-sicepat', $svc->resolve('cod', 'BALI'));
+        $this->assertSame('sicepat', $svc->resolve('cod', 'BALI'));
         $this->assertSame('flix-idx', $svc->resolve('cod', 'RIAU'));
         $this->assertSame('flix-spx', $svc->resolve('cod', 'KALIMANTAN SELATAN'));
         $this->assertSame('spx', $svc->resolve('cod', 'PULAU TAK DIKENAL'));
@@ -969,10 +969,10 @@ class OrderOnlineTest extends TestCase
 
         // FLIK
         $flik = $this->readXlsxRows($svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf'));
-        $this->assertSame(10, (int) $flik[1][12]);
-        $this->assertSame(8, (int) $flik[1][13]);
-        $this->assertSame(6, (int) $flik[1][14]);
-        $this->assertSame(OrderTemplateExportService::DEFAULT_COURIER_NOTE, $flik[1][10]);
+        $this->assertSame(10, (int) $flik[1][11]);
+        $this->assertSame(8, (int) $flik[1][12]);
+        $this->assertSame(6, (int) $flik[1][13]);
+        $this->assertSame(OrderTemplateExportService::DEFAULT_COURIER_NOTE, $flik[1][9]);
 
         // SiCepat
         $batch2 = OrderOnlineImportBatch::create([
@@ -1005,6 +1005,53 @@ class OrderOnlineTest extends TestCase
         $this->assertSame(8, (int) $spx[1][14]);
         $this->assertSame(6, (int) $spx[1][15]);
         $this->assertSame(OrderTemplateExportService::DEFAULT_COURIER_NOTE, $spx[1][21]);
+    }
+
+    public function test_flik_export_single_phone_62_only(): void
+    {
+        $batch = $this->newBatch();
+        $product = $this->makeProduct(100);
+        $this->app->make(StockService::class)->recordIn($this->variant($product)->id, now()->format('Y-m-d'), 100, 10000, 'adjustment');
+        $this->createOrder($batch->id, 'HP-1', 'HP Customer', 'flix-tf', 'real', $product->id, $product->code, 1);
+
+        $svc = new OrderTemplateExportService;
+        $rows = $this->readXlsxRows($svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf'));
+
+        $this->assertSame('No HP Pelanggan (mulai dengan "62")', $rows[0][2]);
+        $this->assertFalse(collect($rows[0])->contains('No HP Pelanggan (mulai dengan "8")'));
+        $this->assertSame('6281234567890', $rows[1][2]);
+    }
+
+    public function test_export_kacamata_product_name_with_power(): void
+    {
+        $this->ensureCatalog();
+        $kmp = Product::where('code', 'KMP')->firstOrFail();
+        $variant = ProductVariant::where('code', 'KMP+1.5')->firstOrFail();
+
+        $this->app->make(StockService::class)->recordIn($variant->id, now()->format('Y-m-d'), 100, 10000, 'adjustment');
+
+        $batch = $this->newBatch();
+        $this->createOrder($batch->id, 'NM-1', 'Nm Customer', 'flix-tf', 'real', $kmp->id, 'KMP+1.5', 2);
+        ShippingOrder::where('order_online_import_batch_id', $batch->id)->update(['product_name' => 'Kacamata 2 pcs', 'product_variant_id' => $variant->id]);
+
+        $svc = new OrderTemplateExportService;
+        $rows = $this->readXlsxRows($svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf'));
+
+        $this->assertSame('Kacamata +1.50 2 pcs', $rows[1][15]);
+    }
+
+    public function test_export_non_kacamata_name_unchanged(): void
+    {
+        $batch = $this->newBatch();
+        $product = $this->makeProduct(100);
+        $this->app->make(StockService::class)->recordIn($this->variant($product)->id, now()->format('Y-m-d'), 100, 10000, 'adjustment');
+        $this->createOrder($batch->id, 'NM-2', 'Nm Customer 2', 'flix-tf', 'real', $product->id, $product->code, 2);
+        ShippingOrder::where('order_online_import_batch_id', $batch->id)->update(['product_name' => 'Produk Test 2 pcs']);
+
+        $svc = new OrderTemplateExportService;
+        $rows = $this->readXlsxRows($svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf'));
+
+        $this->assertSame('Produk Test 2 pcs', $rows[1][15]);
     }
 
     private function ensureCatalog(): void

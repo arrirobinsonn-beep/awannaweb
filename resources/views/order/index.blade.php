@@ -10,6 +10,7 @@
     .cou-flix-tf   { background:#dbeafe; color:#1d4ed8; }
     .cou-flix-idx  { background:#e0f2fe; color:#0369a1; }
     .cou-flix-sicepat { background:#dcfce7; color:#15803d; }
+    .cou-sicepat  { background:#a7f3d0; color:#047857; }
     .cou-flix-spx  { background:#ede9fe; color:#6d28d9; }
     .cou-spx       { background:#f3e8ff; color:#7e22ce; }
     .cou-undeliverable { background:#fee2e2; color:#b91c1c; }
@@ -76,6 +77,30 @@
     </div>
 
     <div id="import-result" style="margin-top:14px;display:none;"></div>
+</div>
+
+{{-- Upload Status Aggregator --}}
+<div class="clay-card" style="padding:20px 24px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+        <div>
+            <h2 style="margin:0;font-size:1.05rem;font-weight:800;">📡 Upload Status Aggregator</h2>
+            <div style="font-size:.75rem;color:#9ca3af;">Upload file dari dashboard FLIK / SiCepat / SPX (.csv/.xlsx). Mengisi kolom resi (AWB), status pengiriman & tanggal terkirim; saat status <b>returned</b>, stok yang keluar saat export otomatis dikembalikan.</div>
+        </div>
+    </div>
+
+    <div class="dropzone" id="track-dropzone">
+        <span class="dropzone-icon" id="track-icon">📡</span>
+        <div class="dropzone-title">Klik atau tarik file dashboard aggregator ke sini</div>
+        <div class="dropzone-hint" id="track-hint">.csv / .xlsx — maks 10MB. Sumber (FLIK/SiCepat/SPX) dideteksi otomatis dari header.</div>
+        <div class="dropzone-file" id="track-filename" style="display:none;"></div>
+    </div>
+    <input type="file" id="track-file" accept=".csv,.xlsx,.xls,text/csv,text/plain" style="display:none;">
+
+    <div style="margin-top:14px;">
+        <button type="button" id="btn-track-import" class="clay-btn clay-btn-primary">📡 Import Status</button>
+    </div>
+
+    <div id="track-result" style="margin-top:14px;display:none;"></div>
 </div>
 
 {{-- Preview modal --}}
@@ -387,6 +412,84 @@
     });
 
     window.closePreview = function () { document.getElementById('preview-modal').style.display = 'none'; };
+})();
+
+(function () {
+    const fileInput = document.getElementById('track-file');
+    const dropzone  = document.getElementById('track-dropzone');
+    const trackIcon = document.getElementById('track-icon');
+    const trackHint = document.getElementById('track-hint');
+    const trackFilename = document.getElementById('track-filename');
+    const resultBox = document.getElementById('track-result');
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
+    dropzone.addEventListener('click', function () { fileInput.click(); });
+
+    ['dragover', 'dragenter'].forEach(function (ev) {
+        dropzone.addEventListener(ev, function (e) {
+            e.preventDefault(); e.stopPropagation();
+            dropzone.classList.add('drag-over');
+        });
+    });
+    ['dragleave', 'dragend', 'drop'].forEach(function (ev) {
+        dropzone.addEventListener(ev, function (e) {
+            e.preventDefault(); e.stopPropagation();
+            dropzone.classList.remove('drag-over');
+        });
+    });
+    dropzone.addEventListener('drop', function (e) {
+        if (e.dataTransfer.files && e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    });
+
+    fileInput.addEventListener('change', function () {
+        if (this.files.length > 0) {
+            dropzone.classList.add('has-file');
+            trackIcon.textContent = '✅';
+            trackFilename.style.display = 'block';
+            trackFilename.textContent = '📄 ' + this.files[0].name + ' (' + formatSize(this.files[0].size) + ')';
+            trackHint.textContent = 'File siap. Klik Import Status.';
+        } else {
+            dropzone.classList.remove('has-file');
+            trackIcon.textContent = '📡';
+            trackFilename.style.display = 'none';
+            trackHint.textContent = '.csv / .xlsx — maks 10MB. Sumber (FLIK/SiCepat/SPX) dideteksi otomatis dari header.';
+        }
+    });
+
+    document.getElementById('btn-track-import').addEventListener('click', function () {
+        if (!fileInput.files.length) { alert('Pilih file terlebih dahulu.'); return; }
+        const fd = new FormData();
+        fd.append('file', fileInput.files[0]);
+        resultBox.style.display = 'block';
+        resultBox.className = 'clay-alert clay-alert-success';
+        resultBox.innerHTML = '<span>⏳</span><span>Mengimport status... mohon tunggu.</span>';
+        fetch('{{ route("orders.tracking-import") }}', {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
+            body: fd
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            const ok = !!d.success;
+            resultBox.className = ok ? 'clay-alert clay-alert-success' : 'clay-alert clay-alert-error';
+            resultBox.innerHTML = '<span>' + (ok ? '✅' : '⚠️') + '</span>' +
+                '<span style="flex:1;">' + (d.message || 'Selesai.') + '</span>' +
+                '<button onclick="this.parentElement.style.display=\'none\'" style="background:none;border:none;cursor:pointer;">✕</button>';
+            if (ok) setTimeout(function () { window.location.reload(); }, 1200);
+        })
+        .catch(function () {
+            resultBox.className = 'clay-alert clay-alert-error';
+            resultBox.innerHTML = '<span>⚠️</span><span>Gagal import tracking.</span>';
+        });
+    });
 })();
 </script>
 @endpush

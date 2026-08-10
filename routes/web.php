@@ -124,6 +124,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/orders', [OrderOnlineController::class, 'index'])->name('orders.index');
         Route::post('/orders/preview', [OrderOnlineController::class, 'preview'])->name('orders.preview');
         Route::post('/orders/import', [OrderOnlineController::class, 'store'])->name('orders.import');
+        Route::post('/orders/tracking-import', [OrderOnlineController::class, 'trackingImport'])->name('orders.tracking-import');
         Route::put('/orders/{shippingOrder}', [OrderOnlineController::class, 'update'])->name('orders.update');
         Route::get('/orders/{batch}/export/{template}/{courier?}', [OrderOnlineController::class, 'export'])->name('orders.export');
 

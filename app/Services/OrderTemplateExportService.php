@@ -16,8 +16,9 @@ use ZipArchive;
  *
  * Pemetaan courier → template:
  *  - flix-tf, flix-idx, flix-sicepat, flix-spx → template FLIK
- *  - spx                                          → template SPX
- *  - undeliverable                                → TIDAK ikut export (label khusus)
+ *  - sicepat                                     → template SiCepat
+ *  - spx                                         → template SPX
+ *  - undeliverable                               → TIDAK ikut export (label khusus)
  *
  * Hanya order berstatus `real` / `tembakan` yang diekspor; order lain ditandai
  * `stock_note` dan dilewati. Saat export, stok produk dikurangi lewat jurnal
@@ -104,6 +105,7 @@ class OrderTemplateExportService
         $orders = ShippingOrder::where('order_online_import_batch_id', $batch->id)
             ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
             ->when($courier, fn ($q) => $q->where('courier', $courier), fn ($q) => $q->whereIn('courier', $this->couriersForTemplate($template)))
+            ->with('variant')
             ->orderBy('order_id')
             ->get();
 
@@ -244,7 +246,6 @@ class OrderTemplateExportService
             'Kode Warehouse',
             'Nama Pelanggan',
             'No HP Pelanggan (mulai dengan "62")',
-            'No HP Pelanggan (mulai dengan "8")',
             'Alamat: Lengkap',
             'Alamat: Provinsi',
             'Alamat: Kota',
@@ -265,7 +266,6 @@ class OrderTemplateExportService
                 $this->warehouseFor($o->product_code, $sender),
                 $o->customer_name,
                 $o->phone_normalized,
-                $this->phoneWithoutCountryCode($o->phone_normalized),
                 $o->address,
                 $o->province,
                 $o->city,
@@ -277,8 +277,8 @@ class OrderTemplateExportService
                 self::PACK_DIMENSIONS[0],
                 self::PACK_DIMENSIONS[1],
                 self::PACK_DIMENSIONS[2],
-                $o->weight,
-                $o->product_name,
+                1,
+                $this->productDisplayName($o),
             ];
         }
 
@@ -331,8 +331,8 @@ class OrderTemplateExportService
                 $o->postal_code,
                 '',
                 'Barang',
-                $o->product_name,
-                $o->weight,
+                $this->productDisplayName($o),
+                1,
                 self::PACK_DIMENSIONS[0],
                 self::PACK_DIMENSIONS[1],
                 self::PACK_DIMENSIONS[2],
@@ -394,7 +394,7 @@ class OrderTemplateExportService
                 mb_strtoupper((string) $o->city),
                 mb_strtoupper((string) $o->subdistrict),
                 $o->postal_code,
-                $o->weight,
+                1,
                 $o->product_price,
                 $o->is_cod ? 'Y' : 'N',
                 $o->is_cod ? $o->product_price : '',
@@ -402,7 +402,7 @@ class OrderTemplateExportService
                 self::PACK_DIMENSIONS[0],
                 self::PACK_DIMENSIONS[1],
                 self::PACK_DIMENSIONS[2],
-                $o->product_name,
+                $this->productDisplayName($o),
                 $o->quantity,
                 $o->product_price,
                 $o->order_id,
@@ -414,11 +414,26 @@ class OrderTemplateExportService
         return $rows;
     }
 
-    protected function phoneWithoutCountryCode(?string $phone): string
+    /**
+     * Nama produk untuk kolom export. Untuk kacamata (KMP/KSP/KBJ) ditulis
+     * dalam format `<nama> +<power> <qty> pcs` (power dari product_variants),
+     * mis. "Kacamata Sporty +1.50 2 pcs". Produk lain memakai product_name apa adanya.
+     */
+    protected function productDisplayName(ShippingOrder $o): string
     {
-        $phone = preg_replace('/[^0-9]/', '', (string) $phone);
+        $base = strtoupper(trim(explode('+', (string) $o->product_code)[0]));
+        if (! in_array($base, StockService::KACAMATA_CODES, true)) {
+            return (string) $o->product_name;
+        }
 
-        return str_starts_with($phone, '62') ? substr($phone, 2) : $phone;
+        $power = (float) ($o->variant?->power ?? 0);
+        if ($power <= 0) {
+            return (string) $o->product_name;
+        }
+
+        $name = preg_replace('/\s+\d+\s*pcs$/i', '', trim((string) $o->product_name));
+
+        return trim($name).' '.sprintf('+%.2f', $power).' '.max(1, (int) $o->quantity).' pcs';
     }
 
     /**

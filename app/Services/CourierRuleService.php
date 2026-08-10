@@ -12,9 +12,13 @@ use App\Models\ShippingOrder;
  *  - payment_method = bank_transfer  → courier `flix-tf`
  *  - payment_method = cod            → cocokkan provinsi:
  *      flix-idx     (Sumatera tertentu)
- *      flix-sicepat (seluruh Jawa + Bali)
+ *      sicepat      (seluruh Jawa + Bali)
  *      flix-spx     (pulau lainnya)
  *      spx          (fallback bila tidak ada rule yang cocok)
+ *
+ * `flix-sicepat` TIDAK lagi dipilih otomatis (rule Jawa+Bali kini langsung
+ * `sicepat`, template SiCepat); `flix-sicepat` tetap valid sebagai override
+ * manual bila SiCepat bermasalah.
  *
  * Admin dapat meng-override manual per order via `ShippingOrder::update()`
  * (mis. set `courier = 'undeliverable'` bila paket tidak dapat terkirim).
@@ -27,6 +31,7 @@ class CourierRuleService
         'flix-sicepat',
         'flix-spx',
         'spx',
+        'sicepat',
         'undeliverable',
     ];
 
