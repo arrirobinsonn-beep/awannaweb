@@ -42,13 +42,29 @@
     .dropzone-file  { font-size: .78rem; color: #059669; font-weight: 600; margin-top: 6px; }
     .courier-edit-form { display:flex; gap:4px; align-items:center; }
     .courier-edit-form select { padding:2px 4px; font-size:.72rem; border:1px solid #d1d5db; border-radius:6px; }
+
+    /* ── Card upload berdampingan ── */
+    .upload-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:16px; margin-bottom:20px; }
+    .upload-grid .clay-card { display:flex; flex-direction:column; }
+    .upload-grid .dropzone { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    @media (max-width: 900px) { .upload-grid { grid-template-columns:1fr; } }
+
+    /* ── Riwayat upload: zebra stripe (jejak aktivitas) ── */
+    .batch-panel { display:flex; flex-direction:column; }
+    .batch-list { flex:1; min-height:260px; overflow-y:auto; }
+    .batch-item { display:block; padding:10px 16px; text-decoration:none; border-bottom:1px solid rgba(0,0,0,.05); transition:background .15s ease; }
+    .batch-item:nth-child(odd)  { background:#fff; }
+    .batch-item:nth-child(even) { background:#faf6f6; }
+    .batch-item:hover { background:#fff5f5; }
+    .batch-panel .batch-item.selected { background:#fff0f0; box-shadow:inset 3px 0 0 var(--color-primary,#FF6B6B); }
 </style>
 @endpush
 
 @section('content')
 
-{{-- Upload CSV --}}
-<div class="clay-card" style="padding:20px 24px;margin-bottom:20px;">
+{{-- Upload CSV & Status Aggregator — berdampingan --}}
+<div class="upload-grid">
+<div class="clay-card" style="padding:20px 24px;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
         <div>
             <h2 style="margin:0;font-size:1.05rem;font-weight:800;">📥 Upload Data Mentah</h2>
@@ -80,7 +96,7 @@
 </div>
 
 {{-- Upload Status Aggregator --}}
-<div class="clay-card" style="padding:20px 24px;margin-bottom:20px;">
+<div class="clay-card" style="padding:20px 24px;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
         <div>
             <h2 style="margin:0;font-size:1.05rem;font-weight:800;">📡 Upload Status Aggregator</h2>
@@ -102,6 +118,7 @@
 
     <div id="track-result" style="margin-top:14px;display:none;"></div>
 </div>
+</div>
 
 {{-- Preview modal --}}
 <div id="preview-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:60;align-items:center;justify-content:center;padding:20px;">
@@ -114,20 +131,20 @@
     </div>
 </div>
 
-<div style="display:grid;grid-template-columns:300px 1fr;gap:16px;">
+<div style="display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:stretch;">
     {{-- Daftar batch --}}
-    <div class="clay-card" style="padding:0;overflow:hidden;align-self:start;">
-        <div style="padding:12px 16px;font-weight:800;font-size:.9rem;border-bottom:1px solid rgba(0,0,0,.06);">Riwayat Upload</div>
-        <div style="max-height:60vh;overflow:auto;">
+    <div class="clay-card batch-panel" style="padding:0;overflow:hidden;">
+        <div style="padding:12px 16px;font-weight:800;font-size:.9rem;border-bottom:1px solid rgba(0,0,0,.06);">🗂 Riwayat Upload</div>
+        <div class="batch-list">
             @forelse($batches as $b)
                 <a href="{{ route('orders.index', ['batch' => $b->id]) }}"
-                   style="display:block;padding:10px 16px;text-decoration:none;border-bottom:1px solid rgba(0,0,0,.04);{{ $selectedBatch && $selectedBatch->id === $b->id ? 'background:#fff5f5;' : '' }}">
+                   class="batch-item {{ $selectedBatch && $selectedBatch->id === $b->id ? 'selected' : '' }}">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                        <span style="font-size:.78rem;font-weight:700;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ $b->original_filename }}</span>
+                        <span style="font-size:.78rem;font-weight:700;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🗓 {{ $b->created_at?->format('d M Y H:i') }}</span>
                         <span class="badge-batch-status st-{{ $b->status }}">{{ $b->status }}</span>
                     </div>
-                    <div style="font-size:.68rem;color:#9ca3af;margin-top:2px;">
-                        {{ $b->created_at?->format('d/m/Y H:i') }} &nbsp;•&nbsp; {{ $b->total_rows }} baris
+                    <div style="font-size:.68rem;color:#9ca3af;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                        {{ $b->original_filename }} &nbsp;•&nbsp; {{ $b->total_rows }} baris{{ $b->sender ? ' &nbsp;•&nbsp; '.$b->sender : '' }}
                     </div>
                 </a>
             @empty

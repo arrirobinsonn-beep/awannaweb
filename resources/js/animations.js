@@ -30,6 +30,18 @@ const PageTransition = {
             requestAnimationFrame(() => {
                 content.style.opacity   = '1';
                 content.style.transform = 'translateY(0)';
+
+                // Setelah animasi selesai, buang transform & transition inline.
+                // PENTING: elemen ber-transform (meski translateY(0)) menjadi
+                // containing block untuk position:fixed di dalamnya — FAB bulk
+                // delete & modal jadi "terkurung" di dasar konten, bukan menempel
+                // viewport. Reset ke 'none' agar fixed kembali mengacu layar.
+                // +50ms buffer: transisi mulai 1 frame setelah style diterapkan,
+                // jadi timeout murni duration bisa memotong ekor easing.
+                setTimeout(() => {
+                    content.style.transform = 'none';
+                    content.style.transition = '';
+                }, this.duration + 50);
             });
         });
     },

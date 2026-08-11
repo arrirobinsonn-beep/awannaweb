@@ -64,5 +64,20 @@ class SpendingHarianSeeder extends Seeder
         foreach (array_chunk($records, 100) as $chunk) {
             SpendingHarian::insert($chunk);
         }
+
+        // Sinkronkan total_spending tiap whitelist dengan data yang baru di-generate
+        // (pola batch: 1 query aggregate → map → update, sesuai AGENTS.md)
+        $affectedWhitelistIds = array_unique(array_column($records, 'whitelist_id'));
+        if (! empty($affectedWhitelistIds)) {
+            $totals = SpendingHarian::whereIn('whitelist_id', $affectedWhitelistIds)
+                ->selectRaw('whitelist_id, SUM(spending) as total')
+                ->groupBy('whitelist_id')
+                ->get()
+                ->keyBy('whitelist_id');
+
+            foreach ($totals as $wlId => $t) {
+                Whitelist::whereKey($wlId)->update(['total_spending' => $t->total]);
+            }
+        }
     }
 }

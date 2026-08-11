@@ -108,7 +108,11 @@ class OrderOnlineController extends Controller
 
         try {
             $path = $request->file('file')->store('order-online');
-            $result = $this->import->import(Storage::path($path), $request->input('sender'));
+            $result = $this->import->import(
+                Storage::path($path),
+                $request->input('sender'),
+                $request->file('file')->getClientOriginalName(),
+            );
 
             $message = "Import berhasil | Insert: {$result['inserted']} | Update: {$result['updated']}";
 
