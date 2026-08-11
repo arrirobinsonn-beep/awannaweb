@@ -66,6 +66,7 @@ class OrderOnlineController extends Controller
             $courierCounts = ShippingOrder::where('order_online_import_batch_id', $selectedBatch->id)
                 ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
                 ->whereNotNull('courier')
+                ->where(fn ($q) => $q->whereNull('awb')->orWhere('awb', ''))
                 ->selectRaw('courier, COUNT(*) as total')
                 ->groupBy('courier')
                 ->pluck('total', 'courier');
@@ -143,6 +144,10 @@ class OrderOnlineController extends Controller
 
     public function update(Request $request, ShippingOrder $shippingOrder)
     {
+        if (! empty($shippingOrder->awb)) {
+            return back()->withErrors(['order' => 'Order sudah memiliki resi (AWB), tidak bisa diedit.']);
+        }
+
         $request->validate([
             'courier' => ['nullable', 'in:'.implode(',', CourierRuleService::COURIERS)],
             'courier_note' => ['nullable', 'string', 'max:255'],

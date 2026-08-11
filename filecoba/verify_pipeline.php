@@ -277,4 +277,29 @@ $reflik = $tracking->import("$dir/03_tracking_flik.csv");
 echo '  FLIK (ulang): stock_returned='.$reflik['stock_returned']."\n";
 check('re-import returned tidak menggandakan (stock_returned=0)', $reflik['stock_returned'] === 0);
 
+// ─── 6. RE-EXPORT SETELAH SEMUA ORDER BER-AWB → HANYA HEADER ───────────────
+echo "\n── 6. Re-export setelah seluruh order ber-AWB → hanya header ─\n";
+check('semua 10 order sudah ber-AWB', ShippingOrder::whereIn('order_id', $orderIds)->whereNull('awb')->count() === 0);
+foreach (['flik' => true, 'sicepat' => false, 'spx' => false] as $tpl => $useSender) {
+    $templateOrders = ShippingOrder::where('order_online_import_batch_id', $batch->id)
+        ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
+        ->where(fn ($q) => $q->whereNull('awb')->orWhere('awb', ''))
+        ->whereIn('courier', $export->couriersForTemplate($tpl))
+        ->with('variant')
+        ->orderBy('order_id')
+        ->get();
+
+    $exportable = invoke($export, 'reserveStock', [$templateOrders]);
+    $args = [$exportable];
+    if ($useSender) {
+        $args[] = $batch->sender;
+    }
+    $actual = invoke($export, match ($tpl) {
+        'flik' => 'flikRows',
+        'sicepat' => 'sicepatRows',
+        'spx' => 'spxRows',
+    }, $args);
+    check("re-export {$tpl} hanya header (0 order ber-AWB)", count($actual) === 1, 'baris='.count($actual));
+}
+
 exit(summary());

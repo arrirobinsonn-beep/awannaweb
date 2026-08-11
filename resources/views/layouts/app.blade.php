@@ -363,7 +363,7 @@
             </a>
             @endif
 
-            @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs']))
+            @if($u->hasRole(['owner','super_admin','mentor','admin','cs']))
             <a href="{{ route('orders.index') }}"
                class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
                data-page-link data-tip="Upload Data Mentah & Export Template">
@@ -456,12 +456,13 @@
                 <span class="sidebar-label">Jurnal Stok</span>
             </a>
 
-            <a href="{{ route('shipment.index') }}"
-               class="nav-item {{ request()->routeIs('shipment.*') ? 'active' : '' }}"
-               data-page-link data-tip="Data Pengiriman (FLIK/SiCepat/SPX)">
+            <a href="{{ route('orders.index') }}"
+               class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
+               data-page-link data-tip="Upload Data Mentah & Export Template">
                 <span class="nav-icon">🚚</span>
-                <span class="sidebar-label">Data Pengiriman</span>
+                <span class="sidebar-label">Data Mentah</span>
             </a>
+
             @endif
 
             {{-- ── Keuangan ──────────────────────────────────────── --}}

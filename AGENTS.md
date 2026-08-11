@@ -424,6 +424,28 @@ php filecoba/verify_pipeline.php          # jalankan pipeline & cek PASS/FAIL
 - Skrip memakai DB aktif (`.env`, `awannacoba`) dan **TIDAK** menjalankan seeder (precheck hanya memastikan `courier_rules` + produk/varian ter-seed; `CourierRuleSeeder` bersifat truncate). Bila kosong, seed manual dulu.
 - Re-runnable: di awal verify, order CBC-* lama dihapus + jurnal `order_online` dibalik (`reverseReference`) sehingga stok kembali baseline.
 - `product_price` DB decimal → sel export "119000.00" (bukan "119000"); compare `delivered_at` sebagai string (kolom ber-cast datetime → Carbon).
+- Step 6 (re-export setelah tracking): semua order yang sudah terisi `awb` TIDAK ikut di-export lagi (hanya header xlsx per template). Query di step ini wajib menyertakan filter `awb` kosong yang SAMA dengan `download()`.
+
+---
+
+## I. ✅ Order Ber-AWB: Non-exportable & Non-editable (11 Agustus 2026)
+
+### Deskripsi
+Order yang sudah punya resi (`shipping_orders.awb` terisi dari upload status aggregator) dianggap sudah dikirim → **TIDAK ikut diekspor** ke template aggregator (cegah reserve stok ganda / ekspor ulang barang yang sudah berangkat) dan **TIDAK bisa diedit** (courier/product_code dikunci; tombol Edit di UI diganti badge hijau AWB + status).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Services/OrderTemplateExportService.php` | `download()` menambah filter `->where(fn ($q) => $q->whereNull('awb')->orWhere('awb', ''))` sebelum `with('variant')` — order ber-AWB dilewati dari export & reserve stok; docblock diupdate |
+| `app/Http/Controllers/OrderOnlineController.php` | `index()`: `courierCounts` pakai filter awb kosong SAMA (angka dropdown export konsisten); `update()`: guard `if (! empty($shippingOrder->awb)) return back()->withErrors(['order' => 'Order sudah memiliki resi (AWB), tidak bisa diedit.'])` |
+| `resources/views/order/index.blade.php` | Kolom Aksi: `@if(!empty($o->awb))` → badge hijau `✓ {awb}` (`#d1fae5`/`#065f46`) + `aggregator_status` kecil; `@else` → `<details>` Edit lama; `@endif` |
+| `tests/Feature/OrderOnlineTest.php` | +2 test: `test_export_excludes_orders_with_awb` (export hanya memuat order tanpa AWB; order ber-AWB TIDAK punya jurnal `out` — cek via `StockMovement` per `reference_id`, bukan stok varian bersama), `test_update_rejected_when_order_has_awb` (PUT → `assertSessionHasErrors('order')`, courier tetap) |
+| `filecoba/verify_pipeline.php` | Step 6 baru: setelah tracking semua 10 order ber-AWB → re-export tiap template hanya menghasilkan baris header (0 order), query wajib memakai filter awb kosong yang sama |
+
+### Penting
+- `awb` bisa `null` atau `''` → filter pakai `whereNull('awb')->orWhere('awb','')`.
+- **Jangan memakai stok varian bersama untuk cek "tidak di-reserve"** saat order ber-AWB & tanpa-AWB memakai varian sama (baris tanpa-AWB ikut mengurangi stok varian itu). Cek jurnal per `reference_id`.
+- Re-export setelah tracking (order sudah ber-AWB) → `StockService` tidak lagi memanggil `recordOut` untuk order itu (sudah tidak lolos filter query), jadi `reserveStock` tetap idempotent.
 
 ---
 

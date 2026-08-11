@@ -21,8 +21,10 @@ use ZipArchive;
  *  - undeliverable                               → TIDAK ikut export (label khusus)
  *
  * Hanya order berstatus `real` / `tembakan` yang diekspor; order lain ditandai
- * `stock_note` dan dilewati. Saat export, stok produk dikurangi lewat jurnal
- * `stock_movements` (reference `order_online`, idempotent per order).
+ * `stock_note` dan dilewati. Order yang sudah punya resi (`awb` terisi) TIDAK ikut
+ * diekspor (sudah dikirim = tidak boleh di-reserve/ekspor ulang). Saat export, stok
+ * produk dikurangi lewat jurnal `stock_movements` (reference `order_online`, idempotent
+ * per order).
  *
  * Order dikelompokkan per gudang (lihat `warehouseFor()`): KSP→GTM, SH→Aurora,
  * selain itu → sender. Satu gudang = 1 file .xlsx langsung; ≥ 2 gudang =
@@ -104,6 +106,7 @@ class OrderTemplateExportService
     {
         $orders = ShippingOrder::where('order_online_import_batch_id', $batch->id)
             ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
+            ->where(fn ($q) => $q->whereNull('awb')->orWhere('awb', ''))
             ->when($courier, fn ($q) => $q->where('courier', $courier), fn ($q) => $q->whereIn('courier', $this->couriersForTemplate($template)))
             ->with('variant')
             ->orderBy('order_id')

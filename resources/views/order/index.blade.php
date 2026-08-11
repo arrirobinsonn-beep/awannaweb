@@ -228,28 +228,37 @@
                                         @endif
                                     </td>
                                     <td>
-                                        <details style="font-size:.78rem;">
-                                            <summary style="cursor:pointer;color:var(--color-primary,#FF6B6B);font-weight:700;">Edit</summary>
-                                            <form method="POST" action="{{ route('orders.update', $o->id) }}" class="courier-edit-form" style="margin-top:6px;flex-wrap:wrap;">
-                                                @csrf @method('PUT')
-                                                <select name="courier">
-                                                    <option value="">— Pilih —</option>
-                                                    @foreach(\App\Services\CourierRuleService::COURIERS as $cc)
-                                                        <option value="{{ $cc }}" @selected($o->courier === $cc)>{{ $cc }}</option>
-                                                    @endforeach
-                                                </select>
-                                                <input type="text" name="courier_note" value="{{ $o->courier_note }}" placeholder="Catatan" style="width:110px;padding:2px 4px;font-size:.72rem;border:1px solid #d1d5db;border-radius:6px;">
-                                                <select name="product_code">
-                                                    <option value="">— Produk —</option>
-                                                    @foreach($products as $p)
-                                                        @foreach($p->variants as $v)
-                                                            <option value="{{ $v->code }}" @selected($o->product_code === $v->code)>{{ $v->code }} — {{ $p->name }}</option>
+                                        @if(!empty($o->awb))
+                                            <div>
+                                                <span class="badge-courier" style="background:#d1fae5;color:#065f46;">✓ {{ $o->awb }}</span>
+                                                @if($o->aggregator_status)
+                                                    <div style="font-size:.65rem;color:#047857;margin-top:2px;">{{ str_replace('_', ' ', $o->aggregator_status) }}</div>
+                                                @endif
+                                            </div>
+                                        @else
+                                            <details style="font-size:.78rem;">
+                                                <summary style="cursor:pointer;color:var(--color-primary,#FF6B6B);font-weight:700;">Edit</summary>
+                                                <form method="POST" action="{{ route('orders.update', $o->id) }}" class="courier-edit-form" style="margin-top:6px;flex-wrap:wrap;">
+                                                    @csrf @method('PUT')
+                                                    <select name="courier">
+                                                        <option value="">— Pilih —</option>
+                                                        @foreach(\App\Services\CourierRuleService::COURIERS as $cc)
+                                                            <option value="{{ $cc }}" @selected($o->courier === $cc)>{{ $cc }}</option>
                                                         @endforeach
-                                                    @endforeach
-                                                </select>
-                                                <button class="clay-btn clay-btn-primary" style="padding:2px 8px;font-size:.72rem;">Simpan</button>
-                                            </form>
-                                        </details>
+                                                    </select>
+                                                    <input type="text" name="courier_note" value="{{ $o->courier_note }}" placeholder="Catatan" style="width:110px;padding:2px 4px;font-size:.72rem;border:1px solid #d1d5db;border-radius:6px;">
+                                                    <select name="product_code">
+                                                        <option value="">— Produk —</option>
+                                                        @foreach($products as $p)
+                                                            @foreach($p->variants as $v)
+                                                                <option value="{{ $v->code }}" @selected($o->product_code === $v->code)>{{ $v->code }} — {{ $p->name }}</option>
+                                                            @endforeach
+                                                        @endforeach
+                                                    </select>
+                                                    <button class="clay-btn clay-btn-primary" style="padding:2px 8px;font-size:.72rem;">Simpan</button>
+                                                </form>
+                                            </details>
+                                        @endif
                                     </td>
                                 </tr>
                             @empty

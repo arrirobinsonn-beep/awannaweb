@@ -1222,6 +1222,42 @@ class OrderOnlineTest extends TestCase
         $this->assertSame($beforeKmp, $stock->stockOf($variantId));
     }
 
+    public function test_export_excludes_orders_with_awb(): void
+    {
+        $this->ensureCatalog();
+        $kmp = Product::where('code', 'KMP')->firstOrFail();
+        $batch = $this->newBatch();
+
+        $shipped = $this->createOrder($batch->id, 'AWB-1', 'Awb Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 1);
+        $shipped->update(['awb' => 'FLIK123456789']);
+        $pending = $this->createOrder($batch->id, 'NOAWB-1', 'NoAwb Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 1);
+
+        $response = (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $rows = $this->readXlsxRows($response);
+
+        $this->assertCount(2, $rows); // hanya header + 1 order (tanpa AWB)
+        $this->assertSame('NoAwb Customer', $rows[1][1]);
+
+        // order ber-AWB tidak di-reserve stoknya (tidak ada jurnal out)
+        $this->assertSame(0, StockMovement::where('reference', 'order_online')->where('reference_id', $shipped->id)->where('type', 'out')->count());
+        $this->assertSame(1, StockMovement::where('reference', 'order_online')->where('reference_id', $pending->id)->where('type', 'out')->count());
+    }
+
+    public function test_update_rejected_when_order_has_awb(): void
+    {
+        $this->ensureCatalog();
+        $batch = $this->newBatch();
+        $order = $this->createOrder($batch->id, 'AWB-EDIT', 'Edit Customer', 'flix-tf', 'real', null, null, 1);
+        $order->update(['awb' => 'FLIK001']);
+
+        $this->actingAs($this->adminUser())
+            ->put(route('orders.update', $order->id), ['courier' => 'spx'])
+            ->assertSessionHasErrors('order');
+
+        $order->refresh();
+        $this->assertSame('flix-tf', $order->courier);
+    }
+
     public function test_shipment_import_reduces_box_lap(): void
     {
         $this->ensureCatalog();
