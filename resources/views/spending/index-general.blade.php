@@ -152,7 +152,7 @@
                 <td style="text-align:right;font-weight:700;color:var(--color-purple);">{{ number_format($s['lead']) }}</td>
                 <td style="text-align:right;font-weight:700;color:var(--color-secondary);">{{ number_format($s['paid']) }}</td>
                 <td style="text-align:right;">
-                    <span class="clay-badge {{ $s['paid_ratio']>=30?'clay-badge-green':($s['paid_ratio']>=10?'clay-badge-yellow':'clay-badge-red') }}">
+                    <span class="clay-badge {{ $s['paid_ratio']>=75?'clay-badge-green':($s['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}">
                         {{ round($s['paid_ratio']) }}%
                     </span>
                 </td>
@@ -219,7 +219,7 @@
                                         <span style="color:var(--color-secondary);">{{ $prodData['paid'] }}</span>
                                     </div>
                                 </div>
-                                <span class="clay-badge {{ $prodData['paid_ratio']>=30?'clay-badge-green':($prodData['paid_ratio']>=10?'clay-badge-yellow':'clay-badge-red') }}"
+                                <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
                                       style="font-size:.67rem;">{{ round($prodData['paid_ratio']) }}%</span>
                             </div>
                         </div>
@@ -275,7 +275,7 @@
                                     <td style="padding:7px 10px;text-align:right;font-size:.78rem;color:var(--color-purple);font-weight:700;">{{ $item->lead }}</td>
                                     <td style="padding:7px 10px;text-align:right;font-size:.78rem;color:var(--color-secondary);font-weight:700;">{{ $item->paid }}</td>
                                     <td style="padding:7px 10px;text-align:right;">
-                                        <span class="clay-badge {{ $item->paid_ratio>=30?'clay-badge-green':($item->paid_ratio>=10?'clay-badge-yellow':'clay-badge-red') }}"
+                                        <span class="clay-badge {{ $item->paid_ratio>=75?'clay-badge-green':($item->paid_ratio>=50?'clay-badge-yellow':'clay-badge-red') }}"
                                               style="font-size:.64rem;">{{ round($item->paid_ratio) }}%</span>
                                     </td>
                                     <td style="padding:7px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($item->cpa_lead,0,',','.') }}</td>
@@ -289,7 +289,7 @@
                                     <td style="padding:6px 10px;text-align:right;font-size:.78rem;color:var(--color-purple);">{{ $prodData['lead'] }}</td>
                                     <td style="padding:6px 10px;text-align:right;font-size:.78rem;color:var(--color-secondary);">{{ $prodData['paid'] }}</td>
                                     <td style="padding:6px 10px;text-align:right;">
-                                        <span class="clay-badge {{ $prodData['paid_ratio']>=30?'clay-badge-green':($prodData['paid_ratio']>=10?'clay-badge-yellow':'clay-badge-red') }}"
+                                        <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
                                               style="font-size:.64rem;">{{ $prodData['paid_ratio'] }}%</span>
                                     </td>
                                     <td style="padding:6px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($prodData['cpa_lead'],0,',','.') }}</td>

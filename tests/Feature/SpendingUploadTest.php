@@ -105,4 +105,91 @@ class SpendingUploadTest extends TestCase
         $this->assertSame(1, $json['combined'][0]['whitelists'][0]['total_lead']);
         $this->assertSame(1, $json['combined'][0]['whitelists'][0]['total_paid']);
     }
+
+    /**
+     * Perubahan pembacaan (11 Agu 2026): kode produk TIDAK harus di awal nama kampanye.
+     * Semua advertiser memakai penanda "-" di kiri-kanan kode dengan posisi bebas
+     * (contoh: "INIT - 11/8/26 - KBJ - 1"). matchProduct kini membaca nama secara
+     * keseluruhan & mencocokkan token utuh yang diapit "-".
+     */
+    public function test_parse_upload_matches_product_code_anywhere_delimited_by_dash(): void
+    {
+        $user = $this->makeUser();
+        $user->assignRole('advertiser');
+        $wl = $this->makeWhitelist($user);
+        $product = $this->makeProduct();
+
+        $this->actingAs($user);
+
+        // Nama kampanye TIDAK diawali kode — kode berada di tengah, diapit "-".
+        $ads = $this->tempFile(
+            'OO---'.$wl->kode.'---5-Agu-2026.csv',
+            "Nama Kampanye,Jumlah yang dibelanjakan (IDR)\nINIT - 11/8/26 - {$product->code} - 1,500000\n"
+        );
+
+        $regional = $this->tempFile(
+            'regional.csv',
+            "product,payment_status,created_at\nP.1 - Produk Test {$product->code} - {$wl->kode},paid,2026-08-05 10:00\n"
+        );
+
+        $request = Request::create('/spending/parse-upload', 'POST');
+        $request->files->set('files', [$ads]);
+        $request->files->set('regional', [$regional]);
+
+        $response = (new SpendingHarianController)->parseUpload($request);
+        $json = $response->getData(true);
+
+        $this->assertTrue($json['success']);
+        $this->assertCount(1, $json['combined']);
+        $this->assertSame('2026-08-05', $json['combined'][0]['tanggal']);
+
+        // Produk harus ter-cocokkan dengan benar meski kode tidak di awal nama.
+        $this->assertCount(1, $json['combined'][0]['whitelists'][0]['products']);
+        $this->assertSame(
+            $product->name.' ('.$product->code.')',
+            $json['combined'][0]['whitelists'][0]['products'][0]['product_name']
+        );
+        $this->assertSame(500000.0, (float) $json['combined'][0]['whitelists'][0]['products'][0]['spending']);
+        $this->assertSame(1, $json['combined'][0]['whitelists'][0]['total_lead']);
+        $this->assertSame(1, $json['combined'][0]['whitelists'][0]['total_paid']);
+    }
+
+    /**
+     * Token kode ber-sufiks varian ("+1.50" dll) di tengah nama juga harus cocok:
+     * sufix "+..." dibuang lalu dibandingkan dengan kode master.
+     */
+    public function test_parse_upload_matches_variant_suffixed_token_in_middle(): void
+    {
+        $user = $this->makeUser();
+        $user->assignRole('advertiser');
+        $wl = $this->makeWhitelist($user);
+        $product = $this->makeProduct();
+
+        $this->actingAs($user);
+
+        $ads = $this->tempFile(
+            'OO---'.$wl->kode.'---5-Agu-2026.csv',
+            "Nama Kampanye,Jumlah yang dibelanjakan (IDR)\nINIT - 11/8/26 - {$product->code}+1.50 - 1,500000\n"
+        );
+
+        $regional = $this->tempFile(
+            'regional.csv',
+            "product,payment_status,created_at\nP.1 - Produk Test {$product->code} - {$wl->kode},paid,2026-08-05 10:00\n"
+        );
+
+        $request = Request::create('/spending/parse-upload', 'POST');
+        $request->files->set('files', [$ads]);
+        $request->files->set('regional', [$regional]);
+
+        $response = (new SpendingHarianController)->parseUpload($request);
+        $json = $response->getData(true);
+
+        $this->assertTrue($json['success']);
+        $this->assertCount(1, $json['combined']);
+        $this->assertSame(
+            $product->name.' ('.$product->code.')',
+            $json['combined'][0]['whitelists'][0]['products'][0]['product_name']
+        );
+        $this->assertSame(500000.0, (float) $json['combined'][0]['whitelists'][0]['products'][0]['spending']);
+    }
 }

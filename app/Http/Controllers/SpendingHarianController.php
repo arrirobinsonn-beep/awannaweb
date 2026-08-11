@@ -146,6 +146,19 @@ class SpendingHarianController extends Controller
             ];
         });
 
+        // ─── Ringkasan periode: 4 kartu di atas tabel (mengikuti $dari/$sampai) ──
+        $summary = [
+            'spending' => (float) $rows->sum('spending'),
+            'lead' => (int) $rows->sum('lead'),
+            'paid' => (int) $rows->sum('paid'),
+        ];
+        $summary['paid_ratio'] = $summary['lead'] > 0
+            ? round($summary['paid'] / $summary['lead'] * 100, 0) : 0;
+        $summary['cpa_lead'] = $summary['lead'] > 0
+            ? round($summary['spending'] / $summary['lead'], 0) : 0;
+        $summary['cpa_paid'] = $summary['paid'] > 0
+            ? round($summary['spending'] / $summary['paid'], 0) : 0;
+
         // ─── Cek discrepancy: Regional vs Spending ───────────────
         $discrepancy = $this->computeDiscrepancy($user->id, $dari, $sampai);
         $hasDiscrepancy = $discrepancy['hasDiscrepancy'];
@@ -236,7 +249,7 @@ class SpendingHarianController extends Controller
         }
 
         return view('spending.index-advertiser', compact(
-            'summaries', 'dari', 'sampai', 'myWhitelists', 'user',
+            'summaries', 'summary', 'dari', 'sampai', 'myWhitelists', 'user',
             'hasDiscrepancy', 'discrepancies', 'discrepantDates',
             'csDiscrepancy', 'hasWhitelist', 'dateChangeRestrictions'
         ));
@@ -1154,17 +1167,50 @@ class SpendingHarianController extends Controller
         return $ts ? date('Y-m-d', $ts) : null;
     }
 
-    /** Cocokkan nama kampanye → produk (kode produk di awal nama, fallback contains). */
+    /**
+     * Cocokkan nama kampanye → produk.
+     *
+     * Urutan pencocokan (11 Agustus 2026):
+     *   1) TOKEN UTUH — nama kampanye dibaca SELURUHNYA, dipecah per tanda "-".
+     *      Semua advertiser memakai penanda "-" di kiri-kanan kode produk dengan
+     *      posisi bebas (contoh: "INIT - 11/8/26 - KBJ - 1" → token "KBJ").
+     *      Sufiks varian "+..." dibuang (mis. token "ksp+1.50" → "ksp") agar
+     *      cocok dengan kode master. Token pertama yang cocok = produknya.
+     *   2) PREFIX — kode di awal nama kampanye (format lama, kompatibel).
+     *   3) CONTAINS — fallback terakhir (kode muncul di mana pun).
+     */
     private function matchProduct(string $campaignName, $products): ?Product
     {
         $name = mb_strtolower(trim($campaignName));
 
+        // ── 1) Token utuh (kode diapit "-", posisi bebas) ──
+        $tokens = preg_split('/\s*-\s*/', $name);
+        foreach ($tokens as $token) {
+            $token = trim($token);
+            if ($token === '') {
+                continue;
+            }
+            $base = explode('+', $token)[0];
+            if ($base === '') {
+                continue;
+            }
+            foreach ($products as $p) {
+                $kode = mb_strtolower(trim($p->code ?? ''));
+                if ($kode !== '' && $base === $kode) {
+                    return $p;
+                }
+            }
+        }
+
+        // ── 2) Prefix: kode di awal nama (format lama) ──
         foreach ($products as $p) {
             $kode = mb_strtolower(trim($p->code ?? ''));
             if ($kode !== '' && mb_strpos($name, $kode) === 0) {
                 return $p;
             }
         }
+
+        // ── 3) Contains: fallback terakhir ──
         foreach ($products as $p) {
             $kode = mb_strtolower(trim($p->code ?? ''));
             if ($kode !== '' && mb_strpos($name, $kode) !== false) {
