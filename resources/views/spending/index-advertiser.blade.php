@@ -58,8 +58,9 @@
 
 {{-- Filter --}}
 <div class="clay-card" style="padding:16px;margin-bottom:16px;" data-reveal>
-    <form method="GET" action="{{ route('spending.index') }}" id="filter-form-adv"
-          style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
+    {{-- .filter-bar: di layar kecil rentang periodik + Reset + Input Spending tetap 1 jajar (CSS di bawah) --}}
+    <form method="GET" action="{{ route('spending.index') }}" id="filter-form-adv" class="filter-bar"
+          style="display:flex;gap:10px;align-items:flex-end;">
 
         <x-date-range-picker
             :dari="$dari"
@@ -75,6 +76,69 @@
     </form>
 </div>
 
+{{-- ═══════════════ RINGKASAN PERIODE (4 kartu) ═══════════════ --}}
+@php
+    $pr = (float) ($summary['paid_ratio'] ?? 0);
+    $prFill = $pr >= 75 ? 'linear-gradient(90deg,#22c55e,#16a34a)'
+            : ($pr >= 50 ? 'linear-gradient(90deg,#fbbf24,#f59e0b)'
+            : 'linear-gradient(90deg,#ef4444,#dc2626)');
+    $periodeLabel = $dari === $sampai
+        ? \Carbon\Carbon::parse($dari)->translatedFormat('d M Y')
+        : \Carbon\Carbon::parse($dari)->translatedFormat('d M Y').' – '.\Carbon\Carbon::parse($sampai)->translatedFormat('d M Y');
+@endphp
+<div class="summary-grid" data-reveal>
+
+    {{-- 1. Total Spending --}}
+    <div class="summary-card" title="Total pengeluaran iklan · {{ $periodeLabel }}">
+        <div class="summary-icon sc-primary">💰</div>
+        <div class="summary-body">
+            <div class="summary-label">Total Spending</div>
+            <div class="summary-value">Rp {{ number_format($summary['spending'],0,',','.') }}</div>
+            <div class="summary-sub">{{ count($summaries) }} hari berisi data · {{ $periodeLabel }}</div>
+        </div>
+    </div>
+
+    {{-- 2. Total Lead / Paid --}}
+    <div class="summary-card" title="Total lead dan pembayaran · {{ $periodeLabel }}">
+        <div class="summary-icon sc-purple">👥</div>
+        <div class="summary-body">
+            <div class="summary-label">Total Lead / Paid</div>
+            <div class="summary-value">
+                <span class="sc-lead">{{ number_format($summary['lead']) }}</span>
+                <span class="sc-sep">/</span>
+                <span class="sc-paid">{{ number_format($summary['paid']) }}</span>
+            </div>
+            <div class="summary-sub">Konversi {{ $summary['lead'] > 0 ? round($summary['paid'] / $summary['lead'] * 100, 1) : 0 }}% dari lead</div>
+        </div>
+    </div>
+
+    {{-- 3. CPA Lead / CPA Paid --}}
+    <div class="summary-card" title="Biaya rata-rata per lead & per paid · {{ $periodeLabel }}">
+        <div class="summary-icon sc-teal">📈</div>
+        <div class="summary-body">
+            <div class="summary-label">CPA Lead / Paid</div>
+            <div class="summary-value">
+                <span class="sc-lead">Rp {{ number_format($summary['cpa_lead'],0,',','.') }}</span>
+                <span class="sc-sep">/</span>
+                <span class="sc-paid">Rp {{ number_format($summary['cpa_paid'],0,',','.') }}</span>
+            </div>
+            <div class="summary-sub">Biaya per lead & per pembayaran</div>
+        </div>
+    </div>
+
+    {{-- 4. Paid Ratio --}}
+    <div class="summary-card" title="Persentase lead yang berhasil membayar · {{ $periodeLabel }}">
+        <div class="summary-icon sc-amber">🎯</div>
+        <div class="summary-body">
+            <div class="summary-label">Paid Ratio</div>
+            <div class="summary-value">{{ number_format($pr) }}%</div>
+            <div class="summary-ratio-track">
+                <div class="summary-ratio-fill" style="width:{{ min(100, $pr) }}%;background:{{ $prFill }};"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{-- ──────────────────────────────────────────────────────────────
      Struktur 3 level:
      Level 1 → Baris tanggal   (klik → expand)
@@ -82,7 +146,7 @@
      Level 3 → Baris whitelist (di dalam produk)
 ─────────────────────────────────────────────────────────────── --}}
 <div class="clay-card" style="overflow:hidden;" data-reveal>
-    <div class="table-scroll">
+    <div class="table-scroll table-scroll-limit" id="spending-scroll">
         <table class="clay-table">
             <thead>
                 <tr>
@@ -138,7 +202,7 @@
                 <td style="text-align:right;font-weight:700;color:var(--color-purple);">{{ number_format($s['lead']) }}</td>
                 <td style="text-align:right;font-weight:700;color:var(--color-secondary);">{{ number_format($s['paid']) }}</td>
                 <td style="text-align:right;">
-                    <span class="clay-badge {{ $s['paid_ratio']>=30?'clay-badge-green':($s['paid_ratio']>=10?'clay-badge-yellow':'clay-badge-red') }}">
+                    <span class="clay-badge {{ $s['paid_ratio']>=75?'clay-badge-green':($s['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}">
                         {{ round($s['paid_ratio']) }}%
                     </span>
                 </td>
@@ -161,7 +225,7 @@
                     <div style="border-bottom:1px solid rgba(0,0,0,.05);background:#fafafa;">
 
                         {{-- Header produk (klik → expand whitelist) --}}
-                        <div onclick="toggle('{{ $lvl2Id }}')"
+                        <div class="lvl2-header" onclick="toggle('{{ $lvl2Id }}')"
                              style="display:flex;align-items:center;gap:12px;padding:10px 20px;
                                     cursor:pointer;transition:background .15s;"
                              onmouseenter="this.style.background='#f3f4f6'"
@@ -191,13 +255,13 @@
                                         {{ $prodData['product']->code ?? '' }}
                                     </span>
                                 </div>
-                                <div style="font-size:.68rem;color:#9ca3af;margin-top:2px;margin-left:56px;">
+                                <div class="lvl2-sub" style="font-size:.68rem;color:#9ca3af;margin-top:2px;margin-left:56px;">
                                     {{ count($prodData['whitelists']) }} whitelist mengiklankan produk ini
                                 </div>
                             </div>
 
                             {{-- Summary produk --}}
-                            <div style="display:flex;gap:16px;flex-shrink:0;align-items:center;">
+                            <div class="lvl2-summary" style="display:flex;gap:16px;flex-shrink:0;align-items:center;">
                                 <div style="text-align:right;">
                                     <div style="font-size:.68rem;color:#9ca3af;">Spending</div>
                                     <div style="font-weight:700;font-size:.82rem;color:var(--color-primary);white-space:nowrap;">
@@ -212,7 +276,7 @@
                                         <span style="color:var(--color-secondary);">{{ $prodData['paid'] }}</span>
                                     </div>
                                 </div>
-                                <span class="clay-badge {{ $prodData['paid_ratio']>=30?'clay-badge-green':($prodData['paid_ratio']>=10?'clay-badge-yellow':'clay-badge-red') }}"
+                                <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
                                       style="font-size:.68rem;">
                                     {{ $prodData['paid_ratio'] }}%
                                 </span>
@@ -222,7 +286,7 @@
                         {{-- ── LEVEL 3: Baris Whitelist ────────── --}}
                         <div id="{{ $lvl2Id }}" style="display:none;background:#fff;
                              border-top:1px dashed rgba(78,205,196,.2);padding:0 0 6px 0;">
-                            <table style="width:100%;">
+                            <table class="lvl3" style="width:100%;">
                                 <thead>
                                     <tr style="background:#f9fefe;">
                                         @foreach(['Whitelist','Spending','Lead','Paid','Paid Ratio','CPA Lead','CPA Paid','Aksi'] as $h)
@@ -274,7 +338,7 @@
                                     <td style="padding:8px 10px;text-align:right;color:var(--color-secondary);
                                                font-weight:700;font-size:.8rem;">{{ $item->paid }}</td>
                                     <td style="padding:8px 10px;text-align:right;">
-                                        <span class="clay-badge {{ $item->paid_ratio>=30?'clay-badge-green':($item->paid_ratio>=10?'clay-badge-yellow':'clay-badge-red') }}"
+                                        <span class="clay-badge {{ $item->paid_ratio>=75?'clay-badge-green':($item->paid_ratio>=50?'clay-badge-yellow':'clay-badge-red') }}"
                                               style="font-size:.65rem;">{{ round($item->paid_ratio) }}%</span>
                                     </td>
                                     <td style="padding:8px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
@@ -322,7 +386,7 @@
                                     <td style="padding:7px 10px;text-align:right;font-size:.8rem;color:var(--color-purple);">{{ $prodData['lead'] }}</td>
                                     <td style="padding:7px 10px;text-align:right;font-size:.8rem;color:var(--color-secondary);">{{ $prodData['paid'] }}</td>
                                     <td style="padding:7px 10px;text-align:right;">
-                                        <span class="clay-badge {{ $prodData['paid_ratio']>=30?'clay-badge-green':($prodData['paid_ratio']>=10?'clay-badge-yellow':'clay-badge-red') }}"
+                                        <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
                                               style="font-size:.65rem;">{{ $prodData['paid_ratio'] }}%</span>
                                     </td>
                                     <td style="padding:7px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
@@ -626,6 +690,135 @@
     .be-modal .be-footer {
         display: flex; justify-content: flex-end; gap: 10px;
         padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
+    }
+
+    /* ── Ringkasan Periode (4 kartu di atas tabel) ──────────── */
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0,1fr));
+        gap: 14px;
+        margin-bottom: 16px;
+    }
+    @media (max-width: 1100px) { .summary-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+    @media (max-width: 560px)  { .summary-grid { grid-template-columns: 1fr; } }
+    .summary-card {
+        display: flex; align-items: center; gap: 14px;
+        background: #fff; border-radius: 16px; padding: 16px 18px;
+        border: 1px solid rgba(0,0,0,.06);
+        box-shadow: 0 1px 3px rgba(0,0,0,.04);
+        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        position: relative; overflow: hidden;
+    }
+    .summary-card::after {
+        content: ''; position: absolute; right: -18px; top: -18px;
+        width: 74px; height: 74px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,107,107,.10), transparent 70%);
+        opacity: 0; transition: opacity .2s ease;
+    }
+    .summary-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 24px rgba(0,0,0,.09);
+        border-color: rgba(255,107,107,.25);
+    }
+    .summary-card:hover::after { opacity: 1; }
+    .summary-icon {
+        width: 46px; height: 46px; border-radius: 13px; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.25rem; box-shadow: 0 4px 10px rgba(0,0,0,.08);
+    }
+    .sc-primary { background: linear-gradient(135deg,#FF6B6B,#ff9a9a); }
+    .sc-purple  { background: linear-gradient(135deg,#a78bfa,#8b5cf6); }
+    .sc-teal    { background: linear-gradient(135deg,#4ECDC4,#2dd4bf); }
+    .sc-amber   { background: linear-gradient(135deg,#f59e0b,#fbbf24); }
+    .summary-body { min-width: 0; }
+    .summary-label {
+        font-size: .62rem; font-weight: 800; text-transform: uppercase;
+        letter-spacing: .06em; color: #9ca3af;
+    }
+    .summary-value {
+        font-size: 1.18rem; font-weight: 800; color: #1e1b2e;
+        margin-top: 2px; white-space: nowrap; line-height: 1.2;
+    }
+    .summary-value .sc-lead { color: var(--color-purple, #8b5cf6); }
+    .summary-value .sc-paid { color: var(--color-secondary, #4ECDC4); }
+    .summary-value .sc-sep  { color: #d1d5db; font-weight: 600; margin: 0 2px; }
+    .summary-sub { font-size: .66rem; color: #9ca3af; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .summary-ratio-track {
+        height: 6px; border-radius: 999px; background: #f3f4f6;
+        margin-top: 8px; overflow: hidden; max-width: 170px;
+    }
+    .summary-ratio-fill {
+        height: 100%; border-radius: 999px;
+        transition: width .5s ease;
+    }
+
+    /* ── Batas tinggi tabel (±5 baris, sisanya scroll vertikal) ── */
+    .table-scroll-limit { overflow-y: auto; overscroll-behavior: contain; }
+    .table-scroll-limit::-webkit-scrollbar { width: 8px; }
+    .table-scroll-limit::-webkit-scrollbar-track { background: transparent; }
+    .table-scroll-limit::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 999px; }
+    .table-scroll-limit::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
+    .table-scroll-limit { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; }
+    /* Header tetap terlihat saat scroll vertikal di dalam tabel */
+    .table-scroll-limit thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #fafafa; /* solid agar baris yang lewat tidak tembus */
+        box-shadow: 0 2px 6px -3px rgba(0,0,0,.14);
+    }
+
+    /* ── Responsive: fleksibel di segala ukuran layar ────────────────── */
+    .filter-bar { flex-wrap: wrap; } /* default: boleh wrap di layar lebar */
+
+    @media (max-width: 640px) {
+        /* Bar filter: rentang periodik + Reset + Input Spending TETAP 1 jajar */
+        .filter-bar { flex-wrap: nowrap; gap: 6px; }
+        .filter-bar .drp-trigger { flex: 1 1 auto; min-width: 0; }
+        .filter-bar .clay-btn { padding: 8px 10px; font-size: .72rem; white-space: nowrap; }
+
+        /* Kartu summary lebih padat */
+        .summary-card { padding: 12px 14px; gap: 10px; }
+        .summary-icon { width: 38px; height: 38px; font-size: 1rem; }
+        .summary-value { font-size: 1rem; }
+        .summary-label { font-size: .56rem; }
+
+        /* Tabel utama: sel lebih ramping (menang atas rule mobile layout) */
+        .table-scroll-limit table.clay-table thead th,
+        .table-scroll-limit table.clay-table tbody td {
+            padding: 7px 6px !important;
+            font-size: .72rem !important;
+        }
+
+        /* Header produk (level 2): boleh wrap agar tak meluber */
+        .lvl2-header { flex-wrap: wrap; gap: 8px !important; padding: 8px 12px !important; }
+        .lvl2-sub { margin-left: 0 !important; }
+        .lvl2-summary { flex-wrap: wrap; gap: 10px !important; }
+
+        /* Tabel whitelist (level 3): sel lebih ramping */
+        .lvl3 th, .lvl3 td { padding: 6px 8px !important; }
+        .lvl3 tbody tr td:first-child { padding: 6px 10px 6px 12px !important; }
+
+        /* FAB bulk delete: melayang penuh di bawah layar */
+        .bulk-bar {
+            left: 12px; right: 12px; bottom: 12px;
+            justify-content: center; flex-wrap: wrap; gap: 8px;
+        }
+    }
+
+    @media (max-width: 480px) {
+        /* Modal jadi bottom-sheet agar jempol mudah menjangkau tombol */
+        .dc-modal { padding: 10px; align-items: flex-end; }
+        .be-modal { padding: 10px; align-items: flex-end; }
+        .dc-modal .dc-container { border-radius: 16px 16px 0 0; }
+        .be-modal .be-container { border-radius: 16px 16px 0 0; }
+
+        /* Nilai kartu summary cukup ramping untuk HP kecil */
+        .summary-value { font-size: .95rem; }
+
+        /* Input modal edit: kompak */
+        .be-row-inputs { gap: 6px; }
+        .be-row-inputs .clay-input { padding: 6px 6px; font-size: .74rem; }
     }
 </style>
 @endpush
@@ -1225,6 +1418,55 @@ function toggle(id) {
     // Tutup dengan ESC
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && beModal && beModal.classList.contains('active')) window.closeBulkEdit();
+    });
+})();
+</script>
+@endpush
+
+@push('scripts')
+<script>
+{{-- ── Batas tinggi tabel: tampilkan ±5 baris, sisanya scroll vertikal ── --}}
+(function() {
+    'use strict';
+
+    var MAX_ROWS = 5;
+    var scrollEl = document.getElementById('spending-scroll');
+    if (!scrollEl) return;
+
+    var table = scrollEl.querySelector('table.clay-table');
+    if (!table || !table.tBodies.length) return;
+
+    var tbody = table.tBodies[0];
+    // Baris yang terlihat = baris tanggal (level-1); baris expand awal punya display:none inline
+    var visible = Array.prototype.filter.call(tbody.rows, function(r) {
+        return r.style.display !== 'none';
+    });
+
+    // ≤ 5 baris → biarkan tinggi alami, tanpa scroll
+    if (visible.length <= MAX_ROWS) return;
+
+    function measure() {
+        var head = table.tHead;
+        var h = head ? head.offsetHeight : 0;
+        for (var i = 0; i < MAX_ROWS; i++) h += visible[i].offsetHeight;
+        return h;
+    }
+
+    scrollEl.style.maxHeight = measure() + 'px';
+
+    // Pass 2: setelah scrollbar vertikal muncul, lebar konten menyusut & baris bisa
+    // ikut berubah tinggi (reflow) → ukur sekali lagi agar tetap pas 5 baris.
+    requestAnimationFrame(function() {
+        scrollEl.style.maxHeight = measure() + 'px';
+    });
+
+    // Re-hitung saat layar berubah ukuran (teks bisa wrap ulang → baris lebih tinggi)
+    var resizeTimer;
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function() {
+            scrollEl.style.maxHeight = measure() + 'px';
+        }, 150);
     });
 })();
 </script>

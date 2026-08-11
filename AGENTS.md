@@ -487,6 +487,68 @@ Error `SQLSTATE[42S22]: Unknown column 'kode_produk'` saat upload file Meta Ads 
 
 ---
 
+## J. ✅ Ringkasan Periode — 4 Kartu Summary di Halaman Spending Advertiser (11 Agustus 2026)
+
+### Deskripsi
+Di antara card filter rentang periodik dan tabel utama, kini ada 4 kartu ringkasan: **Total Spending**, **Total Lead / Paid**, **CPA Lead / Paid**, dan **Paid Ratio** (dengan progress bar berwarna hijau/kuning/merah sesuai ambang tabel). Semua kartu mengikuti rentang `dari`/`sampai` yang dipilih karena dihitung dari koleksi `$rows` yang SUDAH ter-scope `user_id` + `whereBetween('tanggal')` — tanpa query tambahan (anti N+1).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/SpendingHarianController.php` | `indexAdvertiser()` hitung `$summary` (spending/lead/paid + paid_ratio & cpa_lead/cpa_paid dengan guard pembagi nol, round konsisten dengan tabel) dari `$rows`; di-pass via `compact('summary', ...)` |
+| `resources/views/spending/index-advertiser.blade.php` | grid `.summary-grid` 4 kartu `.summary-card` (ikon gradient, hover lift, sub-label jumlah hari berisi data + rentang periode); CSS responsive `@media` 1100px/560px; progress bar `.summary-ratio-track`/`.summary-ratio-fill` |
+| `tests/Feature/SpendingSummaryTest.php` | 2 test: kartu tampil dengan total periode (Rp 150.000, 15 lead/5 paid, ratio 33%), dan nilai berubah mengikuti rentang (rentang sempit → Rp 100.000/40%; data di luar rentang tidak bocor → Rp 0) |
+
+### Penting
+- Perhitungan konsisten dengan tabel: sum dulu, bagi kemudian (`paid/lead*100`, `spending/lead`, `spending/paid`) — bukan rata-rata dari ratio per tanggal.
+- Empty state aman: tanpa data → `Rp 0`, `0%`, bar lebar 0.
+- Hanya sisi advertiser (`index-advertiser`); halaman general (CS/admin) tidak diubah.
+
+---
+
+## K. ✅ Responsive Mobile — Halaman Spending Advertiser + Date Range Picker (11 Agustus 2026)
+
+### Deskripsi
+Semua elemen halaman spending advertiser (`index-advertiser`) kini fleksibel di segala ukuran layar (HP/tablet/desktop). Komponen `date-range-picker` ikut di-responsifkan global (berlaku juga di regional, team/performance, spending general) tanpa mengubah markup pemakaian.
+
+### Perubahan
+| File | Keterangan |
+|---|---|
+| `resources/views/components/date-range-picker.blade.php` | Trigger diberi class `.drp-trigger` (min-width 220px pindah dari inline ke CSS, label `.drp-label` `flex:1;min-width:0` + ellipsis agar bisa menyusut); popup diberi class `.drp-popup/.drp-popup-panel/.drp-panel-inner/.drp-presets/.drp-calarea/.drp-cals/.drp-footer` + `@push('styles')`: ≤640px popup jadi **bottom-sheet** (panel full-width, preset jadi chip horizontal scroll, kalender stack vertikal, footer sticky bawah), label trigger mengecil |
+| `resources/views/spending/index-advertiser.blade.php` | Form filter diberi class `.filter-bar` (inline `flex-wrap` dipindah ke class agar media query bisa flip): ≤640px `flex-wrap:nowrap` → **rentang periodik + Reset + Input Spending tetap 1 jajar** (picker `flex:1`). Class `lvl2-header/lvl2-sub/lvl2-summary/lvl3` pada konten expand + CSS mobile: sel tabel utama & tabel whitelist lebih ramping (`!important` karena inline style), header produk boleh wrap, FAB `.bulk-bar` melayang penuh di bawah layar, modal `.dc-modal`/`.be-modal` jadi bottom-sheet ≤480px, kartu summary lebih padat |
+
+### Penting (kaskade CSS)
+- `@stack('styles')` dirender **SEBELUM** `<style>` layout → rule yang bentrok dengan media query layout (mis. padding `.clay-table` di 767px) WAJIB spesifisitas lebih tinggi (`table.clay-table`) atau `!important`; inline style di sel tabel juga hanya bisa ditimpa dengan `!important`.
+- Popup DRP dibuka JS via inline `display:flex` (class `display:none` hanya default) — jangan sentuh mekanisme itu.
+- `align-items`/`justify-content` popup dipindah dari inline ke class agar media query bottom-sheet bisa override.
+- `.drp-trigger { min-width:0 }` di ≤640px berlaku global (semua halaman pemakai komponen) — di halaman tanpa `.filter-bar`, trigger hanya menyusut ke konten (aman, form tetap wrap).
+- Footer popup sticky pakai `position:sticky; bottom:0` + `background:#fff` (di dalam panel scroll `overflow-y:auto`).
+
+---
+
+## L. ✅ Pencocokan Produk Kampanye Ads — kode di mana pun, diapit "-" (11 Agustus 2026)
+
+### Deskripsi
+`SpendingHarianController::matchProduct()` (dipakai `parseMetaFile`/`parseUpload` untuk mencocokkan nama kampanye Meta Ads → produk) sebelumnya hanya mencocokkan **kode di awal nama** (prefix) lalu fallback contains. Padahal penempatan kode produk di nama kampanye **berbeda-beda per advertiser**. Kabar baiknya semua advertiser memakai penanda **"-" di kiri-kanan kode** (contoh `INIT - 11/8/26 - KBJ - 1` → kode `KBJ` di tengah).
+
+### Urutan pencocokan baru
+1. **Token utuh**: nama dibaca SELURUHNYA, `preg_split('/\s*-\s*/')`, tiap token dibuang sufiks varian (`explode('+')[0]`, mis. `ksp+1.50` → `ksp`) lalu dibandingkan **exact** (case-insensitive) dengan kode produk. Token pertama yang cocok = produknya (produk sudah di-sort kode terpanjang dulu di `parseUpload`).
+2. **Prefix** (format lama — kompatibel: `KSP Promo`, `KSP+1.50 - …` tetap cocok).
+3. **Contains** (fallback terakhir, perilaku lama).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/SpendingHarianController.php` | `matchProduct()` ditulis ulang: token → prefix → contains |
+| `tests/Feature/SpendingUploadTest.php` | +2 test: kode di tengah nama (`INIT - 11/8/26 - {code} - 1`) & token ber-sufiks varian (`{code}+1.50` di tengah) → produk & spending tercocokkan benar |
+
+### Penting
+- Token yang bukan alfanumerik persis (mis. `11/8/26` — memuat `/`) tidak bisa cocok dengan kode (semua kode alfanumerik: KMP/KSP/KBJ/KCHP/SH/KNGH/BOX/LAP/KDF + kode test `P…`), sehingga token angka/tanggal aman dari false positive.
+- Test lama (`{code} Campaign`, format prefix) tetap lolos → tidak ada regresi format lama.
+- Kode yang sama muncul 2× di satu nama → token pertama yang menang (sesuai kaidah "kode pertama = produk").
+
+---
+
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 
 Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier`, dan `Gudang` (master tempat gudang, `gudang.master*`).
