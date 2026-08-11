@@ -519,17 +519,7 @@ class SpendingHarianController extends Controller
         });
 
         // ─── Update total_spending whitelist terdampak secara BATCH (2 query) ──
-        $wlIds = array_keys($affectedWhitelists);
-        if ($wlIds !== []) {
-            $totals = SpendingHarian::whereIn('whitelist_id', $wlIds)
-                ->selectRaw('whitelist_id, COALESCE(SUM(spending),0) as total')
-                ->groupBy('whitelist_id')
-                ->pluck('total', 'whitelist_id');
-
-            Whitelist::whereIn('id', $wlIds)->get()->each(function ($wl) use ($totals) {
-                $wl->update(['total_spending' => (float) ($totals[$wl->id] ?? 0)]);
-            });
-        }
+        $this->recalculateWhitelistTotals(array_keys($affectedWhitelists));
 
         // ─── Notifikasi ke advertiser jika CS yang input ───────
         if ($user->hasRole('cs')) {
@@ -603,8 +593,9 @@ class SpendingHarianController extends Controller
             ->keyBy('kode');
 
         // Produk aktif, urutkan kode terpanjang dulu agar prefix-match tepat (KSP2 sebelum KSP)
-        $products = Product::aktif()->get(['id', 'kode_produk', 'nama_produk'])
-            ->sortByDesc(fn ($p) => strlen($p->kode_produk))
+        // Skema baru: kolom products bernama `code`/`name` (bukan kode_produk/nama_produk)
+        $products = Product::aktif()->get(['id', 'code', 'name'])
+            ->sortByDesc(fn ($p) => strlen($p->code))
             ->values();
 
         // ── 1) Parse file Ads Manager → spending per (tanggal, whitelist, produk) ──
@@ -661,7 +652,7 @@ class SpendingHarianController extends Controller
             ];
             $combined[$tgl][$wlId]['products'][$prodId] = [
                 'product_id' => $prod->id,
-                'product_name' => $prod->nama_produk.' ('.$prod->kode_produk.')',
+                'product_name' => $prod->name.' ('.$prod->code.')',
                 'spending' => round($spendingMap[$key] ?? 0, 2),
                 'lead' => $leadPaidMap[$key]['lead'] ?? 0,
                 'paid' => $leadPaidMap[$key]['paid'] ?? 0,
@@ -704,7 +695,7 @@ class SpendingHarianController extends Controller
      * kolom "product" (format "P.1 - Nama Produk - 22760"), "payment_status", dan "created_at".
      * Nama produk dipecah 3 area dengan separator "-":
      *   area 1 = kode teritorial advertiser (diabaikan),
-     *   area 2 = nama produk → dicocokkan fuzzy ke products.nama_produk,
+     *   area 2 = nama produk → dicocokkan fuzzy ke products.name,
      *   area 3 = kode whitelist → dicocokkan ke whitelists.kode.
      * Setiap baris = 1 lead; baris dengan payment_status "paid" menambah paid.
      */
@@ -1034,7 +1025,7 @@ class SpendingHarianController extends Controller
                 }
                 $plist[] = [
                     'product_id' => $pid,
-                    'product_name' => $p->nama_produk.' ('.$p->kode_produk.')',
+                    'product_name' => $p->name.' ('.$p->code.')',
                     'spending' => round($sp, 2),
                 ];
                 $total += $sp;
@@ -1169,13 +1160,13 @@ class SpendingHarianController extends Controller
         $name = mb_strtolower(trim($campaignName));
 
         foreach ($products as $p) {
-            $kode = mb_strtolower(trim($p->kode_produk ?? ''));
+            $kode = mb_strtolower(trim($p->code ?? ''));
             if ($kode !== '' && mb_strpos($name, $kode) === 0) {
                 return $p;
             }
         }
         foreach ($products as $p) {
-            $kode = mb_strtolower(trim($p->kode_produk ?? ''));
+            $kode = mb_strtolower(trim($p->code ?? ''));
             if ($kode !== '' && mb_strpos($name, $kode) !== false) {
                 return $p;
             }
@@ -1364,10 +1355,12 @@ class SpendingHarianController extends Controller
         $user = Auth::user();
         $ids = array_map('intval', $validated['ids']);
 
-        // Advertiser hanya boleh menghapus data miliknya sendiri
+        // Batasi cakupan: advertiser hanya miliknya sendiri; CS hanya milik advertiser yang diampu
         $query = SpendingHarian::with('whitelist')->whereIn('id', $ids);
         if ($user->hasRole('advertiser')) {
             $query->where('user_id', $user->id);
+        } elseif ($user->hasRole('cs')) {
+            $query->where('user_id', $user->advertiser_id);
         }
 
         $rows = $query->get();
@@ -1375,9 +1368,15 @@ class SpendingHarianController extends Controller
             return back()->with('error', 'Tidak ada data yang valid untuk dihapus.');
         }
 
-        // ─── Notifikasi ke pemilik whitelist bila yang menghapus adalah CS ──
+        // ─── Notifikasi ke pemilik whitelist bila yang menghapus adalah CS (dedup per owner) ──
+        $notifiedOwners = [];
         foreach ($rows as $spending) {
-            $this->notifyWhitelistOwner($spending);
+            $wl = $spending->whitelist;
+            if ($user->hasRole('cs') && $wl && $wl->user_id !== $user->id
+                && ! in_array($wl->user_id, $notifiedOwners, true)) {
+                $notifiedOwners[] = $wl->user_id;
+                $this->notifyWhitelistOwner($spending);
+            }
         }
 
         DB::transaction(function () use ($rows) {
@@ -1387,19 +1386,109 @@ class SpendingHarianController extends Controller
         });
 
         // ─── Rekalkulasi total_spending whitelist yang terdampak (batch) ──
-        $wlIds = $rows->pluck('whitelist_id')->unique()->values();
-        if ($wlIds->isNotEmpty()) {
-            $totals = SpendingHarian::whereIn('whitelist_id', $wlIds)
-                ->selectRaw('whitelist_id, COALESCE(SUM(spending),0) as total')
-                ->groupBy('whitelist_id')
-                ->pluck('total', 'whitelist_id');
-
-            Whitelist::whereIn('id', $wlIds)->get()->each(function ($wl) use ($totals) {
-                $wl->update(['total_spending' => (float) ($totals[$wl->id] ?? 0)]);
-            });
-        }
+        $this->recalculateWhitelistTotals($rows->pluck('whitelist_id'));
 
         return back()->with('success', $rows->count().' data spending berhasil dihapus.');
+    }
+
+    // ─── Bulk Update (edit massal spending/lead/paid via centang) ─
+
+    public function bulkUpdate(Request $request): RedirectResponse
+    {
+        // Payload per baris: items[] = [{id, spending, lead, paid}, ...]
+        // (nilai tiap baris bisa berbeda — diisi satu per satu di modal bulk edit)
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.id' => ['required', 'integer'],
+            'items.*.spending' => ['required', 'numeric', 'min:0'],
+            'items.*.lead' => ['required', 'integer', 'min:0'],
+            'items.*.paid' => ['required', 'integer', 'min:0'],
+        ]);
+
+        $user = Auth::user();
+
+        // ── Batasi cakupan: advertiser hanya miliknya; CS hanya milik advertiser yang diampu ──
+        $ids = array_map('intval', array_column($validated['items'], 'id'));
+        $query = SpendingHarian::with('whitelist')->whereIn('id', $ids);
+        if ($user->hasRole('advertiser')) {
+            $query->where('user_id', $user->id);
+        } elseif ($user->hasRole('cs')) {
+            $query->where('user_id', $user->advertiser_id);
+        }
+        $rows = $query->get()->keyBy('id');
+
+        if ($rows->isEmpty()) {
+            return back()->with('error', 'Tidak ada data yang valid untuk diperbarui.');
+        }
+
+        $updated = [];
+
+        DB::transaction(function () use ($validated, $rows, &$updated) {
+            foreach ($validated['items'] as $item) {
+                $row = $rows->get((int) $item['id']);
+                if (! $row) {
+                    continue; // di luar hak akses / tidak ditemukan → dilewati
+                }
+
+                $data = [
+                    'spending' => $item['spending'],
+                    'lead' => $item['lead'],
+                    'paid' => $item['paid'],
+                ];
+                SpendingHarian::computeMetrics($data);
+                $row->update($data);
+                $updated[] = $row;
+            }
+        });
+
+        if ($updated === []) {
+            return back()->with('error', 'Tidak ada data yang valid untuk diperbarui.');
+        }
+
+        // ─── Notifikasi ke pemilik whitelist bila yang mengubah adalah CS
+        //     (dedup per owner, SETELAH commit agar gagal notif tidak menggagalkan update) ──
+        $notifiedOwners = [];
+        foreach ($updated as $row) {
+            $wl = $row->whitelist;
+            if ($user->hasRole('cs') && $wl && $wl->user_id !== $user->id
+                && ! in_array($wl->user_id, $notifiedOwners, true)) {
+                $notifiedOwners[] = $wl->user_id;
+                $this->notifyWhitelistOwner($row);
+            }
+        }
+
+        // ─── Rekalkulasi total_spending whitelist yang terdampak (batch) ──
+        $this->recalculateWhitelistTotals(collect($updated)->pluck('whitelist_id'));
+
+        $skipped = count($validated['items']) - count($updated);
+        $message = count($updated).' data spending berhasil diperbarui.';
+        if ($skipped > 0) {
+            $message .= " {$skipped} data dilewati (di luar hak akses Anda).";
+        }
+
+        return back()->with('success', $message);
+    }
+
+    /**
+     * Rekalkulasi total_spending untuk sekumpulan whitelist secara batch
+     * (1 query aggregate → map → update, sesuai pola AGENTS.md).
+     */
+    private function recalculateWhitelistTotals(iterable $whitelistIds): void
+    {
+        $wlIds = collect($whitelistIds)->unique()->values();
+
+        if ($wlIds->isEmpty()) {
+            return;
+        }
+
+        $totals = SpendingHarian::whereIn('whitelist_id', $wlIds)
+            ->selectRaw('whitelist_id, COALESCE(SUM(spending),0) as total')
+            ->groupBy('whitelist_id')
+            ->pluck('total', 'whitelist_id');
+
+        Whitelist::whereIn('id', $wlIds)->get()->each(function ($wl) use ($totals) {
+            $wl->update(['total_spending' => (float) ($totals[$wl->id] ?? 0)]);
+        });
     }
 
     // ─── Approve ───────────────────────────────────────────────────

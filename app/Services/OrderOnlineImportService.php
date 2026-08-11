@@ -214,7 +214,7 @@ class OrderOnlineImportService
      *
      * @return array{inserted:int, updated:int, skipped:int, duplicates:int, unknown_cs:array, deleted:int, double_real:int}
      */
-    public function import(string $filePath, string $sender = ''): array
+    public function import(string $filePath, string $sender = '', ?string $originalFilename = null): array
     {
         $parsed = $this->parse($filePath);
         $rows = $parsed['data'];
@@ -223,9 +223,10 @@ class OrderOnlineImportService
             return ['inserted' => 0, 'updated' => 0, 'skipped' => count($parsed['skips']), 'duplicates' => 0, 'unknown_cs' => [], 'deleted' => 0, 'double_real' => 0];
         }
 
-        return DB::transaction(function () use ($rows, $filePath, $parsed, $sender) {
+        return DB::transaction(function () use ($rows, $filePath, $parsed, $sender, $originalFilename) {
             $batch = OrderOnlineImportBatch::create([
-                'original_filename' => basename($filePath),
+                // Nama file asli dari user (bukan nama hash hasil store()); fallback ke basename path.
+                'original_filename' => $originalFilename ?: basename($filePath),
                 'stored_path' => $filePath,
                 'sender' => $sender,
                 'status' => 'processing',

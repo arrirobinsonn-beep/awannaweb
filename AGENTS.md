@@ -427,6 +427,44 @@ php filecoba/verify_pipeline.php          # jalankan pipeline & cek PASS/FAIL
 
 ---
 
+## I. ✅ Bulk Edit Spending — FAB ✏️ Edit, edit per baris (11 Agustus 2026)
+
+### Deskripsi
+FAB bulk action di halaman Spending (`index-advertiser` & `index-general`) kini punya opsi **✏️ Edit** di samping Hapus. Modal mengenali data terpilih SATU PER SATU: dikelompokkan **per tanggal → per produk** (header tanggal hanya tampil bila pilihan lintas tanggal; pilihan lintas produk = grup per produk). Tiap baris menampilkan whitelist + nilai lama + input spending/lead/paid yang **sudah terisi nilai lama** (langsung bisa di-tweak). Simpan mengirim `items[<db-id>][spending|lead|paid|id]` per baris → `POST /spending/bulk-update`.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/SpendingHarianController.php` | `bulkUpdate()` terima `items[]` per baris (id/spending/lead/paid); scope advertiser (miliknya) / CS (advertiser yang diampu); baris di luar scope dilewati (flash "N dilewati"); update per baris dalam 1 transaksi; dedup notifikasi CS per owner SETELAH commit; `recalculateWhitelistTotals()` helper (dipakai `store`/`bulkDestroy`/`bulkUpdate`) |
+| `routes/web.php` | `POST /spending/bulk-update` → `spending.bulk-update` |
+| `resources/views/spending/index-advertiser.blade.php` & `index-general.blade.php` | checkbox + `data-tanggal/product-id/product-name/product-code/whitelist-name/whitelist-code`; modal `.be-modal` render dinamis per grup (scroll `max-height:48vh`); tombol Simpan `type=button` → `reportValidity()` + `form.submit()` (deterministik, Enter-key juga jalan karena input sudah inline di form); `beEsc()` anti-XSS nama; grup produk diurutkan by nama |
+| `tests/Feature/SpendingBulkUpdateTest.php` | 6 test: update per item + recalc whitelist, lintas produk/tanggal dgn keying form asli `items[<id>]`, scope advertiser, CS terpetakan, CS luar tim, payload invalid |
+
+### Penting
+- FAB bulk baru benar-benar menempel viewport setelah fix `animations.js` (PageTransition.enter membersihkan transform inline `#main-content`; transform pada ancestor membuat `position:fixed` terkurung sebagai containing block).
+- `bulkDestroy` ikut di-scope CS + dedup notif (konsisten dengan `bulkUpdate`).
+- Desain lama "nilai sama untuk semua baris" diganti per-baris; field kosong dicegah native validation (`required`).
+- `recalculateWhitelistTotals(iterable $whitelistIds)`: 1 query aggregate → map → update (pola batch AGENTS.md).
+
+---
+
+## I. ✅ Fix: Upload Spending Meta — kolom produk skema baru (11 Agustus 2026)
+
+### Deskripsi
+Error `SQLSTATE[42S22]: Unknown column 'kode_produk'` saat upload file Meta Ads Manager → `SpendingHarianController` masih memakai kolom lama `kode_produk`/`nama_produk`, padahal `products` sudah migrasi ke skema baru **`code`/`name`** (fitur E).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/SpendingHarianController.php` | 4 titik diganti ke skema baru: `parseUpload` (`Product::aktif()->get(['id','code','name'])` + sort by `code`), `parseRegionalFile` (`$prod->name.' ('.$prod->code.')'`), `matchProduct` (`$p->code`) |
+| `tests/Feature/SpendingUploadTest.php` | Test regresi alur upload: file Ads (nama file memuat kode whitelist + tanggal) + file regional (kolom `product`/`payment_status`/`created_at`) → `parseUpload` harus sukses tanpa SQL error, `regional_unmatched_count=0`, gabungan spending/lead/paid benar |
+
+### Penting (pola test upload)
+- `UploadedFile::fake()->createWithContent()` memanggil `basename()` pada nama file → **jangan pakai nama file ber-slash** (mis. `s/d`) karena terpotong; kode whitelist test memakai format numerik tanpa dash (`20xxxxxx`) agar cocok dengan `preg_split('/\s*-\s*/')` 3-area di `parseRegionalFile` (kode ber-dash seperti `WL-xxx` ikut terbelah).
+- File nyata test di-sniff finfo → `text/plain` dan gagal validasi `mimes` → wajib `createWithContent()` (mime dari ekstensi nama).
+
+---
+
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 
 Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier`, dan `Gudang` (master tempat gudang, `gudang.master*`).
