@@ -29,14 +29,21 @@ use Illuminate\Support\Facades\DB;
  *  - completed              → TIDAK disimpan (di-skip saat parse)
  *
  * Hanya `real`/`tembakan` yang punya courier; status lain courier = null.
- * Deteksi duplikat (phone_normalized + product_code + address sama) hanya untuk
- * baris berstatus `belum_diproses`: cocok dengan DB ≤ 14 hari lalu atau baris
- * lain di file yang sama → `duplikat`. Data cocok > 14 hari = repeat order
- * (diproses normal).
+ *
+ * Deteksi duplikat (phone_normalized + product_code + address sama, order_id
+ * BERBEDA, ≤ 14 hari terakhir) berlaku untuk SEMUA status (termasuk real/
+ * tembakan), dengan pengecualian payment_method `bank_transfer` yang selalu
+ * dianggap repeat order (uang sudah diterima) dan TIDAK pernah jadi duplikat
+ * (tetap menjadi source penanda untuk baris lain). Pembeda utamanya order_id:
+ * - order_id BERUBAH + signature sama → `duplikat` (courier null, tak diexport)
+ * - order_id SAMA (ke re-import) → masuk rule perbarui status / drop, BUKAN duplikat
+ * - data cocok > 14 hari = repeat order (diproses normal)
  *
  * Re-import data yang sama (by order_id):
- * - Baris `real`/`tembakan` menghapus baris lama berstatus `belum_diproses`/
- *   `duplikat` (di batch mana pun) lalu insert baru.
+ * - Baris `real`/`tembakan` menghapus baris lama berstatus `belum_diproses`
+ *   (order_id sama, di batch mana pun) lalu insert baru. Baris `duplikat`
+ *   TIDAK dihapus — duplikat adalah order yang berbeda (order_id-nya sendiri),
+ *   jadi tidak ikut "diperbarui" ketika order aslinya naik status.
  * - Jika `real`/`tembakan` dengan order_id sama SUDAH ada di batch lain → baris
  *   TIDAK di-insert (anti double-export, dihitung ke `double_real`); `cancel`
  *   dan `real` lama tidak dihapus/ditimpa.
@@ -119,7 +126,11 @@ class OrderOnlineImportService
 
         $paymentMethod = strtolower($this->text($row, $colMap, 'payment_method'));
         $isCod = $paymentMethod === 'cod';
-        $productPrice = $this->decimal($this->value($row, $colMap, 'product_price'));
+        $amount = $this->decimal($this->value($row, $colMap, 'gross_revenue'));
+        if ($amount <= 0) {
+            $amount = $this->decimal($this->value($row, $colMap, 'product_price'));
+        }
+        $shippingCost = $this->decimal($this->value($row, $colMap, 'shipping_cost'));
         $provinceRaw = $this->text($row, $colMap, 'province');
         $province = $this->calibrateProvince($provinceRaw);
 
@@ -172,9 +183,9 @@ class OrderOnlineImportService
             'product_variant_id' => null,
             'quantity' => $quantity,
             'weight' => $this->decimal($this->value($row, $colMap, 'weight')),
-            'product_price' => $productPrice,
+            'amount' => $amount,
             'is_cod' => $isCod,
-            'cod_amount' => $isCod ? $productPrice : 0,
+            'shipping_cost' => $shippingCost,
             'raw_payload' => $this->buildRawPayload($row, $colMap),
         ];
     }
@@ -269,19 +280,25 @@ class OrderOnlineImportService
                     $row['product_code'] ?? null,
                     $row['address'] ?? null,
                 );
-                if ($row['status'] === 'belum_diproses') {
-                    if (isset($dupSignatures[$signature])) {
+                if ($signature !== '' && $row['phone_normalized'] !== '') {
+                    $matchedIds = $dupSignatures[$signature] ?? [];
+                    $otherIds = array_keys(array_diff_key($matchedIds, [$row['order_id'] => true]));
+                    $isBankTransfer = strtolower((string) ($row['payment_method'] ?? '')) === 'bank_transfer';
+
+                    if ($otherIds !== [] && ! $isBankTransfer) {
                         $row['status'] = 'duplikat';
                         $duplicates++;
-                    } else {
-                        $dupSignatures[$signature] = true;
                     }
+                    $dupSignatures[$signature][$row['order_id']] = true;
                 }
 
                 if (in_array($row['status'], ShippingOrder::EXPORTABLE_STATUSES, true)) {
                     $same = $byOrderId[$row['order_id']] ?? collect();
 
-                    $stale = $same->whereIn('status', ['belum_diproses', 'duplikat']);
+                    // Hanya baris lama berstatus `belum_diproses` yang merupakan
+                    // order yang SAMA (order_id sama) → aman dihapus saat naik status.
+                    // Baris `duplikat` dibiarkan utuh (order duplikat berbeda order).
+                    $stale = $same->where('status', 'belum_diproses');
                     if ($stale->isNotEmpty()) {
                         ShippingOrder::whereKey($stale->pluck('id'))->delete();
                         $deleted += $stale->count();
@@ -357,13 +374,15 @@ class OrderOnlineImportService
     }
 
     /**
-     * Ambil semua signature duplikat dari DB (≤ DUP_WINDOW_DAYS) untuk baris
-     * berstatus `belum_diproses`. 1 query batch `whereIn`.
+     * Ambil semua signature duplikat dari DB (≤ DUP_WINDOW_DAYS) berikut order_id
+     * asalnya, dari SEMUA status (real/tembakan/belum_diproses/duplikat/dst), agar
+     * baris `real`/`tembakan` pun ikut dicek. 1 query batch `whereIn`.
+     *
+     * @return array<string, array<string, true>> signature → [order_id => true]
      */
     protected function loadDuplicateSignatures(Collection $rows): array
     {
         $phones = $rows
-            ->where('status', 'belum_diproses')
             ->pluck('phone_normalized')
             ->filter()
             ->unique()
@@ -376,10 +395,10 @@ class OrderOnlineImportService
         $signatures = [];
         ShippingOrder::whereIn('phone_normalized', $phones)
             ->where('created_at', '>=', now()->subDays(self::DUP_WINDOW_DAYS))
-            ->select(['phone_normalized', 'product_code', 'address'])
+            ->select(['phone_normalized', 'product_code', 'address', 'order_id'])
             ->get()
             ->each(function ($o) use (&$signatures) {
-                $signatures[$this->orderSignature($o->phone_normalized, $o->product_code, $o->address)] = true;
+                $signatures[$this->orderSignature($o->phone_normalized, $o->product_code, $o->address)][$o->order_id] = true;
             });
 
         return $signatures;

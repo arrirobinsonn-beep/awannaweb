@@ -74,7 +74,7 @@ class OrderOnlineTest extends TestCase
         return $path;
     }
 
-    private function row(string $orderId, string $phone, string $status, string $paymentStatus, string $productCode, string $address = 'Jl. Test No. 1', string $variation = '', string $product = 'X'): array
+    private function row(string $orderId, string $phone, string $status, string $paymentStatus, string $productCode, string $address = 'Jl. Test No. 1', string $variation = '', string $product = 'X', string $paymentMethod = 'cod'): array
     {
         return [
             'order_id' => $orderId,
@@ -84,7 +84,7 @@ class OrderOnlineTest extends TestCase
             'province' => 'JAWA BARAT',
             'status' => $status,
             'payment_status' => $paymentStatus,
-            'payment_method' => 'cod',
+            'payment_method' => $paymentMethod,
             'product_code' => $productCode,
             'quantity' => 1,
             'address' => $address,
@@ -217,8 +217,8 @@ class OrderOnlineTest extends TestCase
         $uid = uniqid();
 
         $path = $this->writeTempCsv([
-            $this->row($uid.'-1', '081111', 'pending', 'unpaid', $product->code),
-            $this->row($uid.'-2', '081111', 'pending', 'unpaid', $product->code),
+            $this->row($uid.'-1', '0811111111', 'pending', 'unpaid', $product->code),
+            $this->row($uid.'-2', '0811111111', 'pending', 'unpaid', $product->code),
         ]);
 
         $svc = new OrderOnlineImportService;
@@ -262,11 +262,12 @@ class OrderOnlineTest extends TestCase
         $this->assertSame(0, $result['duplicates']);
     }
 
-    public function test_promotion_not_marked_duplicate(): void
+    public function test_bank_transfer_repeat_order_not_duplicate(): void
     {
         $this->seed(CourierRuleSeeder::class);
         $product = $this->makeProduct();
 
+        // Order pertama COD (2 hari lalu)
         $this->createOldOrder([
             'order_online_import_batch_id' => $this->makeBatch()->id,
             'order_id' => 'OLD-1',
@@ -275,13 +276,15 @@ class OrderOnlineTest extends TestCase
             'address' => 'Jl. Merdeka No. 1',
             'product_code' => $product->code,
             'product_id' => $product->id,
+            'payment_method' => 'cod',
             'status' => 'belum_diproses',
             'courier' => null,
         ], now()->subDays(2));
 
+        // Order kedua bank_transfer, phone+produk+alamat sama, order_id BEDA → repeat order, BUKAN duplikat
         $uid = uniqid();
         $path = $this->writeTempCsv([
-            $this->row($uid.'-1', '6281234567000', 'pending', 'paid', $product->code, 'Jl. Merdeka No. 1'),
+            $this->row($uid.'-1', '6281234567000', 'pending', 'paid', $product->code, 'Jl. Merdeka No. 1', '', 'X', 'bank_transfer'),
         ]);
 
         $svc = new OrderOnlineImportService;
@@ -291,6 +294,111 @@ class OrderOnlineTest extends TestCase
         $this->assertSame('tembakan', $new->status);
         $this->assertNotNull($new->courier);
         $this->assertSame(0, $result['duplicates']);
+    }
+
+    public function test_cod_after_bank_transfer_is_duplicate(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+
+        // Order pertama bank_transfer (3 hari lalu) → jadi source
+        $this->createOldOrder([
+            'order_online_import_batch_id' => $this->makeBatch()->id,
+            'order_id' => 'BT-OLD-1',
+            'customer_name' => 'BT Source',
+            'phone_normalized' => '6281234567000',
+            'address' => 'Jl. Merdeka No. 1',
+            'product_code' => $product->code,
+            'product_id' => $product->id,
+            'payment_method' => 'bank_transfer',
+            'status' => 'real',
+            'courier' => 'flix-tf',
+        ], now()->subDays(3));
+
+        // Order kedua COD, signature sama, order_id BEDA, ≤14 hari → DUPLIKAT
+        $uid = uniqid();
+        $path = $this->writeTempCsv([
+            $this->row($uid.'-1', '6281234567000', 'processing', 'paid', $product->code, 'Jl. Merdeka No. 1'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($path, 'eresgestore');
+
+        $new = ShippingOrder::where('order_id', $uid.'-1')->first();
+        $this->assertSame('duplikat', $new->status);
+        $this->assertNull($new->courier);
+        $this->assertSame(1, $result['duplicates']);
+    }
+
+    public function test_real_cod_duplicate_within_same_file(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        // Dua baris real COD, phone+produk+alamat sama, order_id BEDA → baris ke-2 duplikat
+        $path = $this->writeTempCsv([
+            $this->row($uid.'-1', '0811111111', 'processing', 'paid', $product->code),
+            $this->row($uid.'-2', '0811111111', 'processing', 'paid', $product->code),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($path, 'eresgestore');
+
+        $first = ShippingOrder::where('order_id', $uid.'-1')->first();
+        $second = ShippingOrder::where('order_id', $uid.'-2')->first();
+
+        $this->assertSame('real', $first->status);
+        $this->assertSame('duplikat', $second->status);
+        $this->assertNull($second->courier);
+        $this->assertSame(1, $result['duplicates']);
+    }
+
+    public function test_bank_transfer_duplicate_within_same_file_is_repeat(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        // Dua baris bank_transfer, signature sama, order_id BEDA → dua-duanya repeat (bukan duplikat)
+        $path = $this->writeTempCsv([
+            $this->row($uid.'-1', '0811111111', 'processing', 'paid', $product->code, 'Jl. Test No. 1', '', 'X', 'bank_transfer'),
+            $this->row($uid.'-2', '0811111111', 'processing', 'paid', $product->code, 'Jl. Test No. 1', '', 'X', 'bank_transfer'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($path, 'eresgestore');
+
+        $first = ShippingOrder::where('order_id', $uid.'-1')->first();
+        $second = ShippingOrder::where('order_id', $uid.'-2')->first();
+
+        $this->assertSame('real', $first->status);
+        $this->assertSame('real', $second->status);
+        $this->assertSame(0, $result['duplicates']);
+    }
+
+    public function test_reimport_same_order_id_is_not_duplicate(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $orderId = uniqid('REV-');
+
+        $svc = new OrderOnlineImportService;
+
+        // Import pertama: real (masuk source)
+        $path1 = $this->writeTempCsv([
+            $this->row($orderId, '081111', 'processing', 'paid', $product->code),
+        ]);
+        $svc->import($path1, 'eresgestore');
+
+        // Re-import order_id yang SAMA → bukan duplikat, tapi double_real (anti double export)
+        $path2 = $this->writeTempCsv([
+            $this->row($orderId, '081111', 'processing', 'paid', $product->code),
+        ]);
+        $r2 = $svc->import($path2, 'eresgestore');
+
+        $this->assertSame(0, $r2['duplicates']);
+        $this->assertSame(1, $r2['double_real']);
     }
 
     public function test_reimport_real_deletes_old_belum_diproses(): void
@@ -349,6 +457,42 @@ class OrderOnlineTest extends TestCase
                 ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
                 ->count(),
         );
+    }
+
+    public function test_reimport_real_keeps_old_duplikat(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $orderId = uniqid('RDK-');
+
+        // Baris lama berstatus duplikat (order_id sama dgn yang akan di-reimport)
+        $this->createOldOrder([
+            'order_online_import_batch_id' => $this->makeBatch()->id,
+            'order_id' => $orderId,
+            'customer_name' => 'Dup Lama',
+            'phone_normalized' => '6281234567000',
+            'address' => 'Jl. Test No. 1',
+            'product_code' => $product->code,
+            'product_id' => $product->id,
+            'status' => 'duplikat',
+            'courier' => null,
+        ], now()->subDays(2));
+
+        $svc = new OrderOnlineImportService;
+
+        $path = $this->writeTempCsv([
+            $this->row($orderId, '081111', 'processing', 'paid', $product->code),
+        ]);
+        $r = $svc->import($path, 'eresgestore');
+
+        // Baris duplikat TIDAK dihapus; real baru tetap masuk
+        $this->assertSame(0, $r['deleted']);
+        $this->assertSame(1, $r['inserted']);
+        $this->assertSame(0, $r['double_real']);
+
+        $rows = ShippingOrder::where('order_id', $orderId)->orderBy('id')->get();
+        $this->assertSame(2, $rows->count());
+        $this->assertSame(['duplikat', 'real'], $rows->pluck('status')->all());
     }
 
     public function test_import_resolves_product_id(): void
@@ -603,7 +747,7 @@ class OrderOnlineTest extends TestCase
             'product_variant_id' => $nonDefault->id,
             'product_code' => $product->code,
             'quantity' => 3,
-            'product_price' => 10000,
+            'amount' => 10000,
             'payment_method' => 'cod',
             'is_cod' => true,
         ]);
@@ -666,7 +810,7 @@ class OrderOnlineTest extends TestCase
             'product_variant_id' => $nonDefault->id,
             'product_code' => $product->code,
             'quantity' => 1,
-            'product_price' => 10000,
+            'amount' => 10000,
             'payment_method' => 'cod',
             'is_cod' => true,
         ]);
@@ -719,7 +863,7 @@ class OrderOnlineTest extends TestCase
             'product_variant_id' => $nonDefault->id,
             'product_code' => $product->code,
             'quantity' => 2,
-            'product_price' => 10000,
+            'amount' => 10000,
             'payment_method' => 'cod',
             'is_cod' => true,
         ]);
@@ -1320,7 +1464,7 @@ class OrderOnlineTest extends TestCase
             'product_variant_id' => $variantId,
             'product_code' => $productCode,
             'quantity' => $qty,
-            'product_price' => 10000,
+            'amount' => 10000,
             'payment_method' => 'cod',
             'is_cod' => true,
         ]);

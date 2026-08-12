@@ -76,7 +76,7 @@ class AggregatorTrackingImportTest extends TestCase
             'product_variant_id' => $this->variant($product)->id,
             'product_code' => $product->code,
             'quantity' => $quantity,
-            'product_price' => 10000,
+            'amount' => 10000,
             'payment_method' => 'cod',
             'is_cod' => true,
         ]);

@@ -203,20 +203,24 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 - **`Dapat N` dari `variation`** (regex `/Dapat\s*(\d+)/i`, contoh `"PROMO Beli 1 Dapat 2"`): qty override (menang atas kolom CSV `quantity`) dan `product_name` jadi `"{nama} {N} pcs"` (mis. `A.3 Kacamata Multifokus Photocromic 2 pcs`). Tanpa Dapat → qty dari kolom CSV (default 1), nama polos.
 - **`product_code` = KODE VARIAN** (`product_variants.code`, mis. `KMP+1.50`), bukan kode produk master — di-set di `import()` setelah `resolveVariant()` (via `$variantIndex[product_id]->firstWhere('id', variant_id)`). Deteksi duplikat `orderSignature()` menormalkan `explode('+', product_code)[0]` agar tetap memakai kode master (data lama & baru konsisten).
 
-### Deteksi duplikat (hanya untuk `belum_diproses`)
+### Deteksi duplikat (12 Agustus; disesuaikan 13 Agustus — pemisah utama `order_id`)
 - Signature duplikat = `phone_normalized|product_code|alamat` (normalized: lowercase/trim/kolaps spasi) → `OrderOnlineImportService::orderSignature()`; kode produk dipakai versi master (`explode('+')[0]`).
-- Pencocokan terhadap seluruh DB dengan `created_at >= now() - 14 hari` (`DUP_WINDOW_DAYS=14`, 1 batch query `whereIn` phone via `loadDuplicateSignatures()`).
-- ≤14 hari cocok → **`duplikat`** (courier=null, tidak ikut export); >14 hari → **repeat order** (diproses normal sebagai `belum_diproses`).
-- Duplikat dalam 1 file yang sama juga tertangkap (signature ditambahkan ke set saat loop).
-- `real`/`tembakan` TIDAK pernah ditandai duplikat (promosi) dan TIDAK menambah signature ke set.
+- Pencocokan terhadap seluruh DB dengan `created_at >= now() - 14 hari` (`DUP_WINDOW_DAYS=14`, 1 batch query `whereIn` phone via `loadDuplicateSignatures()`, kini mengembalikan `[signature => [order_id => true]]` dari SEMUA status).
+- Berlaku untuk **SEMUA status** (termasuk `real`/`tembakan`), bukan hanya `belum_diproses`. Pembeda utamanya `order_id`:
+  - **`order_id` BERBEDA** + signature sama → **`duplikat`** (courier=null, tidak ikut export; dua-duanya real COD di file sama kini tertangkap).
+  - **`order_id` SAMA** (re-import) → **BUKAN duplikat**, masuk rule perbarui status / drop (`double_real`).
+  - >14 hari cocok → **repeat order** (diproses normal).
+- **Pengecualian `payment_method=bank_transfer`**: tidak pernah jadi `duplikat` (uang sudah diterima → repeat order), TAPI tetap menambah signature ke set → baris `cod`/lainnya dengan signature sama & order_id beda tetap bisa ditandai duplikat.
+- Duplikat dalam 1 file yang sama juga tertangkap (signature ditambahkan ke set saat loop; butuh `phone_normalized` valid).
 
-### Re-import data yang sama (by `order_id`, 9 Agustus)
-- Baris `real`/`tembakan` **menghapus permanen** baris lama dengan `order_id` sama yang berstatus `belum_diproses`/`duplikat` (di batch mana pun, dalam `DB::transaction` yang sama; `ShippingOrder` tanpa SoftDeletes). `cancel` dan `real` lama TIDAK dihapus/ditimpa.
+### Re-import data yang sama (by `order_id`, 9 Agustus; disesuaikan 12 Agustus)
+- Baris `real`/`tembakan` **menghapus permanen** baris lama dengan `order_id` sama yang berstatus `belum_diproses` (di batch mana pun, dalam `DB::transaction` yang sama; `ShippingOrder` tanpa SoftDeletes). `cancel` dan `real` lama TIDAK dihapus/ditimpa. **Baris `duplikat` TIDAK ikut dihapus** — `duplikat` (by signature `phone+produk+alamat`) adalah order yang *berbeda* (order_id-nya sendiri), jadi tidak dianggap "baris lama dari order yang sama" saat order aslinya naik status. Sejak 12 Agustus `stale` hanya `where('status','belum_diproses')`.
 - **Anti double-export**: jika `real`/`tembakan` dengan `order_id` sama SUDAH ada di batch lain → baris TIDAK di-insert (dihitung ke `double_real`); statistik batch `success_rows = inserted + updated + duplicates`, `failed_rows = double_real`. Pencocokan memakai 1 query batch `whereIn` `order_id` → `groupBy` (`$byOrderId`, anti N+1).
-- Hasil import bertambah key `deleted` (baris lama yang dihapus) & `double_real`; pesan flash controller: `Baris belum diproses lama dihapus: N` dan `Real di-skip (sudah ada): N`.
+- Hasil import bertambah key `deleted` (baris `belum_diproses` lama yang dihapus) & `double_real`; pesan flash controller: `Baris belum diproses lama dihapus: N` dan `Real di-skip (sudah ada): N`.
+- Konsekuensi keputusan 12 Agustus: jika order_id yang tadinya `duplikat` naik jadi `real`, baris `duplikat` lama tetap ada berdampingan dengan `real` baru (2 baris, aman — `duplikat` tidak exportable).
 
 ### Stok via product_code
-- Import: `product_code` (CSV) di-resolve exact-match ke `products.kode_produk` → `product_id` (1 batch query `whereIn`); tak cocok → `product_id=null`.
+- Import: `product_code` (CSV) di-resolve exact-match ke `products.code` → `product_id` (1 batch query `whereIn`); tak cocok → `product_id=null`.
 - **Saat export**, `OrderTemplateExportService::reserveStock()` memanggil `StockService::recordOut(... 'order_online', order->id ...)` → jurnal `out` + kurangi stok.
 - Stok kurang / produk belum di-link → order **dilewati** dari file + `stock_note` diisi (admin bisa edit `product_code` lalu re-export).
 - Idempotent: UNIQUE `(reference, reference_id, type)` → re-export tidak menggandakan jurnal/stok.
@@ -235,12 +239,12 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 | `app/Models/AggregatorSyncBatch.php`, `CourierRule.php` | model sederhana |
 | `app/Services/CourierRuleService.php` | `resolve(payment_method, province)`, cache per request, constants `COURIERS` |
 | `app/Services/OrderOnlineImportService.php` | `parse/preview/import`; calibrate province (config regional), mapping status (completed skip), deteksi duplikat 14 hari, resolve `product_id` via `whereIn`, resolve CS batch via `users.nama/panggilan`, isi `order_online_contacts`, simpan `raw_payload` |
-| `app/Services/OrderTemplateExportService.php` | `download(batch, template, courier?)` → .xlsx atau ZIP per gudang (PhpSpreadsheet); `WAREHOUSE_BY_PRODUCT` (KSP→GTM, SH→Aurora) + `warehouseFor()` (tahan kode varian via `explode('+')`); `PACK_DIMENSIONS=[10,8,6]` + `DEFAULT_COURIER_NOTE`; `phoneSpx()` (mulai 8) + CAPSLOCK utk SPX; filter `EXPORTABLE_STATUSES`; `reserveStock()` (recordOut + stock_note); Kelurahan kosong; nilai=product_price |
+| `app/Services/OrderTemplateExportService.php` | `download(batch, template, courier?)` → .xlsx atau ZIP per gudang (PhpSpreadsheet); `WAREHOUSE_BY_PRODUCT` (KSP→GTM, SH→Aurora) + `warehouseFor()` (tahan kode varian via `explode('+')`); `PACK_DIMENSIONS=[10,8,6]` + `DEFAULT_COURIER_NOTE`; `phoneSpx()` (mulai 8) + CAPSLOCK utk SPX; filter `EXPORTABLE_STATUSES`; `reserveStock()` (recordOut + stock_note); Kelurahan kosong; nilai=amount (gross_revenue CSV) |
 | `app/Http/Controllers/OrderOnlineController.php` | `index` (batch + orders + `$products` utk select), `preview`, `store` (sender required, tampilkan jumlah duplikat), `update` (edit courier/product_code; varian HANYA di-re-resolve bila product_code berubah via `ProductVariant::where('code')`, reverseReference dulu bila ada jurnal), `export` |
 | `resources/views/order/index.blade.php` | Upload (sender wajib) + preview modal + daftar batch + tabel orders (badge status incl. duplikat/cancel/belum_diproses, kolom produk+stock_note) + edit courier & product_code (dropdown per varian) inline + dropdown export FLIK per courier |
 | `database/migrations/2026_08_09_000000_add_meta_account_to_shipping_orders_table.php` | kolom `shipping_orders.meta_account` (string nullable) |
 | `resources/views/layouts/app.blade.php` | Sidebar section Iklan → "Data Mentah" |
-| `tests/Feature/OrderOnlineTest.php` | 38 test: courier resolve (incl. sicepat), status mapping (incl. completed skip, courier null), resolve product_id, render, duplikat (window/same file/repeat order/promosi), FLIK separated by courier+status, stok idempotent, skip stok kurang, undeliverable balikin stok, undeliverable→courier normal tidak dobel, undeliverable varian non-default balikin stok & varian tetap, edit courier product_code sama → varian tetap, ganti product_code dgn jurnal ada → stok varian lama balik, reimport real hapus belum_diproses lama, reimport real tidak dobel (double_real), warehouse mapping, ZIP split SH/KSP/sender, phoneSpx 8 + CAPSLOCK, filename sender, tembakan→spx, product meta_account split, dapat qty override + product_name, product_code = kode varian, warehouseFor varian, dimensi & catatan kurir per template, FLIK 1 kolom HP 62, nama kacamata +power, nama non-kacamata tetap |
+| `tests/Feature/OrderOnlineTest.php` | 45 test: courier resolve (incl. sicepat), status mapping (incl. completed skip, courier null), resolve product_id, render, duplikat (window/same file/repeat order/bedorder_id real COD/bank_transfer repeat & source/re-import order_id sama bukan duplikat), FLIK separated by courier+status, stok idempotent, skip stok kurang, undeliverable balikin stok, undeliverable→courier normal tidak dobel, undeliverable varian non-default balikin stok & varian tetap, edit courier product_code sama → varian tetap, ganti product_code dgn jurnal ada → stok varian lama balik, reimport real hapus belum_diproses lama, reimport real tidak dobel (double_real), warehouse mapping, ZIP split SH/KSP/sender, phoneSpx 8 + CAPSLOCK, filename sender, tembakan→spx, product meta_account split, dapat qty override + product_name, product_code = kode varian, warehouseFor varian, dimensi & catatan kurir per template, FLIK 1 kolom HP 62, nama kacamata +power, nama non-kacamata tetap |
 
 ### Endpoint
 - `GET /orders` — daftar batch + orders (filter search/courier/status per batch)
@@ -352,6 +356,32 @@ Contoh: KBJ qty 2 → 1 KBJ + 1 KDF + 1 BOX + 1 LAP; qty 1 → 1 KBJ (0 KDF/BOX/
 
 ---
 
+## F1. ✅ Rename Kolom Harga Order Online — `amount` & `shipping_cost` (13 Agustus 2026)
+
+### Deskripsi
+Kolom `shipping_orders.product_price` & `cod_amount` (diisi dari `product_price` CSV) dipindah makna & di-rename dalam satu migrasi (data lama sudah dihapus; idempotent untuk DB berisi draft):
+
+| Lama (CSV `product_price`) | Baru | Sumber CSV |
+|---|---|---|
+| `product_price` (harga produk saja) | `amount` (nilai kotor = harga + ongkir) | `gross_revenue` (fallback `product_price` bila kolom kosong) |
+| `cod_amount` (harga produk saat COD, 0 non-COD) | `shipping_cost` (ongkir terpisah) | `shipping_cost` |
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_000000_rename_shipping_order_price_columns.php` | rename `product_price→amount`, `cod_amount→shipping_cost` (decimal 14,2) + backfill dari `raw_payload` JSON (`gross_revenue`→amount, `shipping_cost`→shipping_cost; tanpa gross_revenue → amount tetap nilai lama; tanpa shipping_cost → 0) |
+| `app/Services/OrderOnlineImportService.php` | `$amount = gross_revenue ?: product_price`; `$shippingCost = shipping_cost`; row pakai `amount`/`shipping_cost` (tanpa `product_price`/`cod_amount`) |
+| `app/Models/ShippingOrder.php` | fillable & casts `amount` (`decimal:2`) + `shipping_cost` (`decimal:2`) |
+| `app/Services/OrderTemplateExportService.php` | semua `$o->product_price` → `$o->amount` (nilai barang & nominal COD di FLIK/SiCepat/SPX = gross_revenue, termasuk ongkir) |
+| `tests/Feature/OrderOnlineTest.php`, `AggregatorTrackingImportTest.php` | `createOrder`/seed pakai `amount => 10000` |
+| `filecoba/generate_test_kit.php` + 7 file | CSV mentah memuat `shipping_cost=50000` + `gross_revenue=product_price+ongkir` (119000→169000); referensi export pakai `grossRevenue()` |
+
+### Penting
+- `raw_payload` tetap menyimpan semua kolom mentah CSV (termasuk `product_price` lama) — tidak hilang.
+- `shipments.cod_amount` (tabel shipment aggregator) TIDAK berubah — hanya `shipping_orders`.
+- Migrasi bisa dijalankan tanpa re-import: backfill membaca `raw_payload` per baris.
+- `is_cod` tetap dipertahankan (penanda COD untuk template export).
+
 ## G. ✅ Upload Status Aggregator → awb/aggregator_status/delivered_at + Stok Return (10 Agustus 2026)
 
 ### Deskripsi
@@ -423,7 +453,7 @@ php filecoba/verify_pipeline.php          # jalankan pipeline & cek PASS/FAIL
 ```
 - Skrip memakai DB aktif (`.env`, `awannacoba`) dan **TIDAK** menjalankan seeder (precheck hanya memastikan `courier_rules` + produk/varian ter-seed; `CourierRuleSeeder` bersifat truncate). Bila kosong, seed manual dulu.
 - Re-runnable: di awal verify, order CBC-* lama dihapus + jurnal `order_online` dibalik (`reverseReference`) sehingga stok kembali baseline.
-- `product_price` DB decimal → sel export "119000.00" (bukan "119000"); compare `delivered_at` sebagai string (kolom ber-cast datetime → Carbon).
+- `product_price` DB → `amount` (gross_revenue CSV) → sel export "169000.00" (bukan "169000"); compare `delivered_at` sebagai string (kolom ber-cast datetime → Carbon).
 - Step 6 (re-export setelah tracking): semua order yang sudah terisi `awb` TIDAK ikut di-export lagi (hanya header xlsx per template). Query di step ini wajib menyertakan filter `awb` kosong yang SAMA dengan `download()`.
 
 ---

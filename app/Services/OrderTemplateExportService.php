@@ -31,7 +31,7 @@ use ZipArchive;
  * 1 ZIP berisi file per gudang (karena alamat pickup tiap gudang berbeda).
  *
  * Kolom "Kelurahan" (FLIK) dibiarkan kosong karena data mentah tidak menyediakannya.
- * "Total Nilai Barang / Total Nilai COD" diisi product_price.
+ * "Total Nilai Barang / Total Nilai COD" diisi amount (gross_revenue CSV).
  * "Kecamatan" diisi langsung dari kolom subdistrict.
  * Khusus SPX: nomor HP dinormalisasi mulai dari "8" (tanpa 0/62/+62) dan
  * provinsi/kota/kecamatan ditulis CAPSLOCK.
@@ -276,7 +276,7 @@ class OrderTemplateExportService
                 '',
                 $o->postal_code,
                 $o->courier_note ?: self::DEFAULT_COURIER_NOTE,
-                $o->product_price,
+                $o->amount,
                 self::PACK_DIMENSIONS[0],
                 self::PACK_DIMENSIONS[1],
                 self::PACK_DIMENSIONS[2],
@@ -339,10 +339,10 @@ class OrderTemplateExportService
                 self::PACK_DIMENSIONS[0],
                 self::PACK_DIMENSIONS[1],
                 self::PACK_DIMENSIONS[2],
-                $o->product_price,
+                $o->amount,
                 '',
                 '',
-                $o->is_cod ? $o->product_price : '',
+                $o->is_cod ? $o->amount : '',
                 '',
                 $o->courier_note ?: self::DEFAULT_COURIER_NOTE,
                 '',
@@ -398,16 +398,16 @@ class OrderTemplateExportService
                 mb_strtoupper((string) $o->subdistrict),
                 $o->postal_code,
                 1,
-                $o->product_price,
+                $o->amount,
                 $o->is_cod ? 'Y' : 'N',
-                $o->is_cod ? $o->product_price : '',
+                $o->is_cod ? $o->amount : '',
                 'N',
                 self::PACK_DIMENSIONS[0],
                 self::PACK_DIMENSIONS[1],
                 self::PACK_DIMENSIONS[2],
                 $this->productDisplayName($o),
                 $o->quantity,
-                $o->product_price,
+                $o->amount,
                 $o->order_id,
                 strtoupper($o->payment_method ?? ''),
                 $o->courier_note ?: self::DEFAULT_COURIER_NOTE,

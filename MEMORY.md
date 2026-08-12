@@ -1,5 +1,30 @@
 # MEMORY — 10 Agustus 2026
 
+## Session: Rename kolom harga order online — `product_price`/`cod_amount` → `amount`/`shipping_cost` (13 Agustus)
+
+- **Latar**: user menemukan kolom DB `cod_amount` & `product_price` ternyata diisi dari kolom `gross_revenue` CSV (nilai kotor = harga + ongkir; data nyata: `product_price=119000`, `gross_revenue=169000`, `shipping_cost=50000`, `net_revenue=119000`). Nilai `cod_amount` (119000) = harga produk bukan nominal COD → menyesatkan. User minta rename agar mudah dibaca & cukup deploy `php artisan migrate`.
+- **Keputusan mapping (Q&A)**: `amount` = CSV `gross_revenue` (fallback `product_price` bila kosong/0); `shipping_cost` = CSV `shipping_cost`; **`cod_amount` dihapus** (redundan). Export FLIK/SiCepat/SPX (`OrderTemplateExportService`) nilai barang & nominal COD ikut `$o->amount` (incl ongkir, gross_revenue).
+- **Migration `2026_08_13_000000_rename_shipping_order_price_columns.php`**: `renameColumn product_price→amount`, `cod_amount→shipping_cost` (decimal 14,2) + **backfill dari `raw_payload` JSON** per baris (`gross_revenue`→amount, `shipping_cost`→shipping_cost; tanpa gross_revenue → biarkan nilai lama; tanpa shipping_cost → 0). Aman tanpa re-import karena 13/13 baris punya `raw_payload` berisi kedua key.
+- **Import service** (`OrderOnlineImportService::normalizeRow`): `$amount = decimal(value('gross_revenue')); if (<=0) $amount = decimal(value('product_price'))`; `$shippingCost = decimal(value('shipping_cost'))`; row keys `amount`/`is_cod`/`shipping_cost` (tanpa `product_price`/`cod_amount`). `buildRawPayload` tetap menyimpan semua kolom mentah termasuk `product_price`.
+- **Model** `ShippingOrder`: fillable+casts `amount`/`shipping_cost` (decimal:2) ganti `product_price`/`cod_amount`.
+- **Export service**: 5 titik `$o->product_price` → `$o->amount` (FLIK idx10, SiCepat Harga Paket+Total COD, SPX Parcel Value+COD Amount+Item Price) + docblock.
+- **`shipments.cod_amount` TIDAK disentuh** (tabel aggregator terpisah, beda makna).
+- **Test**: `createOrder`/seed 5 lokasi `'product_price'=>10000` → `'amount'=>10000`. Tidak ada assert nilai kolom harga di test.
+- **filecoba kit**: `generate_test_kit.php` tambah helper `shippingCost()` (default 50000) & `grossRevenue()` (=product_price+ongkir → 119000→169000); `rowData` tulis `shipping_cost`/`gross_revenue`; referensi export pakai `grossRevenue()`. Regen 7 file + `verify_pipeline.php` → **102/102 PASS**. Harga CSV mentah lama 119000 → amount 169000 di DB/export.
+- **Verifikasi**: `migrate` OK (kolom `amount`/`shipping_cost` ada, lama hilang), `OrderOnlineTest`+`AggregatorTrackingImportTest` **54/54** (250 assertion), `php artisan test` 66/67 (hanya `ExampleTest` 302-redirect yang pre-existing), `verify_pipeline.php` **102/102**.
+
+## Session: Rule duplikat diperluas ke SEMUA status + pengecualian bank_transfer (13 Agustus)
+
+- **Keputusan user**: deteksi duplikat kini berlaku untuk SEMUA status (termasuk `real`/`tembakan`), dengan **pembeda utama `order_id`**:
+  - `order_id` BERBEDA + signature (`phone_normalized|product_code|alamat`) sama ≤14 hari → **`duplikat`** (courier null, tak ikut export). Kasus nyata batch #65 (`278247802`/`278247820`, 2 real cod SH qty9) kini tertangkap.
+  - `order_id` SAMA (re-import) → BUKAN duplikat, masuk rule perbarui status / drop (`double_real`).
+  - `payment_method=bank_transfer` **TIDAK pernah jadi duplikat** (uang sudah diterima = repeat order), TAPI tetap menambah signature ke set → baris cod/lainnya dgn signature sama & order_id beda tetap bisa ketandai duplikat (first-bank_transfer-lalu-cod → duplikat; first-cod-lalu-bank_transfer → repeat).
+- **`loadDuplicateSignatures()`** → `[signature => [order_id => true]]` (bukan `true`), load phone dari SEMUA status (1 batch query `whereIn`, `created_at >= now()-14d`), select tambah `order_id`.
+- **Loop import**: `$otherIds = array_keys(array_diff_key($matchedIds, [order_id => true]))`; jika `$otherIds !== [] && ! bank_transfer` → `duplikat` + `$duplicates++`; SEMUA baris (tidak cuma belum_diproses) menambah signature ke set. Guard `phone_normalized !== ''` (phone kosong tidak jadi penanda; kode produk `explode('+')[0]` tetap di `orderSignature`).
+- **Test (OrderOnlineTest 35→45)**: `test_bank_transfer_repeat_order_not_duplicate` (cod dulu, bt kedua → tembakan bukan duplikat), `test_cod_after_bank_transfer_is_duplicate` (bt dulu, cod kedua ≤14d → duplikat), `test_real_cod_duplicate_within_same_file` (2 real cod 1 file → ke-2 duplikat), `test_bank_transfer_duplicate_within_same_file_is_repeat` (2 bt → dua-duanya real), `test_reimport_same_order_id_is_not_duplicate` (double_real, bukan duplikat). `test_duplicate_within_same_file` dipindah ke phone valid `0811111111` (dulu `081111` → normalize `''`).
+- **Verifikasi**: `OrderOnlineTest` + `AggregatorTrackingImportTest` 54/54 pass (250 assertion); `verify_pipeline.php` **102/102 PASS** (sequential). Cross-check dulu kasus batch #65 sebelum deploy.
+- Test `filecoba` pakai phone 10 digit (valid) → tidak terpengaruh guard phone kosong.
+
 ## Session: Test Kit Pipeline `filecoba/` (import → export → tracking → stok return)
 
 - **Folder `filecoba/`** (baru): kit uji end-to-end pipeline order-online yang menjalankan service ASLI (bukan mock). `generate_test_kit.php` (mandiri, tanpa boot Laravel, pola `training/make_test_rules_csv.php`) menulis 7 file CSV; `verify_pipeline.php` (boot Laravel, DB aktif `awannacoba`) menjalankan import → export+diff → tracking → cek stok → idempotent, mencetak PASS/FAIL per langkah. **98/98 PASS**, re-runnable.
@@ -45,6 +70,7 @@
 ## Session: Re-import data sama → hard-delete `belum_diproses` lama + anti-double-export
 
 - **Keputusan user**: saat data yang sama datang lagi berstatus `processing` (real) setelah sebelumnya `pending` (belum_diproses), baris lama **di-hapus permanen** (ShippingOrder tanpa SoftDeletes, `stock_movements.reference_id` bukan FK → tidak ada penghalang) + **anti-double-export**.
+- **Penyesuaian 12 Agustus (opsi A)**: Rule re-import/update status cukup memakai `order_id` (order yang sama = order_id sama); baris berstatus `duplikat` TIDAK ikut dihapus (`stale` hanya `where('status','belum_diproses')`) karena duplikat adalah order yang BERBEDA (order_id sendiri, by signature phone+produk+alamat). Konsekuensi: order_id yang tadinya duplikat lalu naik real → 2 baris hidup berdampingan (duplikat + real), aman karena duplikat tidak exportable.
 - **Perilaku baru `OrderOnlineImportService::import()`** (di dalam `DB::transaction`):
   1. Query batch global `$byOrderId = ShippingOrder::whereIn('order_id', ...)->get()->groupBy('order_id')` (1 query, anti N+1).
   2. Untuk baris berstatus `real`/`tembakan`: hapus baris lama dengan `order_id` sama berstatus `belum_diproses`/`duplikat` (`ShippingOrder::whereKey(...)->delete()`, counter `deleted`); `cancel` & `real` lama TIDAK dihapus/ditimpa.
