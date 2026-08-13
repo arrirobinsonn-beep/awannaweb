@@ -1,3 +1,34 @@
+# MEMORY — 12 Agustus 2026 (sore)
+
+## Session: Template Export BEBAS (custom) + Halaman Kelola Terpisah (fitur N1)
+
+- **Latar**: user minta tampilan Aturan Export dipecah — template yang ada dapat opsi **Edit** dan **Hapus**; **create template baru** dipisah ke halaman sendiri. User klarifikasi: data mentah (order online) beda dari courier (ekspedisi) — template export adalah format ke aplikasi ekspedisi; **hapus permanen disetujui** (rule `spx` di courier_rules jadi safety net bila template hilang).
+- **Tabel `export_templates`** (migration `2026_08_12_120000`): `key` unique, `name`, `couriers` (JSON), `is_active`; seed 3 bawaan (flik→4 flix-*, sicepat→[sicepat], spx→[spx]). `export_template_mappings.template` tetap string = `key` (relasi string via `hasMany(ExportTemplateMapping::class,'template','key')` — TANPA alter tabel mapping).
+- **`ExportMappingService`**: + `templates()`, `template(key)` (cache), `couriersForTemplate(key)` DB-driven + fallback `LEGACY_COURIERS`, `createTemplate` (key auto-slug `Str::slug`, couriers kosong → `[key]`), `updateTemplate`, `deleteTemplate` (1 transaksi: hapus mappings + row). `OrderTemplateExportService::couriersForTemplate` delegasi ke service.
+- **Controller 7 method**: `index` (list + `withCount`), `create`, `store`, `edit`, `update`, `destroy` (permanen), `upload` (template **opsional** — create tanpa key → semua empty; edit dgn key → `matchHeaders` bawa mapping lama). Validasi items: source_type enum, column/computed harus di registry, static tak boleh kosong, column_index unik (abort 422).
+- **Views**: `index.blade.php` = daftar kartu (ikon, nama, key, kolom count, badge courier, status, Edit/Hapus + tombol Template Baru); `form.blade.php` = editor create/edit (Nama, Courier koma, Upload CSV fetch draft, tabel mapping, submit build `items[]`). Halaman tabs lama dihapus.
+- **Integrasi Data Mentah**: `OrderOnlineController::index` pass `$exportTemplates`; tombol export di-loop — key `flik` → dropdown per courier (tetap, label `FLIK — {courier}` agar test render lama lolos), lainnya → tombol `📦 Export {name}`. `export()` cek template via `ExportTemplate::where('key')` (custom OK, 404 bila tak ada).
+- **Trap**: `$this->couriers` di OrderOnlineController adalah CourierRuleService (bukan ExportMappingService) → cek template pakai query model langsung.
+- **Test**: `ExportMappingTest` 14 test (index list + aksi, create/edit render, upload parse + carry-over, store custom slug+couriers default, tolak dobel index/kolom tak dikenal, update, destroy permanen, **export template custom courier lain tidak ikut**, regresi seeded layout, tanpa mapping → RuntimeException, SPX transform). `OrderOnlineTest` + `CourierRuleTest` + `AggregatorTrackingImportTest` tetap hijau. Total 4 file test **79/79 pass**; pipeline `verify_pipeline.php` **103/103 PASS**.
+- AGENTS.md section N1 ditulis; migration + seeder sudah dijalankan di DB dev (3 template master + 65 mapping).
+
+# MEMORY — 12 Agustus 2026
+
+## Session: Aturan Export Dinamis — Upload Template CSV + Mapping Kolom (fitur N)
+
+- **Latar**: mapping export `shipping_orders` → template courier (FLIK/SiCepat/SPX) masih hardcoded di `OrderTemplateExportService` (`flikRows/sicepatRows/spxRows`). User minta dinamis: upload template CSV → cocokkan tiap header dengan kolom `shipping_orders` → simpan di DB.
+- **Keputusan (Q&A)**: (1) selain kolom DB, sediakan **nilai khusus/computed** (dimensi 10/8/6, berat 1, catatan kurir default, nama produk +power, Kode Warehouse, phone mulai 8, CAPSLOCK, dll); (2) **seed 3 template bawaan** persis layout lama → export identik sebelum diedit; (3) mapping **per template** (FLIK/SiCepat/SPX), bukan per courier.
+- **Tabel `export_template_mappings`** (migration `2026_08_12_100000`): `template`, `column_index`, `header`, `source_type` (column/computed/static/empty), `source_value`, `is_active`; UNIQUE `(template, column_index)`.
+- **`ExportMappingService`**: registry `COLUMNS` (25 kolom shipping_orders) & `COMPUTED` (15 key) = satu-satunya sumber kebenaran (dropdown UI = resolver service); `mappingFor()` cache per request (groupBy template); `parseTemplateFile()` (fgetcsv, BOM, buang trailing empty); `matchHeaders()` (bawa mapping lama by nama header saat upload ulang); `saveMapping()` replace per template 1 transaksi.
+- **`OrderTemplateExportService`**: `writeRows()` → `buildRows(template, orders, sender)` (header+data dari mapping DB); `resolveCell()`/`columnValue()`/`computedValue()`; method `flikRows/sicepatRows/spxRows` DIHAPUS. `columnValue` whitelist registry + format Carbon → `Y-m-d H:i`; `computedValue` mencakup 15 key (warehouse, product_name_display, phone_spx, weight_1, pack_length/width/height, default_courier_note, cod_flag, cod_amount, payment_method_upper, province/city/district_upper, order_id_50).
+- **Seeder `ExportTemplateMappingSeeder`** (DatabaseSeeder #9): 65 row (FLIK 16, SiCepat 27, SPX 22) meniru persis array lama — pipeline export diff **103/103 PASS** membuktikan identik.
+- **Controller `ExportMappingController`**: `index` (3 tab), `upload` (parse header → JSON + matchHeaders), `save` (validasi: source_type in enum, column/computed harus di registry, static tidak boleh kosong, **column_index unik**).
+- **View `export_mapping/index.blade.php`**: tabs per template, tombol upload CSV (fetch → draft rows, X-CSRF-TOKEN), tabel header + dropdown optgroup (kolom DB / nilai khusus / teks tetap + input), simpan build `items[<index>]`. Escaping: `escHtml`/`escAttr` untuk header.
+- **Routes**: `GET/POST /export-mapping`, `POST /export-mapping/upload|save` (`export-mapping.*`). Sidebar Data Master → "Aturan Export".
+- **Test**: `ExportMappingTest` 10 test (index, upload parse, carry-over mapping lama, save persist, tolak kolom tak dikenal/static kosong, export custom mapping 3 kolom, **regresi seeded vs layout lama** — amount di xlsx jadi number 10000 bukan "10000.00", export tanpa mapping → RuntimeException, SPX transform). `OrderOnlineTest` +`setUp()` seed mapping (export test butuh DB mapping).
+- **verify_pipeline.php**: precheck `export_template_mappings` + panggil `buildRows()` via reflection (bukan `flikRows` dll) → **103/103 PASS**.
+- **Verifikasi**: `migrate` + seed di DB dev OK (65 row); 4 file test **74/74 pass** (327 assertion); pipeline **103/103 PASS**; sisa referensi `flikRows` hanya variabel lokal di `generate_test_kit.php` + doc.
+
 # MEMORY — 10 Agustus 2026
 
 ## Session: Rename kolom harga order online — `product_price`/`cod_amount` → `amount`/`shipping_cost` (13 Agustus)
@@ -32,7 +63,7 @@
 - **Skenario 10 order**: CBC-101..105 bank_transfer → `flix-tf` (FLIK, KSP+2→**GTM** jadi 2 gudang → ZIP), CBC-201..203 cod Jawa/Bali → `sicepat`, CBC-301/302 pending+paid → `tembakan`→`spx`. Tracking mencakup semua 6 nilai: `waiting_pickup` (CBC-104), `in_transit` (102/202), `delivered` (101/201/301), `returning` (203), `returned` (103 FLIK, 302 SPX → uji balik stok), `problem` (105, 3PL "Problem:...").
 - **Keputusan teknis**:
   - Export diff baris-per-baris dengan referensi; `product_price` DB decimal → sel "119000.00" (referensi pakai `number_format(…,2)`); `delivered_at` di-compare sebagai string (kolom ber-cast datetime → Carbon, `(string)` agar `===` cocok).
-  - `verify_pipeline.php` akses method protected `reserveStock`/`flikRows`/`sicepatRows`/`spxRows` via **ReflectionMethod** (tanpa mengubah kode produksi). `check()` param `$detail` bertipe `string` → jangan lempar `null` (`$mismatch ?? ''`).
+  - `verify_pipeline.php` akses method protected `reserveStock`/`buildRows` (sejak 12 Agustus; dulu `flikRows`/`sicepatRows`/`spxRows` sebelum refactor mapping dinamis) via **ReflectionMethod** (tanpa mengubah kode produksi). `check()` param `$detail` bertipe `string` → jangan lempar `null` (`$mismatch ?? ''`).
   - **Re-runnable**: di awal verify, order CBC-* lama dihapus + `StockService::reverseReference('order_online', $order->id)` → stok kembali baseline sebelum re-import.
   - Skrip TIDAK menjalankan seeder (`CourierRuleSeeder` truncate) — precheck cuma pastikan `courier_rules` & `ProductVariant` terisi, kalau kosong minta seed manual.
   - Packaging/split terverifikasi dari delta stok relatif dalam run: BOX/LAP −4 (CBC-102,104,202,301), KDF+1.25 −1 (split KBJ CBC-104 qty2 → KBJ −1 + KDF −1).

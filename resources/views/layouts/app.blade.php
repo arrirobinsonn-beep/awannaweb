@@ -434,6 +434,20 @@
                 <span class="nav-icon">📦</span>
                 <span class="sidebar-label">Produk</span>
             </a>
+
+            <a href="{{ route('courier-rule.index') }}"
+               class="nav-item {{ request()->routeIs('courier-rule.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Courier (auto-mapping kurir)">
+                <span class="nav-icon">🚚</span>
+                <span class="sidebar-label">Aturan Courier</span>
+            </a>
+
+            <a href="{{ route('export-mapping.index') }}"
+               class="nav-item {{ request()->routeIs('export-mapping.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Export (mapping template CSV)">
+                <span class="nav-icon">📋</span>
+                <span class="sidebar-label">Aturan Export</span>
+            </a>
             @endif
 
             {{-- ── Admin: Gudang & Kiriman ─────────────────── --}}

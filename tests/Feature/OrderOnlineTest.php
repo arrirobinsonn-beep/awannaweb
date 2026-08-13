@@ -14,6 +14,7 @@ use App\Services\OrderTemplateExportService;
 use App\Services\ShipmentImportService;
 use App\Services\StockService;
 use Database\Seeders\CourierRuleSeeder;
+use Database\Seeders\ExportTemplateMappingSeeder;
 use Database\Seeders\ProductSeeder;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
@@ -21,6 +22,15 @@ use ZipArchive;
 
 class OrderOnlineTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Export memakai mapping dinamis dari DB (menu Aturan Export) —
+        // seed mapping bawaan agar test export tetap identik dgn layout lama.
+        $this->seed(ExportTemplateMappingSeeder::class);
+    }
+
     private function adminUser(): User
     {
         return User::create([

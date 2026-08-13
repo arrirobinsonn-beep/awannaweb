@@ -61,6 +61,8 @@ class OrderOnlineController extends Controller
 
         $products = Product::query()->orderBy('code')->with('variants')->get(['id', 'code', 'name']);
 
+        $exportTemplates = \App\Models\ExportTemplate::query()->where('is_active', true)->orderBy('id')->get();
+
         $courierCounts = collect();
         if ($selectedBatch) {
             $courierCounts = ShippingOrder::where('order_online_import_batch_id', $selectedBatch->id)
@@ -72,7 +74,7 @@ class OrderOnlineController extends Controller
                 ->pluck('total', 'courier');
         }
 
-        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products'));
+        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates'));
     }
 
     public function preview(Request $request): JsonResponse
@@ -232,7 +234,8 @@ class OrderOnlineController extends Controller
 
     public function export(OrderOnlineImportBatch $batch, string $template, ?string $courier = null): StreamedResponse
     {
-        if (! in_array($template, OrderTemplateExportService::TEMPLATES)) {
+        // Template export bisa custom (tabel export_templates) — bukan hanya 3 bawaan.
+        if (! \App\Models\ExportTemplate::where('key', $template)->exists()) {
             abort(404);
         }
 

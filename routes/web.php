@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CourierRuleController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ExportMappingController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrderOnlineController;
@@ -55,6 +57,23 @@ Route::middleware('auth')->group(function () {
 
         // Varian Produk (kelola di dalam list expandable produk)
         Route::post('/product/{product}/variant', [ProductController::class, 'variantStore'])->name('product.variant.store');
+
+        // Aturan Courier (auto-mapping kurir berdasarkan provinsi — dinamis dari DB)
+        Route::get('/courier-rules', [CourierRuleController::class, 'index'])->name('courier-rule.index');
+        Route::post('/courier-rules', [CourierRuleController::class, 'store'])->name('courier-rule.store');
+        Route::put('/courier-rules/{courierRule}', [CourierRuleController::class, 'update'])->name('courier-rule.update');
+        Route::patch('/courier-rules/{courierRule}/toggle', [CourierRuleController::class, 'toggle'])->name('courier-rule.toggle');
+        Route::post('/courier-rules/{courierRule}/move/{direction}', [CourierRuleController::class, 'move'])->name('courier-rule.move');
+        Route::delete('/courier-rules/{courierRule}', [CourierRuleController::class, 'destroy'])->name('courier-rule.destroy');
+
+        // Aturan Export (template dinamis: index daftar, create/edit terpisah, hapus permanen)
+        Route::get('/export-mapping', [ExportMappingController::class, 'index'])->name('export-mapping.index');
+        Route::get('/export-mapping/create', [ExportMappingController::class, 'create'])->name('export-mapping.create');
+        Route::post('/export-mapping', [ExportMappingController::class, 'store'])->name('export-mapping.store');
+        Route::get('/export-mapping/{exportTemplate}/edit', [ExportMappingController::class, 'edit'])->name('export-mapping.edit');
+        Route::put('/export-mapping/{exportTemplate}', [ExportMappingController::class, 'update'])->name('export-mapping.update');
+        Route::delete('/export-mapping/{exportTemplate}', [ExportMappingController::class, 'destroy'])->name('export-mapping.destroy');
+        Route::post('/export-mapping/upload', [ExportMappingController::class, 'upload'])->name('export-mapping.upload');
         Route::put('/product/variant/{variant}', [ProductController::class, 'variantUpdate'])->name('product.variant.update');
         Route::delete('/product/variant/{variant}', [ProductController::class, 'variantDestroy'])->name('product.variant.destroy');
         Route::patch('/product/{product}/toggle-status', [ProductController::class, 'toggleStatus'])->name('product.toggle-status');

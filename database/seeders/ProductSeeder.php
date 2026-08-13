@@ -12,7 +12,7 @@ use Illuminate\Database\Seeder;
 class ProductSeeder extends Seeder
 {
     /** Produk kacamata yang punya ukuran power (10 power, +1.00..+3.00 step 0.25). */
-    public const SIZED_PRODUCTS = ['KBJ', 'KMP', 'KSP', 'KDF'];
+    public const SIZED_PRODUCTS = ['KBJ', 'KMP', 'KSP', 'KDF', 'KP'];
 
     public function run(): void
     {
@@ -79,6 +79,17 @@ class ProductSeeder extends Seeder
                 'name' => 'Kreain Nature Gel Herbal',
                 'category' => 'Herbal',
                 'description' => 'Gel herbal Kreain Nature dengan bahan alami untuk kesehatan dan perawatan tubuh.',
+                'purchase_price' => 8000,
+                'selling_price' => 45000,
+                'unit' => 'Pcs',
+                'status' => 'active',
+                'stok' => 500,
+            ],
+            [
+                'code' => 'KP',
+                'name' => 'Kacamata Polarized',
+                'category' => 'Kacamata',
+                'description' => 'Kacamata polarized dengan lensa yang mengurangi cahaya terang dan memperbaiki kontras.',
                 'purchase_price' => 8000,
                 'selling_price' => 45000,
                 'unit' => 'Pcs',

@@ -579,6 +579,98 @@ Semua elemen halaman spending advertiser (`index-advertiser`) kini fleksibel di 
 
 ---
 
+## M. ✅ Halaman Admin Kelola Aturan Courier (Dinamis dari DB) (12 Agustus 2026)
+
+### Deskripsi
+Aturan auto-mapping kurir (tabel `courier_rules`) kini bisa dikelola langsung dari aplikasi lewat halaman **Aturan Courier** (`/courier-rules`) — tanpa ubah kode/seeder. Aturan tersimpan di DB sejak fitur D; halaman ini menutup celah "cara mengubahnya" (sebelumnya hanya via seeder yang truncate, atau akses DB manual).
+
+### Cara kerja (tetap)
+- Evaluasi berurutan dari `sort_order` terkecil; rule pertama yang cocok (`payment_method` + `province`) menang. `payment_method`/`province` null = berlaku semua.
+- Fallback bila tidak ada rule cocok: `spx` (konstanta `FALLBACK_COURIER`, belum dinamis).
+- `CourierRuleService::resolve()` membaca DB per-request (cache per instance) → perubahan langsung berlaku untuk import order berikutnya.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/CourierRuleController.php` | `index/store/update/destroy/toggle/move`; normalisasi `payment_method` lowercase & `province` uppercase; validasi courier `in:COURIERS`; cek duplikat kombinasi (payment+province) |
+| `routes/web.php` | `GET/POST /courier-rules`, `PUT /courier-rules/{rule}`, `PATCH …/toggle`, `POST …/move/{up|down}`, `DELETE …/courier-rules/{rule}` (nama `courier-rule.*`) |
+| `resources/views/courier_rule/index.blade.php` | Form tambah (sort_order, payment_method+datalist, province+datalist master, courier select, aktif) + tabel rules (badge metode/provinsi/courier, toggle status, tombol ↑/↓ reorder, edit via modal, hapus) + info box cara kerja |
+| `resources/views/layouts/app.blade.php` | Sidebar Data Master → "Aturan Courier" (owner/super_admin/mentor/admin) |
+| `tests/Feature/CourierRuleTest.php` | 11 test: render, store+resolve dinamis, normalisasi, duplikat ditolak, validasi courier, update+resolve, toggle (nonaktif → fallback), destroy, move swap, sort_order kecil menang |
+
+### Penting
+- Test memakai DB aktif tanpa refresh (pola project) → setiap rule test memakai provinsi unik prefix `TEST PROVINCE` dan di-delete di akhir test agar tak mengganggu rules asli.
+- Pindah prioritas (↑/↓) menukar `sort_order` dengan rule tetangga dalam 1 transaksi; baris pertama/last tombol di-disable.
+- Rule dengan kombinasi (payment_method, province) sama ditolak (redundan — yang `sort_order` kecil selalu menang).
+- Halaman hanya mengelola tabel `courier_rules`; daftar courier valid (`COURIERS`) & fallback (`FALLBACK_COURIER`) masih konstanta PHP (scope berikutnya bila ingin 100% dinamis).
+
+---
+
+## N. ✅ Aturan Export Dinamis — Upload Template CSV + Mapping Kolom (12 Agustus 2026)
+
+### Deskripsi
+Pemetaan kolom saat export `shipping_orders` → template courier (FLIK/SiCepat/SPX) **tidak lagi hardcoded** di `OrderTemplateExportService`. Admin meng-upload **template CSV** (baris pertama = header kolom) lewat menu **Aturan Export** (`/export-mapping`), lalu mencocokkan tiap header dengan **sumber isi**; mapping disimpan di DB (`export_template_mappings`) dan export mengikutinya.
+
+### Sumber isi per kolom (dropdown di UI)
+| source_type | Makna | Contoh |
+|---|---|---|
+| `column` | Kolom `shipping_orders` (registry `ExportMappingService::COLUMNS`, 25 kolom) | `customer_name`, `phone_normalized`, `amount` |
+| `computed` | Nilai khusus hasil perhitungan (registry `COMPUTED`, 15 key) | `warehouse` (KSP→GTM/SH→Aurora), `product_name_display` (+power), `phone_spx` (mulai 8), `weight_1`, `pack_length/width/height` (10/8/6), `default_courier_note`, `cod_flag`, `cod_amount`, `payment_method_upper`, `province/city/district_upper` (CAPSLOCK), `order_id_50` |
+| `static` | Teks tetap yang diketik admin | `'Barang'` (Jenis Paket SiCepat), `'N'` (Asuransi SPX) |
+| `empty` | Dikosongkan | Kelurahan FLIK, kolom DO Balik SiCepat |
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_12_100000_create_export_template_mappings_table.php` | `template` (flik/sicepat/spx), `column_index`, `header`, `source_type`, `source_value`, `is_active`; UNIQUE `(template, column_index)` |
+| `app/Models/ExportTemplateMapping.php` | model sederhana |
+| `app/Services/ExportMappingService.php` | registry `COLUMNS`/`COMPUTED`/`SOURCE_TYPES`; `mappingFor()` (cache per request, order by column_index); `parseTemplateFile()` (baca header CSV + BOM + buang trailing empty); `matchHeaders()` (bawa mapping lama by nama header saat upload ulang); `saveMapping()` (replace per template dlm 1 transaksi) |
+| `database/seeders/ExportTemplateMappingSeeder.php` | seed 3 template bawaan (65 row: FLIK 16, SiCepat 27, SPX 22) — **meniru persis layout hardcoded lama** → export identik sebelum diedit |
+| `app/Http/Controllers/ExportMappingController.php` | `index` (3 tab + mapping), `upload` (parse header, JSON), `save` (validasi sumber: kolom/computed harus ada di registry, static tidak boleh kosong) |
+| `app/Services/OrderTemplateExportService.php` | `writeRows()` → `buildRows()` dari mapping DB; `resolveCell()`/`columnValue()`/`computedValue()` (transform lama dipindah ke sini); `flikRows/sicepatRows/spxRows` DIHAPUS |
+| `resources/views/export_mapping/index.blade.php` | tabs FLIK/SiCepat/SPX, tombol upload CSV (fetch → draft), tabel header + dropdown sumber isi (optgroup kolom/nilai khusus/teks tetap), simpan per template |
+| `resources/views/layouts/app.blade.php` | Sidebar Data Master → "Aturan Export" |
+| `tests/Feature/ExportMappingTest.php` | 10 test: index, upload parse, upload bawa mapping lama, save, tolak kolom tak dikenal/static kosong, export custom mapping, **regresi layout seeded vs lama**, export tanpa mapping → RuntimeException, SPX transform (phone 8/CAPSLOCK/COD) |
+| `tests/Feature/OrderOnlineTest.php` | +`setUp()` seed `ExportTemplateMappingSeeder` (export test butuh mapping DB) |
+| `filecoba/verify_pipeline.php` | precheck `export_template_mappings`; panggil `buildRows()` (bukan `flikRows` dll); hasil **103/103 PASS** |
+
+### Penting
+- `buildRows(template, orders, sender)` mengembalikan `[header, ...data]` — dipakai `writeRows()` & pipeline (via reflection). `resolveCell` memakai `$sender` utk computed `warehouse` (Kode Warehouse FLIK).
+- Kolom tanggal (`delivered_at`) diformat `Y-m-d H:i` saat ditulis.
+- Export **gagal dengan pesan jelas** bila mapping template belum diatur (mis. user hapus semua baris mapping).
+- Upload ulang template tidak menghilangkan mapping lama — `matchHeaders()` mencocokkan by nama header (normalized).
+- Registry `COLUMNS`/`COMPUTED` adalah satu-satunya sumber kebenaran (dropdown UI = resolver service) — tambah key di dua tempat tsb bila perlu sumber baru.
+
+---
+
+## N1. ✅ Template Export BEBAS (Custom) + Halaman Kelola Terpisah (12 Agustus 2026)
+
+### Deskripsi
+Template export tidak lagi terbatas 3 bawaan: tabel **`export_templates`** (key/name/couriers/is_active) jadi master; `export_template_mappings.template` menyimpan `key` (relasi string, tanpa alter tabel mapping). Admin bisa **buat template baru** (mis. JNE) yang langsung muncul sebagai tombol export di Data Mentah. Tampilan dipecah: **index = daftar** (kartu per template + tombol **Edit**/**Hapus**) dan **create = halaman terpisah** (`/export-mapping/create`); edit juga halaman terpisah (`/export-mapping/{tpl}/edit`). **Hapus = permanen** (mapping ikut hapus; SPX tetap jadi safety net bila template hilang).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_12_120000_create_export_templates_table.php` | `key` unique, `name`, `couriers` (JSON), `is_active`; seed 3 bawaan (flik→4 flix-*, sicepat→[sicepat], spx→[spx]) |
+| `app/Models/ExportTemplate.php` | fillable+casts `couriers` array; relasi `mappings()` (hasMany via `template`=key) |
+| `app/Services/ExportMappingService.php` | + `templates()`, `template(key)` (cache), `couriersForTemplate(key)` (**DB-driven** + fallback `LEGACY_COURIERS` bila row terhapus), `createTemplate(name, couriers, items)` (key auto-slug `Str::slug`, couriers kosong → `[key]`), `updateTemplate`, `deleteTemplate` (transaksi hapus mapping+row) |
+| `app/Http/Controllers/ExportMappingController.php` | `index` (list + `withCount` kolom), `create`, `store`, `edit`, `update`, `destroy` (permanen), `upload` (template **opsional** — create tanpa key → semua empty; edit dengan key → mapping lama terbawa) |
+| `routes/web.php` | 7 route: index, create, store (POST), edit, update (PUT), destroy (DELETE), upload |
+| `resources/views/export_mapping/index.blade.php` | Daftar kartu template: ikon, nama, key, jumlah kolom, badge courier, status mapping, tombol **✏️ Edit** & **🗑 Hapus** (confirm) + tombol **➕ Template Baru** |
+| `resources/views/export_mapping/form.blade.php` | Editor bersama create/edit: Nama Template, Courier (koma; kosong→key), Upload CSV (fetch draft + carry-over), tabel mapping + `items[]` via JS submit |
+| `app/Http/Controllers/OrderOnlineController.php` | `index` pass `$exportTemplates`; `export()` cek template via `ExportTemplate::where('key')` (custom OK), FLIK tetap butuh courier valid |
+| `resources/views/order/index.blade.php` | Tombol export di-loop dari `$exportTemplates`: key `flik` → dropdown per courier (tetap), lainnya → tombol `📦 Export {name}` |
+| `tests/Feature/ExportMappingTest.php` | 14 test: index list + aksi, create/edit render, upload parse + carry-over, store custom (slug key, couriers default), tolak dobel index/kolom tak dikenal, update, destroy permanen, **export template custom** (courier lain tidak ikut), regresi seeded layout, export tanpa mapping → RuntimeException, SPX transform |
+
+### Penting
+- `couriersForTemplate()` kini baca `export_templates.couriers` (fallback legacy utk 3 key bila row terhapus) — `OrderTemplateExportService` mendelegasikan ke `ExportMappingService`.
+- Template custom: couriers kosong → `[key]` (nama template dipakai sebagai courier). Export memfilter order by courier tsb.
+- `upload` endpoint: `template` opsional (create tidak punya key dulu).
+- Test `OrderOnlineTest::test_order_page_renders` tetap lolos (`FLIK — flix-tf` masih dirender dari dropdown dinamis).
+- Pipeline `filecoba/verify_pipeline.php` tetap **103/103 PASS** (precheck `export_template_mappings` + `buildRows` via reflection).
+
+---
+
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 
 Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier`, dan `Gudang` (master tempat gudang, `gudang.master*`).

@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             WhitelistSeeder::class,      // 6. Whitelist (butuh supplier & produk)
             SpendingHarianSeeder::class, // 7. Spending (butuh semua di atas)
             CourierRuleSeeder::class,    // 8. Rules pemilihan courier
+            ExportTemplateMappingSeeder::class, // 9. Mapping export template (FLIK/SiCepat/SPX)
         ]);
     }
 }
