@@ -206,6 +206,12 @@
                             <option value="{{ $st }}" @selected(request('status') === $st)>{{ ucfirst($st) }}</option>
                         @endforeach
                     </select>
+                    <select name="product_code" class="clay-input">
+                        <option value="">Semua Produk</option>
+                        @foreach($productOptions as $code => $label)
+                            <option value="{{ $code }}" @selected(request('product_code') === $code)>{{ $label }}</option>
+                        @endforeach
+                    </select>
                     <button class="clay-btn clay-btn-primary" type="submit">🔍 Filter</button>
                     <a href="{{ route('orders.index', ['batch' => $selectedBatch->id]) }}" class="clay-btn">Reset</a>
                 </form>
@@ -229,8 +235,8 @@
                             @forelse($orders as $o)
                                 <tr>
                                     <td class="sel-nowrap" style="font-size:.75rem;">{{ $o->order_id }}</td>
-                                    <td>{{ $o->customer_name }}</td>
-                                    <td class="sel-nowrap" style="font-size:.75rem;">{{ $o->phone }}</td>
+                                    <td><a href="{{ route('orders.show', $o->id) }}" style="color:var(--color-primary,#FF6B6B);font-weight:700;text-decoration:none;">{{ $o->customer_name }}</a></td>
+                                    <td class="sel-nowrap" style="font-size:.75rem;"><a href="{{ route('orders.show', $o->id) }}" style="color:var(--color-primary,#FF6B6B);font-weight:700;text-decoration:none;">{{ $o->phone }}</a></td>
                                     <td style="font-size:.78rem;">{{ $o->province }}</td>
                                     <td>
                                         <div style="font-size:.78rem;">{{ $o->product_name }}</div>

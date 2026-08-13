@@ -2,9 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\Inventory;
 use App\Models\OrderOnlineImportBatch;
+use App\Models\PackagingRule;
 use App\Models\Product;
+use App\Models\ProductInventory;
+use App\Models\Purchase;
 use App\Models\ProductVariant;
+use App\Models\ProductVariantInventory;
 use App\Models\ShippingOrder;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -555,6 +560,90 @@ class OrderOnlineTest extends TestCase
             ->assertSee('FLIK — flix-tf');
     }
 
+    public function test_order_show_page_renders(): void
+    {
+        $batch = OrderOnlineImportBatch::create([
+            'original_filename' => 'test.csv',
+            'stored_path' => 'order-online/test.csv',
+            'sender' => 'eresgestore',
+            'status' => 'completed',
+            'total_rows' => 1,
+            'success_rows' => 1,
+        ]);
+        $product = $this->makeProduct();
+        $order = ShippingOrder::create([
+            'order_online_import_batch_id' => $batch->id,
+            'order_id' => 'SHOW-'.uniqid(),
+            'customer_name' => 'Nama Detail',
+            'phone' => '081234567890',
+            'phone_normalized' => '81234567890',
+            'province' => 'JAWA BARAT',
+            'city' => 'BANDUNG',
+            'address' => 'Jl. Detail No. 1',
+            'product_name' => 'Produk Detail',
+            'product_code' => $this->variant($product)->code,
+            'product_id' => $product->id,
+            'product_variant_id' => $this->variant($product)->id,
+            'quantity' => 2,
+            'amount' => 169000,
+            'shipping_cost' => 50000,
+            'payment_method' => 'cod',
+            'is_cod' => true,
+            'status' => 'real',
+            'courier' => 'sicepat',
+            'raw_payload' => ['order_id' => 'SHOW-1', 'utm_source' => 'meta'],
+        ]);
+
+        $this->actingAs($this->adminUser())
+            ->get(route('orders.show', $order->id))
+            ->assertOk()
+            ->assertSee($order->order_id)
+            ->assertSee('Nama Detail')
+            ->assertSee('081234567890')
+            ->assertSee($this->variant($product)->code)
+            ->assertSee('raw_payload')
+            ->assertSee('Jl. Detail No. 1');
+    }
+
+    public function test_index_filters_by_product_code(): void
+    {
+        $batch = OrderOnlineImportBatch::create([
+            'original_filename' => 'test.csv',
+            'stored_path' => 'order-online/test.csv',
+            'sender' => 'eresgestore',
+            'status' => 'completed',
+            'total_rows' => 2,
+            'success_rows' => 2,
+        ]);
+        $p1 = $this->makeProduct();
+        $p2 = $this->makeProduct();
+        $code1 = $this->variant($p1)->code;
+        $code2 = $this->variant($p2)->code;
+
+        ShippingOrder::create([
+            'order_online_import_batch_id' => $batch->id,
+            'order_id' => 'F1-'.uniqid(),
+            'customer_name' => 'Cust Filter Satu',
+            'product_code' => $code1,
+            'product_id' => $p1->id,
+            'status' => 'real',
+        ]);
+        ShippingOrder::create([
+            'order_online_import_batch_id' => $batch->id,
+            'order_id' => 'F2-'.uniqid(),
+            'customer_name' => 'Cust Filter Dua',
+            'product_code' => $code2,
+            'product_id' => $p2->id,
+            'status' => 'real',
+        ]);
+
+        $this->actingAs($this->adminUser())
+            ->get(route('orders.index', ['batch' => $batch->id, 'product_code' => $code1]))
+            ->assertOk()
+            ->assertSee('Cust Filter Satu')
+            ->assertDontSee('Cust Filter Dua');
+    }
+
     public function test_flik_export_separated_by_courier_and_status(): void
     {
         $batch = OrderOnlineImportBatch::create([
@@ -901,12 +990,46 @@ class OrderOnlineTest extends TestCase
     {
         $svc = new OrderTemplateExportService;
 
-        $this->assertSame('GTM', $svc->warehouseFor('KSP', 'eresgestore'));
-        $this->assertSame('Aurora', $svc->warehouseFor('SH', 'eresgestore'));
-        $this->assertSame('Aurora', $svc->warehouseFor('sh', 'eresgestore'));
-        $this->assertSame('eresgestore', $svc->warehouseFor('KMP', 'eresgestore'));
+        // Gudang utama produk (pivot is_primary) memenangkan mapping kode lama.
+        $this->assertSame('Aurora', $svc->warehouseFor('KSP', 'eresgestore'));
+        $this->assertSame('GTM', $svc->warehouseFor('SH', 'eresgestore'));
+        $this->assertSame('GTM', $svc->warehouseFor('sh', 'eresgestore'));
+        $this->assertSame('Gudang Pusat', $svc->warehouseFor('KMP', 'eresgestore'));
         $this->assertSame('eresgestore', $svc->warehouseFor(null, 'eresgestore'));
-        $this->assertSame('GTM', $svc->warehouseFor('KSP', null));
+        $this->assertSame('Aurora', $svc->warehouseFor('KSP', null));
+
+        // Produk tanpa gudang utama → mapping kode lama, lalu sender.
+        $this->assertSame('Aurora', $svc->warehouseFor('KSP', 'x'));
+    }
+
+    public function test_warehouse_export_uses_primary_inventory(): void
+    {
+        $this->ensureCatalog();
+        $kmp = Product::where('code', 'KMP')->firstOrFail();
+        $origPrimaryId = $kmp->primaryInventoryId();
+        $inv = Inventory::create(['name' => 'TEST WH '.uniqid()]);
+
+        try {
+            ProductInventory::where('product_id', $kmp->id)->update(['is_primary' => false]);
+            ProductInventory::updateOrCreate(
+                ['product_id' => $kmp->id, 'inventory_id' => $inv->id],
+                ['is_primary' => true]
+            );
+
+            $svc = new OrderTemplateExportService;
+            $this->assertSame($inv->name, $svc->warehouseFor('KMP', 'eresgestore'));
+            $this->assertSame($inv->name, $svc->warehouseFor('KMP+1.50', 'eresgestore'));
+        } finally {
+            // Kembalikan gudang utama asli agar test lain tidak terpengaruh
+            ProductInventory::where('product_id', $kmp->id)
+                ->where('inventory_id', $inv->id)
+                ->delete();
+            ProductInventory::where('product_id', $kmp->id)->update(['is_primary' => false]);
+            ProductInventory::updateOrCreate(
+                ['product_id' => $kmp->id, 'inventory_id' => (int) $origPrimaryId],
+                ['is_primary' => true]
+            );
+        }
     }
 
     public function test_flik_kode_warehouse_from_product_code(): void
@@ -935,17 +1058,18 @@ class OrderOnlineTest extends TestCase
         $files = $this->readZipFiles($response);
         $this->assertCount(3, $files);
 
-        $gtm = collect($files)->first(fn ($rows) => ($rows[1][0] ?? null) === 'GTM');
-        $this->assertNotNull($gtm);
-        $this->assertSame('KSP Customer', $gtm[1][1]);
-
         $aurora = collect($files)->first(fn ($rows) => ($rows[1][0] ?? null) === 'Aurora');
         $this->assertNotNull($aurora);
-        $this->assertSame('SH Customer', $aurora[1][1]);
+        $this->assertSame('KSP Customer', $aurora[1][1]);
 
-        $sender = collect($files)->first(fn ($rows) => ($rows[1][0] ?? null) === 'eresgestore');
-        $this->assertNotNull($sender);
-        $this->assertSame('KMP Customer', $sender[1][1]);
+        $gtm = collect($files)->first(fn ($rows) => ($rows[1][0] ?? null) === 'GTM');
+        $this->assertNotNull($gtm);
+        $this->assertSame('SH Customer', $gtm[1][1]);
+
+        // KMP (gudang utama Gudang Pusat) → file Gudang Pusat
+        $pusat = collect($files)->first(fn ($rows) => ($rows[1][0] ?? null) === 'Gudang Pusat');
+        $this->assertNotNull($pusat);
+        $this->assertSame('KMP Customer', $pusat[1][1]);
     }
 
     public function test_spx_export_phone_starts_with_8_and_uppercase_region(): void
@@ -1098,10 +1222,10 @@ class OrderOnlineTest extends TestCase
     {
         $svc = new OrderTemplateExportService;
 
-        $this->assertSame('GTM', $svc->warehouseFor('KSP+1.50', 'eresgestore'));
-        $this->assertSame('Aurora', $svc->warehouseFor('SH+1.25', 'eresgestore'));
-        $this->assertSame('eresgestore', $svc->warehouseFor('KMP+1.50', 'eresgestore'));
-        $this->assertSame('GTM', $svc->warehouseFor('KSP', null));
+        $this->assertSame('Aurora', $svc->warehouseFor('KSP+1.50', 'eresgestore'));
+        $this->assertSame('GTM', $svc->warehouseFor('SH+1.25', 'eresgestore'));
+        $this->assertSame('Gudang Pusat', $svc->warehouseFor('KMP+1.50', 'eresgestore'));
+        $this->assertSame('Aurora', $svc->warehouseFor('KSP', null));
     }
 
     public function test_export_dimensions_and_courier_note_per_template(): void
@@ -1236,9 +1360,13 @@ class OrderOnlineTest extends TestCase
         $batch = $this->newBatch();
         $order = $this->createOrder($batch->id, 'PKG-KMP-1', 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
         $variantId = $order->product_variant_id;
+        $kdf = ProductVariant::where('product_id', Product::where('code', 'KDF')->firstOrFail()->id)
+            ->where('power', ProductVariant::find($variantId)->power)
+            ->first();
 
         $before = [
             'kmp' => $stock->stockOf($variantId),
+            'kdf' => $stock->stockOf($kdf->id),
             'box' => $stock->stockOf($box->id),
             'lap' => $stock->stockOf($lap->id),
         ];
@@ -1247,13 +1375,54 @@ class OrderOnlineTest extends TestCase
         $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
         $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
 
-        $this->assertSame($before['kmp'] - 4, $stock->stockOf($variantId));
+        // Promo "Beli 1 Dapat 2": qty 4 KMP → 2 KMP + 2 KDF keluar (+ 2 BOX + 2 LAP)
+        $this->assertSame($before['kmp'] - 2, $stock->stockOf($variantId));
+        $this->assertSame($before['kdf'] - 2, $stock->stockOf($kdf->id));
         $this->assertSame($before['box'] - 2, $stock->stockOf($box->id));
         $this->assertSame($before['lap'] - 2, $stock->stockOf($lap->id));
-        $this->assertSame(3, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
+        $this->assertSame(4, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
 
         $order->refresh();
         $this->assertNull($order->stock_note);
+    }
+
+    public function test_export_kmp_promo_splits_to_kdf(): void
+    {
+        $this->ensureCatalog();
+        $stock = $this->app->make(StockService::class);
+        $kmp = Product::where('code', 'KMP')->firstOrFail();
+        $kdf = Product::where('code', 'KDF')->firstOrFail();
+
+        // qty 2 (Beli 1 Dapat 2) → 1 KMP + 1 KDF keluar
+        $kmpVariant = $kmp->defaultVariant();
+        $kdfVariant = ProductVariant::where('product_id', $kdf->id)
+            ->where('power', $kmpVariant->power)
+            ->firstOrFail();
+
+        $batch = $this->newBatch();
+        $order = $this->createOrder($batch->id, 'PKG-KMP2-'.uniqid(), 'KMP2 Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 2);
+        $order->update(['product_variant_id' => $kmpVariant->id]);
+
+        $beforeKmp = $stock->stockOf($kmpVariant->id);
+        $beforeKdf = $stock->stockOf($kdfVariant->id);
+
+        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+
+        $this->assertSame($beforeKmp - 1, $stock->stockOf($kmpVariant->id));
+        $this->assertSame($beforeKdf - 1, $stock->stockOf($kdfVariant->id));
+
+        // qty 1 (tanpa promo) → 1 KMP + 0 KDF
+        $batch1 = $this->newBatch();
+        $order1 = $this->createOrder($batch1->id, 'PKG-KMP1-'.uniqid(), 'KMP1 Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 1);
+        $order1->update(['product_variant_id' => $kmpVariant->id]);
+
+        $beforeKmp1 = $stock->stockOf($kmpVariant->id);
+        $beforeKdf1 = $stock->stockOf($kdfVariant->id);
+
+        (new OrderTemplateExportService)->download($batch1, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+
+        $this->assertSame($beforeKmp1 - 1, $stock->stockOf($kmpVariant->id));
+        $this->assertSame($beforeKdf1, $stock->stockOf($kdfVariant->id));
     }
 
     public function test_export_kbj_splits_to_kdf_and_packaging(): void
@@ -1418,11 +1587,15 @@ class OrderOnlineTest extends TestCase
         $stock = $this->app->make(StockService::class);
         $kmp = Product::where('code', 'KMP')->firstOrFail();
         $variant = $kmp->defaultVariant();
+        $kdf = ProductVariant::where('product_id', Product::where('code', 'KDF')->firstOrFail()->id)
+            ->where('power', $variant->power)
+            ->first();
         $box = ProductVariant::where('code', 'BOX')->firstOrFail();
         $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
 
         $before = [
             'kmp' => $stock->stockOf($variant->id),
+            'kdf' => $stock->stockOf($kdf->id),
             'box' => $stock->stockOf($box->id),
             'lap' => $stock->stockOf($lap->id),
         ];
@@ -1432,7 +1605,8 @@ class OrderOnlineTest extends TestCase
 
         $this->assertSame(1, $result['inserted']);
         $this->assertCount(0, $result['unmatched']);
-        $this->assertSame($before['kmp'] - 4, $stock->stockOf($variant->id));
+        $this->assertSame($before['kmp'] - 2, $stock->stockOf($variant->id));
+        $this->assertSame($before['kdf'] - 2, $stock->stockOf($kdf->id));
         $this->assertSame($before['box'] - 2, $stock->stockOf($box->id));
         $this->assertSame($before['lap'] - 2, $stock->stockOf($lap->id));
     }
@@ -1450,10 +1624,650 @@ class OrderOnlineTest extends TestCase
             $trackingNumber, 'R. Penerima', '08123456789', 'Jl. Kirim No. 5',
             'Bandung', 'JAWA BARAT', '40123', '238000', $productName,
             $qty, '0', '2026-08-09',
-        ]);
-        fclose($handle);
+        ]);        fclose($handle);
+
 
         return $path;
+    }
+
+    public function test_packaging_rule_qty_per_changes_reduction(): void
+    {
+        $this->ensureCatalog();
+        $stock = $this->app->make(StockService::class);
+        $kmp = Product::where('code', 'KMP')->firstOrFail();
+        $box = ProductVariant::where('code', 'BOX')->firstOrFail();
+        $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
+
+        // Ubah rasio BOX jadi 1:1 (default 1:2)
+        PackagingRule::whereHas('sourceProduct', fn ($q) => $q->where('code', 'KMP'))
+            ->whereHas('targetProduct', fn ($q) => $q->where('code', 'BOX'))
+            ->update(['qty_per' => 1]);
+
+        $batch = $this->newBatch();
+        $order = $this->createOrder($batch->id, 'PKG-Q1-'.uniqid(), 'Q1 Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+        $variantId = $order->product_variant_id;
+
+        $before = [
+            'kmp' => $stock->stockOf($variantId),
+            'box' => $stock->stockOf($box->id),
+            'lap' => $stock->stockOf($lap->id),
+        ];
+
+        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+
+        // KMP terpecah (Beli 1 Dapat 2): qty 4 → 2 KMP + 2 KDF; BOX jadi 1:1 → 4
+        $this->assertSame($before['kmp'] - 2, $stock->stockOf($variantId));
+        $this->assertSame($before['box'] - 4, $stock->stockOf($box->id));   // rasio diubah jadi 1:1
+        $this->assertSame($before['lap'] - 2, $stock->stockOf($lap->id));    // rasio LAP tetap 1:2
+    }
+
+    public function test_packaging_rule_inactive_skips_reduction(): void
+    {
+        $this->ensureCatalog();
+        $stock = $this->app->make(StockService::class);
+        $kmp = Product::where('code', 'KMP')->firstOrFail();
+        $box = ProductVariant::where('code', 'BOX')->firstOrFail();
+        $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
+
+        // Nonaktifkan rule BOX untuk KMP → BOX tidak berkurang, LAP tetap
+        PackagingRule::whereHas('sourceProduct', fn ($q) => $q->where('code', 'KMP'))
+            ->whereHas('targetProduct', fn ($q) => $q->where('code', 'BOX'))
+            ->update(['is_active' => false]);
+
+        $batch = $this->newBatch();
+        $order = $this->createOrder($batch->id, 'PKG-IA-'.uniqid(), 'IA Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+        $variantId = $order->product_variant_id;
+
+        $before = [
+            'kmp' => $stock->stockOf($variantId),
+            'box' => $stock->stockOf($box->id),
+            'lap' => $stock->stockOf($lap->id),
+        ];
+
+        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+
+        // KMP terpecah (Beli 1 Dapat 2): qty 4 → 2 KMP + 2 KDF; rule BOX nonaktif → BOX tetap
+        $this->assertSame($before['kmp'] - 2, $stock->stockOf($variantId));
+        $this->assertSame($before['box'], $stock->stockOf($box->id));
+        $this->assertSame($before['lap'] - 2, $stock->stockOf($lap->id));
+    }
+
+    public function test_gudang_page_renders_and_adjusts_consumable_stock(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $inv = Inventory::create(['name' => 'TEST INV '.uniqid()]);
+
+        // Barang Pasti muncul di gudang tempatnya TERDAFTAR (many-to-many)
+        $kth = Product::where('code', 'KTH')->firstOrFail();
+        ProductInventory::firstOrCreate(
+            ['product_id' => $kth->id, 'inventory_id' => $inv->id],
+            ['is_primary' => false]
+        );
+
+        $this->actingAs($user)
+            ->get(route('gudang.index', ['inventory_id' => $inv->id]))
+            ->assertOk()
+            ->assertSee('Barang Pasti')
+            ->assertSee('Barang Inti')
+            ->assertSee('Barang Additional')
+            ->assertSee('Kertas Thermal')
+            ->assertSee($inv->name) // gudang terpilih tampil di header & picker
+            ->assertSee('Aturan Kemasan');
+
+        $variant = $kth->defaultVariant();
+        $stock = $this->app->make(StockService::class);
+        $before = $stock->stockOf($variant->id);
+
+        $this->actingAs($user)
+            ->post(route('gudang.adjust'), [
+                'product_variant_id' => $variant->id,
+                'inventory_id' => $inv->id,
+                'direction' => 'in',
+                'quantity' => 25,
+                'note' => 'Tambah gulungan baru',
+            ])
+            ->assertRedirect();
+        $this->assertSame(25, $stock->stockOf($variant->id, $inv->id));
+        $this->assertSame($before + 25, $stock->stockOf($variant->id));
+
+        $this->actingAs($user)
+            ->post(route('gudang.adjust'), [
+                'product_variant_id' => $variant->id,
+                'inventory_id' => $inv->id,
+                'direction' => 'out',
+                'quantity' => 5,
+            ])
+            ->assertRedirect();
+        $this->assertSame(20, $stock->stockOf($variant->id, $inv->id));
+        $this->assertSame($before + 20, $stock->stockOf($variant->id));
+    }
+
+    public function test_gudang_adjust_stock_per_inventory(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $invA = Inventory::create(['name' => 'TEST INV A '.uniqid()]);
+        $invB = Inventory::create(['name' => 'TEST INV B '.uniqid()]);
+
+        $kth = Product::where('code', 'KTH')->firstOrFail();
+        $variant = $kth->defaultVariant();
+        $stock = $this->app->make(StockService::class);
+        $before = $stock->stockOf($variant->id);
+
+        $post = fn (int $invId, string $dir, int $qty) => $this->actingAs($user)
+            ->post(route('gudang.adjust'), [
+                'product_variant_id' => $variant->id,
+                'inventory_id' => $invId,
+                'direction' => $dir,
+                'quantity' => $qty,
+            ])
+            ->assertRedirect();
+
+        $post($invA->id, 'in', 10);
+        $post($invB->id, 'in', 7);
+
+        $this->assertSame(10, $stock->stockOf($variant->id, $invA->id));
+        $this->assertSame(7, $stock->stockOf($variant->id, $invB->id));
+        $this->assertSame($before + 17, $stock->stockOf($variant->id));
+
+        // Kurangi khusus gudang A — gudang B tidak terpengaruh
+        $post($invA->id, 'out', 3);
+        $this->assertSame(7, $stock->stockOf($variant->id, $invA->id));
+        $this->assertSame(7, $stock->stockOf($variant->id, $invB->id));
+        $this->assertSame($before + 14, $stock->stockOf($variant->id));
+    }
+
+    public function test_gudang_packaging_rule_crud(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        // KSP → KDF dipilih karena kombinasi ini TIDAK di-seed (KMP & KBJ → KDF sudah ada)
+        $ksp = Product::where('code', 'KSP')->firstOrFail();
+        $kdf = Product::where('code', 'KDF')->firstOrFail();
+        $inv = Inventory::create(['name' => 'TEST INV '.uniqid()]);
+
+        // Rule global (semua gudang)
+        $this->actingAs($user)
+            ->post(route('gudang.packaging-store'), [
+                'source_product_id' => $ksp->id,
+                'target_product_id' => $kdf->id,
+                'inventory_id' => '',
+                'qty_per' => 3,
+                'rule_type' => 'split',
+            ])
+            ->assertRedirect();
+
+        $rule = PackagingRule::where('source_product_id', $ksp->id)
+            ->where('target_product_id', $kdf->id)
+            ->whereNull('inventory_id')
+            ->first();
+        $this->assertNotNull($rule);
+        $this->assertSame(3, $rule->qty_per);
+        $this->assertSame('split', $rule->rule_type);
+
+        // Kombinasi sama + gudang sama ditolak
+        $this->actingAs($user)
+            ->post(route('gudang.packaging-store'), [
+                'source_product_id' => $ksp->id,
+                'target_product_id' => $kdf->id,
+                'qty_per' => 1,
+            ])
+            ->assertSessionHasErrors('rule');
+
+        // Kombinasi sama tapi gudang berbeda → boleh (rule per gudang)
+        $this->actingAs($user)
+            ->post(route('gudang.packaging-store'), [
+                'source_product_id' => $ksp->id,
+                'target_product_id' => $kdf->id,
+                'inventory_id' => $inv->id,
+                'qty_per' => 4,
+                'rule_type' => 'additional',
+            ])
+            ->assertRedirect();
+        $invRule = PackagingRule::where('source_product_id', $ksp->id)
+            ->where('target_product_id', $kdf->id)
+            ->where('inventory_id', $inv->id)
+            ->first();
+        $this->assertNotNull($invRule);
+        $this->assertSame(4, $invRule->qty_per);
+        $this->assertSame('additional', $invRule->rule_type);
+
+        // Update qty_per + nonaktifkan
+        $this->actingAs($user)
+            ->put(route('gudang.packaging-update', $rule), ['qty_per' => 5, 'is_active' => 0])
+            ->assertRedirect();
+        $rule->refresh();
+        $this->assertSame(5, $rule->qty_per);
+        $this->assertFalse($rule->is_active);
+
+        $this->actingAs($user)
+            ->delete(route('gudang.packaging-destroy', $rule))
+            ->assertRedirect();
+        $this->assertNull(PackagingRule::find($rule->id));
+
+        PackagingRule::where('inventory_id', $inv->id)->delete();
+    }
+
+    public function test_packaging_rule_per_inventory_overrides_global(): void
+    {
+        $this->ensureCatalog();
+        $stock = $this->app->make(StockService::class);
+        $kmp = Product::where('code', 'KMP')->firstOrFail();
+        $box = ProductVariant::where('code', 'BOX')->firstOrFail();
+        $origInv = $kmp->primaryInventoryId();
+        $invA = Inventory::create(['name' => 'TEST RULE A '.uniqid()]);
+        $invB = Inventory::create(['name' => 'TEST RULE B '.uniqid()]);
+
+        // Pindahkan gudang UTAMA KMP (pivot is_primary) antar gudang test
+        $setPrimary = function (Product $p, int $invId) {
+            ProductInventory::where('product_id', $p->id)->update(['is_primary' => false]);
+            ProductInventory::updateOrCreate(
+                ['product_id' => $p->id, 'inventory_id' => $invId],
+                ['is_primary' => true]
+            );
+        };
+
+        // Pastikan rule global KMP→BOX 1:2 aktif
+        $boxRule = PackagingRule::whereHas('sourceProduct', fn ($q) => $q->where('code', 'KMP'))
+            ->whereHas('targetProduct', fn ($q) => $q->where('code', 'BOX'))
+            ->whereNull('inventory_id')
+            ->firstOrFail();
+        $boxRule->update(['qty_per' => 2, 'is_active' => true]);
+
+        // Rule khusus gudang A: KMP→BOX 1:1
+        $specific = PackagingRule::create([
+            'source_product_id' => $kmp->id,
+            'target_product_id' => $boxRule->target_product_id,
+            'inventory_id' => $invA->id,
+            'qty_per' => 1,
+            'is_active' => true,
+        ]);
+
+        try {
+            // Produk KMP gudang utama A → rule khusus 1:1 (BOX −4)
+            $setPrimary($kmp, $invA->id);
+            $batchA = $this->newBatch();
+            $this->createOrder($batchA->id, 'RULE-A-'.uniqid(), 'Rule A Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+            $beforeBox = $stock->stockOf($box->id);
+            (new OrderTemplateExportService)->download($batchA, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+            $this->assertSame($beforeBox - 4, $stock->stockOf($box->id));
+
+            // Produk KMP gudang utama B (tanpa rule khusus) → global 1:2 (BOX −2)
+            $setPrimary($kmp, $invB->id);
+            $batchB = $this->newBatch();
+            $this->createOrder($batchB->id, 'RULE-B-'.uniqid(), 'Rule B Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+            $beforeBox2 = $stock->stockOf($box->id);
+            (new OrderTemplateExportService)->download($batchB, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+            $this->assertSame($beforeBox2 - 2, $stock->stockOf($box->id));
+        } finally {
+            ProductInventory::where('product_id', $kmp->id)
+                ->where('inventory_id', $invA->id)
+                ->orWhere('inventory_id', $invB->id)
+                ->delete();
+            $setPrimary($kmp, (int) $origInv);
+            $specific->delete();
+            $boxRule->update(['qty_per' => 2, 'is_active' => true]);
+        }
+    }
+
+    public function test_product_belongs_to_multiple_warehouses_with_per_warehouse_stock(): void
+    {
+        $this->ensureCatalog();
+        $product = $this->makeProduct();
+        $variant = $this->variant($product);
+        $invA = Inventory::create(['name' => 'TEST M2M A '.uniqid()]);
+        $invB = Inventory::create(['name' => 'TEST M2M B '.uniqid()]);
+
+        // 1 produk terdaftar di 2 gudang (A = utama)
+        ProductInventory::create(['product_id' => $product->id, 'inventory_id' => $invA->id, 'is_primary' => true]);
+        ProductInventory::create(['product_id' => $product->id, 'inventory_id' => $invB->id, 'is_primary' => false]);
+
+        $this->assertSame(2, $product->inventories()->count());
+        $this->assertSame($invA->id, $product->primaryInventoryId());
+
+        // Stok per gudang tercatat terpisah + cache tersinkron
+        $stock = $this->app->make(StockService::class);
+        $stock->recordIn($variant->id, now()->format('Y-m-d'), 10, 10000, 'adjustment', $variant->id, 'in A', null, $invA->id);
+        $stock->recordIn($variant->id, now()->format('Y-m-d'), 6, 10000, 'adjustment', $variant->id + 1000, 'in B', null, $invB->id);
+
+        $this->assertSame(10, $stock->stockOf($variant->id, $invA->id));
+        $this->assertSame(6, $stock->stockOf($variant->id, $invB->id));
+        $this->assertSame(16, $stock->stockOf($variant->id));
+        $this->assertSame(10, $variant->stockAt($invA->id));
+        $this->assertSame(6, $variant->stockAt($invB->id));
+
+        // Keluar dari gudang A tidak menyentuh stok gudang B
+        $stock->recordOut($variant->id, now()->format('Y-m-d'), 4, 'adjustment', $variant->id + 2000, 'out A', null, $invA->id);
+        $this->assertSame(6, $stock->stockOf($variant->id, $invA->id));
+        $this->assertSame(6, $stock->stockOf($variant->id, $invB->id));
+
+        // Halaman gudang A menampilkan produk ini, gudang lain tidak (kecuali terdaftar)
+        $user = $this->adminUser();
+        $this->actingAs($user)
+            ->get(route('gudang.index', ['inventory_id' => $invA->id]))
+            ->assertSee($product->name);
+
+        // Detach dari gudang B → cache stok B ikut hilang, total jurnal tetap
+        ProductInventory::where('product_id', $product->id)->where('inventory_id', $invB->id)->delete();
+        ProductVariantInventory::where('product_variant_id', $variant->id)->where('inventory_id', $invB->id)->delete();
+        $this->assertSame(6, $stock->stockOf($variant->id, $invA->id));
+        $this->assertSame(12, $stock->stockOf($variant->id)); // total jurnal tidak berubah
+    }
+
+    public function test_gudang_page_shows_restock_warning(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $kmp = Product::where('code', 'KMP')->firstOrFail();
+        $pusat = Inventory::orderBy('id')->first(); // gudang induk KMP
+
+        $kmp->update(['min_stock' => 99999]); // jauh di atas total stok → perlu restock
+        $this->actingAs($user)
+            ->get(route('gudang.index', ['inventory_id' => $pusat->id]))
+            ->assertSee('Perlu Restock');
+
+        $kmp->update(['min_stock' => 0]);
+        $this->actingAs($user)
+            ->get(route('gudang.index', ['inventory_id' => $pusat->id]))
+            ->assertDontSee('Perlu Restock');
+    }
+
+    public function test_gudang_page_scoped_per_warehouse(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $gtm = Inventory::where('name', 'GTM')->firstOrFail();
+        $aurora = Inventory::where('name', 'Aurora')->firstOrFail();
+
+        // Tanpa pilihan gudang → hanya picker, tanpa isi produk
+        $this->actingAs($user)
+            ->get(route('gudang.index'))
+            ->assertOk()
+            ->assertSee('Pilih Gudang')
+            ->assertDontSee('Kertas Thermal');
+
+        // GTM → Barang Pasti + Barang Inti HANYA SH (count 1); Aurora → HANYA KSP.
+        // (nama produk lintas-gudang tetap tampil di dropdown "Tambah Produk ke Gudang"
+        // karena memang bisa di-attach — jadi scoping dicek via jumlah per section)
+        $this->actingAs($user)
+            ->get(route('gudang.index', ['inventory_id' => $gtm->id]))
+            ->assertOk()
+            ->assertSee('Barang Pasti: 3')
+            ->assertSee('Barang Inti: 1')
+            ->assertSee('Barang Additional: 0')
+            ->assertSee('Kertas Thermal')
+            ->assertSee('Shendara Herbal')
+            ->assertSee('Aurora'); // produk KSP (Aurora) tersedia untuk di-attach di GTM
+
+        // Aurora → KSP (Sporty), tanpa SH di tabel inti
+        $this->actingAs($user)
+            ->get(route('gudang.index', ['inventory_id' => $aurora->id]))
+            ->assertOk()
+            ->assertSee('Barang Inti: 1')
+            ->assertSee('Kacamata Sporty Photocromic')
+            ->assertSee('GTM'); // produk SH (GTM) tersedia untuk di-attach di Aurora
+    }
+
+    public function test_gudang_attach_existing_product_to_warehouse(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $inv = Inventory::create(['name' => 'TEST INV '.uniqid()]);
+        $stock = $this->app->make(StockService::class);
+        $product = $this->makeProduct(); // produk sudah dibuat di halaman Produk
+
+        $this->actingAs($user)
+            ->post(route('gudang.product.attach'), [
+                'product_id' => $product->id,
+                'inventory_id' => $inv->id,
+                'is_primary' => 1,
+                'stock_awal' => 12,
+            ])
+            ->assertRedirect(route('gudang.index', ['inventory_id' => $inv->id]));
+
+        // Produk TIDAK dibuat ulang — hanya terdaftar di gudang ini (menjadi gudang utama)
+        $this->assertSame(1, Product::where('code', $product->code)->count());
+        $this->assertSame((int) $inv->id, (int) $product->refresh()->primaryInventoryId());
+        $this->assertSame(1, $product->inventories()->count());
+
+        // Varian default produk ikut serta; stok awal tercatat ke gudang tsb
+        $variant = $product->defaultVariant();
+        $this->assertNotNull($variant);
+        $this->assertSame(12, $stock->stockOf($variant->id, $inv->id));
+        $this->assertSame(12, $variant->stockAt($inv->id));
+
+        // Attach dua kali ditolak
+        $this->actingAs($user)
+            ->post(route('gudang.product.attach'), [
+                'product_id' => $product->id,
+                'inventory_id' => $inv->id,
+            ])
+            ->assertSessionHasErrors('attach');
+    }
+
+    public function test_gudang_product_warehouses_update_and_detach(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $invA = Inventory::create(['name' => 'TEST WH A '.uniqid()]);
+        $invB = Inventory::create(['name' => 'TEST WH B '.uniqid()]);
+
+        $product = $this->makeProduct();
+        ProductInventory::create(['product_id' => $product->id, 'inventory_id' => $invA->id, 'is_primary' => true]);
+        ProductInventory::create(['product_id' => $product->id, 'inventory_id' => $invB->id, 'is_primary' => false]);
+
+        // Pindahkan gudang utama ke B + lepas A sekaligus
+        $this->actingAs($user)
+            ->put(route('gudang.product.warehouses', $product), [
+                'inventory_ids' => [$invB->id],
+                'primary_inventory_id' => $invB->id,
+            ])
+            ->assertRedirect(route('gudang.index', ['inventory_id' => $invB->id]));
+
+        $product->refresh();
+        $this->assertSame((int) $invB->id, (int) $product->primaryInventoryId());
+        $this->assertSame(1, $product->inventories()->count());
+        $this->assertNull(ProductInventory::where('product_id', $product->id)->where('inventory_id', $invA->id)->first());
+
+        // Lepas dari gudang B — produk tidak ikut terhapus (master tetap ada)
+        $this->actingAs($user)
+            ->delete(route('gudang.product.detach', $product), ['inventory_id' => $invB->id])
+            ->assertRedirect(route('gudang.index', ['inventory_id' => $invB->id]));
+        $this->assertSame(0, $product->refresh()->inventories()->count());
+        $this->assertNotNull(Product::find($product->id));
+    }
+
+    public function test_primary_only_for_core_products(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $inv = Inventory::create(['name' => 'TEST PRIM '.uniqid()]);
+
+        // Barang Pasti (consumable) — attach tidak boleh jadi gudang utama
+        $kth = Product::where('code', 'KTH')->firstOrFail();
+        $this->actingAs($user)
+            ->post(route('gudang.product.attach'), [
+                'product_id' => $kth->id,
+                'inventory_id' => $inv->id,
+                'is_primary' => 1,
+            ])
+            ->assertRedirect();
+        $this->assertFalse((bool) ProductInventory::where('product_id', $kth->id)->where('inventory_id', $inv->id)->value('is_primary'));
+        $this->assertNull($kth->refresh()->primaryInventoryId());
+
+        // Barang Additional (BOX) — sama
+        $box = Product::where('code', 'BOX')->firstOrFail();
+        $this->actingAs($user)
+            ->post(route('gudang.product.attach'), [
+                'product_id' => $box->id,
+                'inventory_id' => $inv->id,
+                'is_primary' => 1,
+            ])
+            ->assertRedirect();
+        $this->assertNull($box->refresh()->primaryInventoryId());
+
+        // Kelola gudang produk non-core tanpa radio utama → semua baris is_primary=false
+        $this->actingAs($user)
+            ->put(route('gudang.product.warehouses', $box), [
+                'inventory_ids' => [$inv->id],
+            ])
+            ->assertRedirect();
+        $this->assertSame(0, ProductInventory::where('product_id', $box->id)->where('is_primary', true)->count());
+
+        // Barang Inti (core) tetap bisa jadi gudang utama — dan menggantikan primary lama
+        $kmp = Product::where('code', 'KMP')->firstOrFail();
+        $origPrimary = $kmp->primaryInventoryId();
+        try {
+            $this->actingAs($user)
+                ->post(route('gudang.product.attach'), [
+                    'product_id' => $kmp->id,
+                    'inventory_id' => $inv->id,
+                    'is_primary' => 1,
+                ])
+                ->assertRedirect();
+            $this->assertSame((int) $inv->id, (int) $kmp->refresh()->primaryInventoryId());
+            $this->assertSame(1, ProductInventory::where('product_id', $kmp->id)->where('is_primary', true)->count());
+        } finally {
+            ProductInventory::where('product_id', $kmp->id)->update(['is_primary' => false]);
+            ProductInventory::updateOrCreate(
+                ['product_id' => $kmp->id, 'inventory_id' => (int) $origPrimary],
+                ['is_primary' => true]
+            );
+        }
+    }
+
+    public function test_purchase_records_stock_to_selected_warehouse(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $invA = Inventory::create(['name' => 'TEST PUR A '.uniqid()]);
+        $invB = Inventory::create(['name' => 'TEST PUR B '.uniqid()]);
+
+        $product = $this->makeProduct();
+        $variant = $this->variant($product);
+        $stock = $this->app->make(StockService::class);
+
+        // Produk inti terdaftar di gudang A (utama) — tapi pembelian dikirim ke gudang B
+        ProductInventory::create(['product_id' => $product->id, 'inventory_id' => $invA->id, 'is_primary' => true]);
+
+        $this->actingAs($user)
+            ->post(route('purchase.store'), [
+                'date' => now()->format('Y-m-d'),
+                'product_variant_id' => $variant->id,
+                'inventory_id' => $invB->id,
+                'quantity' => 10,
+                'unit_price' => 5000,
+                'shipping_cost' => 0,
+            ])
+            ->assertRedirect();
+
+        $purchase = Purchase::where('product_variant_id', $variant->id)->latest('id')->first();
+        $this->assertNotNull($purchase);
+        $this->assertSame((int) $invB->id, (int) $purchase->inventory_id);
+        $this->assertSame(10, $stock->stockOf($variant->id, $invB->id));
+        $this->assertSame(0, $stock->stockOf($variant->id, $invA->id)); // gudang utama TIDAK terisi
+
+        // Index menampilkan & menyaring per gudang
+        $this->actingAs($user)
+            ->get(route('purchase.index', ['inventory_id' => $invB->id]))
+            ->assertOk()
+            ->assertSee($invB->name)
+            ->assertSee('Barang Masuk');
+    }
+
+    public function test_product_master_variant_crud(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $product = $this->makeProduct();
+
+        $this->actingAs($user)
+            ->postJson(route('product.variant.store', $product), [
+                'code' => $product->code.'+1.50',
+                'name' => 'Plus +1.50',
+                'jenis' => 'ukuran',
+                'power' => 1.5,
+                'status' => 'active',
+            ])
+            ->assertJson(['success' => true]);
+
+        $variant = ProductVariant::where('code', $product->code.'+1.50')->firstOrFail();
+        $this->assertSame(0, $variant->stock); // stok diisi per gudang, bukan di master
+
+        $this->actingAs($user)
+            ->putJson(route('product.variant.update', $variant), [
+                'code' => $variant->code,
+                'name' => 'Plus +1.50 (update)',
+                'jenis' => 'ukuran',
+                'power' => 1.5,
+                'status' => 'inactive',
+            ])
+            ->assertJson(['success' => true]);
+        $variant->refresh();
+        $this->assertSame('Plus +1.50 (update)', $variant->name);
+        $this->assertSame('inactive', $variant->status);
+
+        $this->actingAs($user)
+            ->deleteJson(route('product.variant.destroy', $variant))
+            ->assertJson(['success' => true]);
+        $this->assertNull(ProductVariant::find($variant->id));
+    }
+
+    public function test_product_master_page_create_update_toggle_destroy(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $code = 'MP-'.strtoupper(substr(uniqid(), -5));
+
+        $this->actingAs($user)->get(route('product.index'))->assertOk()->assertSee('Produk');
+
+        // Buat produk di halaman master → varian default otomatis, BELUM terdaftar gudang mana pun
+        $this->actingAs($user)
+            ->post(route('product.store'), [
+                'code' => $code,
+                'name' => 'Produk Master Baru',
+                'goods_type' => 'core',
+                'selling_price' => 30000,
+                'purchase_price' => 8000,
+                'unit' => 'pcs',
+                'status' => 'active',
+                'min_stock' => 4,
+            ])
+            ->assertRedirect(route('product.index'));
+
+        $product = Product::where('code', $code)->firstOrFail();
+        $this->assertSame('core', $product->goods_type);
+        $this->assertSame(4, $product->min_stock);
+        $this->assertNotNull($product->defaultVariant());
+        $this->assertSame($code, $product->defaultVariant()->code);
+        $this->assertSame(0, $product->inventories()->count()); // belum di-attach ke gudang
+
+        // Update
+        $this->actingAs($user)
+            ->put(route('product.update', $product), [
+                'code' => $code,
+                'name' => 'Produk Master Diubah',
+                'goods_type' => 'additional',
+                'selling_price' => 35000,
+                'unit' => 'pcs',
+                'status' => 'active',
+            ])
+            ->assertRedirect(route('product.index'));
+        $product->refresh();
+        $this->assertSame('Produk Master Diubah', $product->name);
+        $this->assertSame('additional', $product->goods_type);
+
+        // Toggle status
+        $this->actingAs($user)
+            ->patchJson(route('product.toggle-status', $product))
+            ->assertJson(['success' => true, 'status' => 'inactive']);
+
+        // Hapus (soft delete)
+        $this->actingAs($user)
+            ->delete(route('product.destroy', $product))
+            ->assertRedirect(route('product.index'));
+        $this->assertNull(Product::find($product->id));
     }
 
     private function createOrder(int $batchId, string $orderId, string $name, string $courier, string $status, ?int $productId, ?string $productCode, int $qty, string $province = 'JAWA BARAT', string $city = 'Bandung', string $subdistrict = 'Coblong'): ShippingOrder

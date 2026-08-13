@@ -38,10 +38,10 @@
             </div>
             <div style="grid-column: span 2;">
                 <label class="field-label">VARIAN PRODUK</label>
-                <select name="product_variant_id" required class="clay-input">
+                <select name="product_variant_id" id="purchase-variant" required class="clay-input">
                     <option value="">— Pilih Produk / Varian —</option>
                     @foreach($products as $p)
-                        <optgroup label="{{ $p->name }}">
+                        <optgroup label="{{ $p->name }}" data-primary-wh="{{ $p->primaryInventoryId() ?? '' }}">
                             @foreach($p->variants as $v)
                                 <option value="{{ $v->id }}" @selected(old('product_variant_id') == $v->id)>
                                     {{ $v->nama }} {{ (float)$v->power > 0 ? '(+'.number_format($v->power,2,',','.').')' : '' }} — stok {{ $v->stock }}
@@ -50,6 +50,16 @@
                         </optgroup>
                     @endforeach
                 </select>
+            </div>
+            <div style="grid-column: span 2;">
+                <label class="field-label">GUDANG TUJUAN</label>
+                <select name="inventory_id" id="purchase-inventory" required class="clay-input">
+                    <option value="">— Pilih Gudang —</option>
+                    @foreach($inventories as $inv)
+                        <option value="{{ $inv->id }}" @selected(old('inventory_id') == $inv->id)>{{ $inv->name }}</option>
+                    @endforeach
+                </select>
+                <div style="font-size:.68rem;color:#9ca3af;margin-top:3px;">Stok masuk dicatat ke gudang ini (stok per gudang).</div>
             </div>
             <div>
                 <label class="field-label">JUMLAH (QTY)</label>
@@ -93,6 +103,12 @@
                 <option value="{{ $s->id }}" @selected(request('supplier_id') == $s->id)>{{ $s->nama_supplier }}</option>
             @endforeach
         </select>
+        <select name="inventory_id" class="clay-input" style="min-width:160px;">
+            <option value="">Semua Gudang</option>
+            @foreach($inventories as $inv)
+                <option value="{{ $inv->id }}" @selected(request('inventory_id') == $inv->id)>{{ $inv->name }}</option>
+            @endforeach
+        </select>
         <select name="bulan" class="clay-input">
             <option value="">Semua Bulan</option>
             @foreach($monthList as $b)
@@ -112,6 +128,7 @@
                 <tr>
                     <th>Tanggal</th>
                     <th>Produk / Varian</th>
+                    <th>Gudang</th>
                     <th>Supplier</th>
                     <th>Qty</th>
                     <th>Harga Satuan</th>
@@ -130,6 +147,13 @@
                             {{ $pu->variant?->product?->name ?? '-' }}
                             <div style="font-size:.72rem;color:#9ca3af;">{{ $pu->variant?->nama }} {{ (float)($pu->variant?->power ?? 0) > 0 ? '(+'.number_format($pu->variant->power,2,',','.').')' : '' }}</div>
                         </td>
+                        <td>
+                            @if($pu->inventory)
+                                <span class="clay-badge clay-badge-blue">🏭 {{ $pu->inventory->name }}</span>
+                            @else
+                                <span style="color:#9ca3af;">—</span>
+                            @endif
+                        </td>
                         <td>{{ $pu->supplier->nama_supplier ?? '-' }}</td>
                         <td>{{ number_format($pu->quantity,0,',','.') }}</td>
                         <td>Rp {{ number_format((float)$pu->unit_price,0,',','.') }}</td>
@@ -146,7 +170,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="9" style="text-align:center;padding:48px;color:#9ca3af;">Belum ada barang masuk.</td>
+                        <td colspan="10" style="text-align:center;padding:48px;color:#9ca3af;">Belum ada barang masuk.</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -160,3 +184,21 @@
 .field-label { display:block;font-size:.75rem;font-weight:700;margin-bottom:4px;color:#374151; }
 </style>
 @endsection
+
+@push('scripts')
+<script>
+// Pilih varian → isi otomatis GUDANG TUJUAN dengan gudang utama produknya
+// (Barang Inti punya gudang utama; Barang Pasti/Additional tidak → tetap pilih manual).
+document.getElementById('purchase-variant').addEventListener('change', function() {
+    var sel = this;
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    var group = opt.parentElement;
+    var primary = group ? (group.getAttribute('data-primary-wh') || '') : '';
+    var inv = document.getElementById('purchase-inventory');
+    if (primary) {
+        inv.value = primary;
+    }
+});
+</script>
+@endpush

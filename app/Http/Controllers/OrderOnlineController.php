@@ -51,6 +51,7 @@ class OrderOnlineController extends Controller
                     }))
                     ->when($request->filled('courier'), fn ($q) => $q->where('courier', $request->courier))
                     ->when($request->filled('status'), fn ($q) => $q->where('status', 'like', '%'.$request->status.'%'))
+                    ->when($request->filled('product_code'), fn ($q) => $q->where('product_code', $request->product_code))
                     ->orderByDesc('id')
                     ->paginate(25)
                     ->withQueryString();
@@ -60,6 +61,21 @@ class OrderOnlineController extends Controller
         $courierList = ShippingOrder::select('courier')->distinct()->whereNotNull('courier')->pluck('courier');
 
         $products = Product::query()->orderBy('code')->with('variants')->get(['id', 'code', 'name']);
+
+        // Dropdown filter kode produk: varian dari master + kode yang masih dipakai di order.
+        $productOptions = collect();
+        foreach ($products as $p) {
+            foreach ($p->variants as $v) {
+                $productOptions->put($v->code, $v->code.' — '.$p->name);
+            }
+        }
+        ShippingOrder::query()->whereNotNull('product_code')->distinct()->pluck('product_code')
+            ->each(function ($code) use ($productOptions) {
+                if (! $productOptions->has($code)) {
+                    $productOptions->put($code, $code);
+                }
+            });
+        $productOptions = $productOptions->sortKeys();
 
         $exportTemplates = \App\Models\ExportTemplate::query()->where('is_active', true)->orderBy('id')->get();
 
@@ -74,7 +90,19 @@ class OrderOnlineController extends Controller
                 ->pluck('total', 'courier');
         }
 
-        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates'));
+        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions'));
+    }
+
+    public function show(ShippingOrder $shippingOrder): View
+    {
+        $shippingOrder->load([
+            'importBatch',
+            'product',
+            'variant.product',
+            'handledByUser',
+        ]);
+
+        return view('order.show', compact('shippingOrder'));
     }
 
     public function preview(Request $request): JsonResponse

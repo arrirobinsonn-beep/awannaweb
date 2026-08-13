@@ -2,30 +2,30 @@
 
 namespace App\Services;
 
+use App\Models\PackagingRule;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\ProductVariantInventory;
 use App\Models\StockMovement;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class StockService
 {
-    /** Produk kacamata yang memicu pengurangan BOX/LAP otomatis saat pengiriman. */
+    /** Produk kacamata — dipakai label export (nama + power + qty pcs). */
     public const KACAMATA_CODES = ['KMP', 'KSP', 'KBJ'];
 
-    /** Kode produk pendamping kemasan (BOX/LAP) & pendamping KBJ (KDF). */
-    public const PACK_BOX_CODE = 'BOX';
-
-    public const PACK_LAP_CODE = 'LAP';
-
+    /** Kode produk pendamping KBJ yang selalu di-split (KBJ = ceil, KDF = floor). */
     public const PACK_KDF_CODE = 'KDF';
 
-    /** Setiap berapa qty kacamata sebuah BOX + LAP ikut berkurang (floor). */
-    public const PACK_QTY_PER = 2;
+    private ?Collection $packagingRulesCache = null;
 
-    private ?array $packagingCache = null;
+    private array $defaultVariantCache = [];
 
     /**
      * Catat barang masuk ke jurnal + tambah stok varian.
+     * `inventoryId` opsional — bila diisi, pergerakan tercatat ke gudang tsb
+     * sehingga stok bisa dilihat/dikelola per gudang.
      */
     public function recordIn(
         int $variantId,
@@ -35,13 +35,17 @@ class StockService
         string $reference = 'adjustment',
         ?int $referenceId = null,
         ?string $note = null,
-        ?int $createdBy = null
+        ?int $createdBy = null,
+        ?int $inventoryId = null
     ): StockMovement {
-        return DB::transaction(function () use ($variantId, $date, $quantity, $unitPrice, $reference, $referenceId, $note, $createdBy) {
+        return DB::transaction(function () use ($variantId, $date, $quantity, $unitPrice, $reference, $referenceId, $note, $createdBy, $inventoryId) {
+            $inventoryId ??= ProductVariant::find($variantId)?->product?->primaryInventoryId();
+
             $movement = StockMovement::updateOrCreate(
                 ['reference' => $reference, 'reference_id' => $referenceId, 'type' => 'in', 'product_variant_id' => $variantId],
                 [
                     'product_variant_id' => $variantId,
+                    'inventory_id' => $inventoryId,
                     'date' => $date,
                     'type' => 'in',
                     'quantity' => $quantity,
@@ -52,6 +56,7 @@ class StockService
             );
 
             $this->recalculateStock($variantId);
+            $this->syncVariantInventoryStocks($variantId);
 
             return $movement;
         });
@@ -59,6 +64,7 @@ class StockService
 
     /**
      * Catat barang keluar ke jurnal + kurangi stok varian.
+     * `inventoryId` opsional — bila diisi, pergerakan tercatat ke gudang tsb.
      *
      * @throws \RuntimeException jika stok tidak mencukupi
      */
@@ -69,10 +75,12 @@ class StockService
         string $reference = 'adjustment',
         ?int $referenceId = null,
         ?string $note = null,
-        ?int $createdBy = null
+        ?int $createdBy = null,
+        ?int $inventoryId = null
     ): StockMovement {
-        return DB::transaction(function () use ($variantId, $date, $quantity, $reference, $referenceId, $note, $createdBy) {
+        return DB::transaction(function () use ($variantId, $date, $quantity, $reference, $referenceId, $note, $createdBy, $inventoryId) {
             $variant = ProductVariant::findOrFail($variantId);
+            $inventoryId ??= $variant->product?->primaryInventoryId();
             $current = $this->stockOf($variantId);
 
             if ($quantity > $current) {
@@ -92,12 +100,14 @@ class StockService
                 $oldVariantId = (int) $existing->product_variant_id;
                 $existing->delete();
                 $this->recalculateStock($oldVariantId);
+                $this->syncVariantInventoryStocks($oldVariantId);
             }
 
             $movement = StockMovement::updateOrCreate(
                 ['reference' => $reference, 'reference_id' => $referenceId, 'type' => 'out', 'product_variant_id' => $variantId],
                 [
                     'product_variant_id' => $variantId,
+                    'inventory_id' => $inventoryId,
                     'date' => $date,
                     'type' => 'out',
                     'quantity' => $quantity,
@@ -107,15 +117,20 @@ class StockService
             );
 
             $this->recalculateStock($variantId);
+            $this->syncVariantInventoryStocks($variantId);
 
             return $movement;
         });
     }
 
     /**
-     * Catat barang keluar sekaligus untuk produk pendamping sesuai aturan kemasan:
-     *  - KMP/KSP: stok produk berkurang `qty`, plus BOX + LAP sebesar floor(qty/2).
-     *  - KBJ: produk berkurang ceil(qty/2) + KDF floor(qty/2), plus BOX + LAP floor(qty/2).
+     * Catat barang keluar sekaligus untuk produk pendamping sesuai aturan kemasan
+     * (DB-driven via `packaging_rules`, per gudang):
+     *  - `additional`: tiap `qty_per` unit barang inti → 1 unit additional ikut keluar
+     *    (target pakai varian DEFAULT). Contoh: KMP → BOX (2:1).
+     *  - `split`: barang inti dipecah — main keluar `ceil(qty/qty_per)`, target keluar
+     *    `floor(qty/qty_per)` dengan varian target POWER SAMA (fallback power terkecil).
+     *    Contoh promo "Beli 1 Dapat 2": KMP → KDF (2:1) → order qty 2 = 1 KMP + 1 KDF.
      *
      * Semua dicatat dalam satu transaksi; bila salah satu varian stoknya kurang,
      * RuntimeException dilempar dan seluruh jurnal dibatalkan (rollback).
@@ -134,47 +149,52 @@ class StockService
         return DB::transaction(function () use ($variantId, $date, $quantity, $reference, $referenceId, $note, $createdBy) {
             $variant = ProductVariant::findOrFail($variantId);
             $baseCode = strtoupper(explode('+', (string) ($variant->product?->code ?? ''))[0]);
-
-            if (! in_array($baseCode, self::KACAMATA_CODES)) {
-                return $this->recordOut($variantId, $date, $quantity, $reference, $referenceId, $note, $createdBy);
-            }
-
-            $packaging = $this->packagingVariants();
-            $packQty = intdiv($quantity, self::PACK_QTY_PER);
+            $inventoryId = $variant->product?->primaryInventoryId();
 
             if ($baseCode === self::PACK_KDF_CODE) {
                 throw new \RuntimeException('Produk '.self::PACK_KDF_CODE.' tidak dikirim sendiri.');
             }
 
-            if ($baseCode === 'KBJ') {
-                $mainQty = (int) ceil($quantity / 2);
-                $kdfQty = intdiv($quantity, 2);
+            $rules = $this->packagingRulesFor($variant->product_id, $inventoryId);
+            $splitRules = $rules->where('rule_type', PackagingRule::TYPE_SPLIT)->values();
+            $additionalRules = $rules->where('rule_type', PackagingRule::TYPE_ADDITIONAL)->values();
 
-                if ($kdfQty > 0) {
-                    $kdfVariant = $this->kdfVariantFor($variant, $packaging);
-                    if ($kdfVariant === null) {
-                        throw new \RuntimeException('Produk '.self::PACK_KDF_CODE.' belum terdaftar, tidak bisa mengirim KBJ.');
+            // Barang inti: bila ada aturan split, produk utama dipecah —
+            // source = ceil(qty/qty_per), tiap target split = floor(qty/qty_per).
+            $mainQty = $quantity;
+            if ($splitRules->isNotEmpty()) {
+                $mainQty = (int) ceil($quantity / max(1, (int) $splitRules->first()->qty_per));
+
+                foreach ($splitRules as $rule) {
+                    $splitQty = intdiv($quantity, max(1, (int) $rule->qty_per));
+                    if ($splitQty <= 0) {
+                        continue;
                     }
-                    $this->recordOut($kdfVariant->id, $date, $kdfQty, $reference, $referenceId, $note, $createdBy);
+
+                    $targetVariant = $this->variantForPower((int) $rule->target_product_id, (float) $variant->power);
+                    if ($targetVariant === null) {
+                        throw new \RuntimeException('Produk '.$rule->targetProduct->code.' belum terdaftar.');
+                    }
+                    $this->recordOut($targetVariant->id, $date, $splitQty, $reference, $referenceId, $note, $createdBy, $inventoryId);
                 }
-            } else {
-                $mainQty = $quantity;
             }
 
             if ($mainQty > 0) {
-                $this->recordOut($variantId, $date, $mainQty, $reference, $referenceId, $note, $createdBy);
+                $this->recordOut($variantId, $date, $mainQty, $reference, $referenceId, $note, $createdBy, $inventoryId);
             }
 
-            if ($packQty > 0) {
-                if ($packaging['box'] === null) {
-                    throw new \RuntimeException('Produk '.self::PACK_BOX_CODE.' belum terdaftar.');
+            // Barang additional mengikuti aturan kemasan dinamis dari DB (per gudang)
+            foreach ($additionalRules as $rule) {
+                $packQty = intdiv($quantity, max(1, (int) $rule->qty_per));
+                if ($packQty <= 0) {
+                    continue;
                 }
-                $this->recordOut($packaging['box']->id, $date, $packQty, $reference, $referenceId, $note, $createdBy);
 
-                if ($packaging['lap'] === null) {
-                    throw new \RuntimeException('Produk '.self::PACK_LAP_CODE.' belum terdaftar.');
+                $targetVariant = $this->defaultVariantOf((int) $rule->target_product_id);
+                if ($targetVariant === null) {
+                    throw new \RuntimeException('Produk '.$rule->targetProduct->code.' belum terdaftar.');
                 }
-                $this->recordOut($packaging['lap']->id, $date, $packQty, $reference, $referenceId, $note, $createdBy);
+                $this->recordOut($targetVariant->id, $date, $packQty, $reference, $referenceId, $note, $createdBy, $inventoryId);
             }
 
             return StockMovement::where('reference', $reference)
@@ -186,47 +206,67 @@ class StockService
     }
 
     /**
-     * Varian pendukung kemasan (BOX, LAP) & seluruh varian KDF, di-cache per instance.
+     * Aturan kemasan aktif per produk inti + gudang, di-cache per instance (anti N+1).
+     * Rule khusus gudang (inventory_id terisi) menimpa rule global (inventory_id null)
+     * untuk kombinasi source→target yang sama.
      *
-     * @return array{box:?ProductVariant,lap:?ProductVariant,kdf:Illuminate\Support\Collection}
+     * @return Collection<int, PackagingRule>
      */
-    protected function packagingVariants(): array
+    protected function packagingRulesFor(int $productId, ?int $inventoryId = null): Collection
     {
-        if ($this->packagingCache !== null) {
-            return $this->packagingCache;
+        if ($this->packagingRulesCache === null) {
+            $this->packagingRulesCache = PackagingRule::with('targetProduct')
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->get()
+                ->groupBy(fn ($r) => $r->source_product_id.'|'.($r->inventory_id ?? ''));
         }
 
-        $defaultVariant = function (string $code): ?ProductVariant {
-            return ProductVariant::where('status', 'active')
-                ->whereHas('product', fn ($q) => $q->where('code', $code))
-                ->orderBy('power')
-                ->orderBy('id')
-                ->first();
-        };
+        $global = $this->packagingRulesCache->get($productId.'|', collect());
+        $specific = $inventoryId !== null
+            ? $this->packagingRulesCache->get($productId.'|'.$inventoryId, collect())
+            : collect();
 
-        return $this->packagingCache = [
-            'box' => $defaultVariant(self::PACK_BOX_CODE),
-            'lap' => $defaultVariant(self::PACK_LAP_CODE),
-            'kdf' => ProductVariant::where('status', 'active')
-                ->whereHas('product', fn ($q) => $q->where('code', self::PACK_KDF_CODE))
-                ->get(),
-        ];
+        return $specific->keyBy('target_product_id')
+            ->union($global->keyBy('target_product_id'))
+            ->values();
     }
 
     /**
-     * Varian KDF dengan power yang sama dengan varian KBJ (fallback: power terkecil).
+     * Varian default aktif sebuah produk (fallback saat aturan kemasan tidak
+     * menyebut ukuran/power), di-cache per instance.
      */
-    protected function kdfVariantFor(ProductVariant $kacamataVariant, array $packaging): ?ProductVariant
+    protected function defaultVariantOf(int $productId): ?ProductVariant
     {
-        if ($packaging['kdf']->isEmpty()) {
+        if (! array_key_exists($productId, $this->defaultVariantCache)) {
+            $this->defaultVariantCache[$productId] = ProductVariant::where('product_id', $productId)
+                ->where('status', 'active')
+                ->orderBy('power')
+                ->orderBy('id')
+                ->first();
+        }
+
+        return $this->defaultVariantCache[$productId];
+    }
+
+    /**
+     * Varian aktif sebuah produk dengan power yang sama dengan varian sumber
+     * (fallback: varian power terkecil) — dipakai aturan `split`.
+     */
+    protected function variantForPower(int $productId, float $power): ?ProductVariant
+    {
+        $variants = ProductVariant::where('product_id', $productId)
+            ->where('status', 'active')
+            ->orderBy('power')
+            ->orderBy('id')
+            ->get();
+
+        if ($variants->isEmpty()) {
             return null;
         }
 
-        $power = (float) $kacamataVariant->power;
-
-        return $packaging['kdf']
-            ->first(fn ($v) => abs((float) $v->power - $power) < 0.0001)
-            ?? $packaging['kdf']->sortBy('power')->first();
+        return $variants->first(fn ($v) => abs((float) $v->power - $power) < 0.0001)
+            ?? $variants->sortBy('power')->first();
     }
 
     /**
@@ -245,6 +285,29 @@ class StockService
 
         foreach ($variantIds as $id) {
             $this->recalculateStock($id);
+            $this->syncVariantInventoryStocks($id);
+        }
+    }
+
+    /**
+     * Sinkronkan cache stok per (varian × gudang) dari jurnal
+     * (tabel product_variant_inventory). Jurnal tetap sumber kebenaran.
+     */
+    public function syncVariantInventoryStocks(int $variantId): void
+    {
+        $rows = StockMovement::where('product_variant_id', $variantId)
+            ->whereNotNull('inventory_id')
+            ->selectRaw('inventory_id,
+                         SUM(CASE WHEN type = "in" THEN quantity ELSE 0 END) as masuk,
+                         SUM(CASE WHEN type = "out" THEN quantity ELSE 0 END) as keluar')
+            ->groupBy('inventory_id')
+            ->get();
+
+        foreach ($rows as $row) {
+            ProductVariantInventory::updateOrCreate(
+                ['product_variant_id' => $variantId, 'inventory_id' => $row->inventory_id],
+                ['stock' => max(0, (int) $row->masuk - (int) $row->keluar)]
+            );
         }
     }
 
@@ -264,10 +327,12 @@ class StockService
 
     /**
      * Stok saat ini untuk varian (dari jurnal).
+     * Bila `inventoryId` diberikan, stok dihitung khusus gudang tsb.
      */
-    public function stockOf(int $variantId): int
+    public function stockOf(int $variantId, ?int $inventoryId = null): int
     {
         $total = StockMovement::where('product_variant_id', $variantId)
+            ->when($inventoryId !== null, fn ($q) => $q->where('inventory_id', $inventoryId))
             ->selectRaw("SUM(CASE WHEN type='in' THEN quantity ELSE 0 END) as masuk, SUM(CASE WHEN type='out' THEN quantity ELSE 0 END) as keluar")
             ->first();
 
@@ -321,6 +386,7 @@ class StockService
     {
         foreach (ProductVariant::pluck('id') as $variantId) {
             $this->recalculateStock($variantId);
+            $this->syncVariantInventoryStocks($variantId);
         }
 
         foreach (Product::pluck('id') as $id) {

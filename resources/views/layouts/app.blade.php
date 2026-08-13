@@ -430,7 +430,7 @@
 
             <a href="{{ route('product.index') }}"
                class="nav-item {{ request()->routeIs('product.*') ? 'active' : '' }}"
-               data-page-link data-tip="Produk">
+               data-page-link data-tip="Master produk & varian">
                 <span class="nav-icon">📦</span>
                 <span class="sidebar-label">Produk</span>
             </a>
@@ -455,6 +455,13 @@
             <div class="sidebar-label nav-divider" style="padding:14px 10px 4px;">
                 <span style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;">Gudang & Kiriman</span>
             </div>
+
+            <a href="{{ route('gudang.index') }}"
+               class="nav-item {{ request()->routeIs('gudang.*') ? 'active' : '' }}"
+               data-page-link data-tip="Stok per kategori & aturan kemasan">
+                <span class="nav-icon">🏬</span>
+                <span class="sidebar-label">Gudang</span>
+            </a>
 
             <a href="{{ route('purchase.index') }}"
                class="nav-item {{ request()->routeIs('purchase.*') ? 'active' : '' }}"

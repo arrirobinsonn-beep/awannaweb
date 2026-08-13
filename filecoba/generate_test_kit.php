@@ -209,15 +209,18 @@ function displayName(array $o): string
 
 function warehouseFor(array $o): string
 {
+    // Mengikuti gudang UTAMA produk (pivot product_inventory.is_primary)
+    // — lihat OrderTemplateExportService::warehouseFor. Produk kit di-seed
+    // dengan primary: KSP→Aurora, SH→GTM, sisanya → Gudang Pusat.
     $code = strtoupper(trim(explode('+', $o['product_code'])[0]));
     if ($code === 'KSP') {
-        return 'GTM';
-    }
-    if ($code === 'SH') {
         return 'Aurora';
     }
+    if ($code === 'SH') {
+        return 'GTM';
+    }
 
-    return SENDER;
+    return 'Gudang Pusat';
 }
 
 function writeCsv(string $path, array $rows): void

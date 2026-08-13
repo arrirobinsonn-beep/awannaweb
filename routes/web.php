@@ -4,10 +4,11 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CourierRuleController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExportMappingController;
+use App\Http\Controllers\GudangController;
+use App\Http\Controllers\ProductController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrderOnlineController;
-use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PurchaseController;
 use App\Http\Controllers\RegionalController;
@@ -52,11 +53,7 @@ Route::middleware('auth')->group(function () {
         // Supplier
         Route::resource('supplier', SupplierController::class)->names('supplier');
 
-        // Produk
-        Route::resource('product', ProductController::class)->except('show')->names('product');
-
-        // Varian Produk (kelola di dalam list expandable produk)
-        Route::post('/product/{product}/variant', [ProductController::class, 'variantStore'])->name('product.variant.store');
+        // Produk & Varian — dikelola DI DALAM halaman Gudang (inventory otomatis = gudang yang dibuka)
 
         // Aturan Courier (auto-mapping kurir berdasarkan provinsi — dinamis dari DB)
         Route::get('/courier-rules', [CourierRuleController::class, 'index'])->name('courier-rule.index');
@@ -74,10 +71,6 @@ Route::middleware('auth')->group(function () {
         Route::put('/export-mapping/{exportTemplate}', [ExportMappingController::class, 'update'])->name('export-mapping.update');
         Route::delete('/export-mapping/{exportTemplate}', [ExportMappingController::class, 'destroy'])->name('export-mapping.destroy');
         Route::post('/export-mapping/upload', [ExportMappingController::class, 'upload'])->name('export-mapping.upload');
-        Route::put('/product/variant/{variant}', [ProductController::class, 'variantUpdate'])->name('product.variant.update');
-        Route::delete('/product/variant/{variant}', [ProductController::class, 'variantDestroy'])->name('product.variant.destroy');
-        Route::patch('/product/{product}/toggle-status', [ProductController::class, 'toggleStatus'])->name('product.toggle-status');
-        Route::patch('/product/variant/{variant}/toggle-status', [ProductController::class, 'toggleVariantStatus'])->name('product.variant.toggle-status');
 
         // Whitelist
         Route::resource('whitelist', WhitelistController::class)->names('whitelist');
@@ -136,6 +129,31 @@ Route::middleware('auth')->group(function () {
         Route::post('/inventory/master', [InventoryController::class, 'masterStore'])->name('inventory.master.store');
         Route::delete('/inventory/master/{inventory}', [InventoryController::class, 'masterDestroy'])->name('inventory.master.destroy');
 
+        // Master Produk — halaman produk sendiri (CRUD produk & varian).
+        // Produk dibuat DI SINI; halaman Gudang hanya meng-attach produk yang sudah ada.
+        Route::get('/product', [ProductController::class, 'index'])->name('product.index');
+        Route::post('/product', [ProductController::class, 'store'])->name('product.store');
+        Route::put('/product/{product}', [ProductController::class, 'update'])->name('product.update');
+        Route::delete('/product/{product}', [ProductController::class, 'destroy'])->name('product.destroy');
+        Route::patch('/product/{product}/toggle-status', [ProductController::class, 'toggleStatus'])->name('product.toggle-status');
+        Route::post('/product/{product}/variants', [ProductController::class, 'variantStore'])->name('product.variant.store');
+        Route::put('/product/variants/{variant}', [ProductController::class, 'variantUpdate'])->name('product.variant.update');
+        Route::delete('/product/variants/{variant}', [ProductController::class, 'variantDestroy'])->name('product.variant.destroy');
+        Route::patch('/product/variants/{variant}/toggle-status', [ProductController::class, 'toggleVariantStatus'])->name('product.variant.toggle-status');
+
+        // Gudang (stok per kategori + aturan kemasan dinamis + keanggotaan produk)
+        Route::get('/gudang', [GudangController::class, 'index'])->name('gudang.index');
+        Route::post('/gudang/adjust', [GudangController::class, 'adjust'])->name('gudang.adjust');
+        Route::post('/gudang/packaging-rules', [GudangController::class, 'packagingStore'])->name('gudang.packaging-store');
+        Route::put('/gudang/packaging-rules/{packagingRule}', [GudangController::class, 'packagingUpdate'])->name('gudang.packaging-update');
+        Route::delete('/gudang/packaging-rules/{packagingRule}', [GudangController::class, 'packagingDestroy'])->name('gudang.packaging-destroy');
+
+        // Produk di gudang — attach produk MASTER yang sudah ada (bukan buat baru),
+        // kelola gudang (many-to-many + primary), dan lepas dari gudang.
+        Route::post('/gudang/products', [GudangController::class, 'productAttach'])->name('gudang.product.attach');
+        Route::put('/gudang/products/{product}/warehouses', [GudangController::class, 'productWarehousesUpdate'])->name('gudang.product.warehouses');
+        Route::delete('/gudang/products/{product}', [GudangController::class, 'productDetach'])->name('gudang.product.detach');
+
         // Shipment (Import CSV FLIK/SiCepat/SPX)
         Route::get('/pengiriman', [ShipmentController::class, 'index'])->name('shipment.index');
         Route::post('/pengiriman/preview', [ShipmentController::class, 'preview'])->name('shipment.preview');
@@ -147,6 +165,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/orders/import', [OrderOnlineController::class, 'store'])->name('orders.import');
         Route::post('/orders/tracking-import', [OrderOnlineController::class, 'trackingImport'])->name('orders.tracking-import');
         Route::put('/orders/{shippingOrder}', [OrderOnlineController::class, 'update'])->name('orders.update');
+        Route::get('/orders/{shippingOrder}', [OrderOnlineController::class, 'show'])->name('orders.show');
         Route::get('/orders/{batch}/export/{template}/{courier?}', [OrderOnlineController::class, 'export'])->name('orders.export');
 
         // Purchase (Barang Masuk) & Stock Movement (Jurnal Stok)

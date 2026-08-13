@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Inventory;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\Supplier;
@@ -17,13 +18,16 @@ class PurchaseController extends Controller
     public function index(Request $request): View
     {
         $query = Purchase::query()
-            ->with(['variant.product', 'supplier', 'creator']);
+            ->with(['variant.product', 'supplier', 'creator', 'inventory']);
 
         if ($request->filled('variant_id')) {
             $query->where('product_variant_id', $request->variant_id);
         }
         if ($request->filled('supplier_id')) {
             $query->where('supplier_id', $request->supplier_id);
+        }
+        if ($request->filled('inventory_id')) {
+            $query->where('inventory_id', $request->inventory_id);
         }
         if ($request->filled('bulan')) {
             $query->where('date', 'like', $request->bulan.'-%');
@@ -33,12 +37,13 @@ class PurchaseController extends Controller
 
         $products = Product::aktif()->with('variants')->orderBy('name')->get();
         $suppliers = Supplier::orderBy('nama_supplier')->get();
+        $inventories = Inventory::orderBy('name')->get();
         $monthList = Purchase::selectRaw("DATE_FORMAT(date, '%Y-%m') as bulan")
             ->distinct()
             ->orderByDesc('bulan')
             ->pluck('bulan');
 
-        return view('purchase.index', compact('purchases', 'products', 'suppliers', 'monthList'));
+        return view('purchase.index', compact('purchases', 'products', 'suppliers', 'inventories', 'monthList'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -47,6 +52,7 @@ class PurchaseController extends Controller
             'date' => ['required', 'date'],
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'product_variant_id' => ['required', 'exists:product_variants,id'],
+            'inventory_id' => ['required', 'exists:inventories,id'],
             'quantity' => ['required', 'integer', 'min:1'],
             'unit_price' => ['required', 'numeric', 'min:0'],
             'shipping_cost' => ['nullable', 'numeric', 'min:0'],
@@ -74,8 +80,9 @@ class PurchaseController extends Controller
                 $purchase->unit_price,
                 'purchase',
                 $purchase->id,
-                'Pembelian '.($purchase->supplier?->nama_supplier ?? '-'),
+                'Pembelian '.($purchase->supplier?->nama_supplier ?? '-').' → '.($purchase->inventory?->name ?? '-'),
                 auth()->id(),
+                (int) $purchase->inventory_id,
             );
 
             return redirect()->route('purchase.index')

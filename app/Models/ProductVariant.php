@@ -38,6 +38,26 @@ class ProductVariant extends Model
         return $this->hasMany(StockMovement::class);
     }
 
+    /** Stok per gudang (cache dari jurnal) — relasi ke product_variant_inventory. */
+    public function inventoryStocks(): HasMany
+    {
+        return $this->hasMany(ProductVariantInventory::class);
+    }
+
+    /**
+     * Stok varian di satu gudang (dari cache product_variant_inventory).
+     * Tanpa inventoryId → total semua gudang.
+     */
+    public function stockAt(?int $inventoryId = null): int
+    {
+        $query = ProductVariantInventory::where('product_variant_id', $this->id);
+        if ($inventoryId !== null) {
+            $query->where('inventory_id', $inventoryId);
+        }
+
+        return (int) $query->sum('stock');
+    }
+
     // ─── Scope ─────────────────────────────────────────────────
 
     public function scopeAktif($query)

@@ -190,7 +190,7 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 - Nilai `status` & `payment_status` mentah CSV tetap tersimpan di `raw_payload`.
 
 ### Kode Warehouse & split per gudang (export)
-- **Kode Warehouse** = `OrderTemplateExportService::warehouseFor(product_code, sender)` → `KSP`→**GTM**, `SH`→**Aurora**, produk lain→**sender**. Kolom "Kode Warehouse" FLIK diisi per-baris dari sini. `warehouseFor()` memakai kode dasar (`explode('+', $code)[0]`) agar tahan `product_code` berformat kode varian (`KSP+1.50`→GTM).
+- **Kode Warehouse** = `OrderTemplateExportService::warehouseFor(product_code, sender)` → `KSP`→**Aurora**, `SH`→**GTM**, produk lain→**sender**. Kolom "Kode Warehouse" FLIK diisi per-baris dari sini. `warehouseFor()` memakai kode dasar (`explode('+', $code)[0]`) agar tahan `product_code` berformat kode varian (`KSP+1.50`→Aurora).
 - Export dikelompokkan per gudang (`warehouseFor`): **1 gudang → .xlsx langsung**; **≥2 gudang → 1 ZIP** berisi file per gudang (alamat pickup tiap gudang berbeda, berlaku semua template).
 - Nama file per gudang: `Ymd_<template>[_<courier>]_<warehouse>_<batch>.xlsx` (contoh `20260808_spx_eresgestore_74.xlsx`, `20260808_flik_flixtf_GTM_74.xlsx`); ZIP: `Ymd_<template>[_<courier>]_<batch>.zip`.
 - **Khusus SPX biasa**: nomor HP dinormalisasi `phoneSpx()` → mulai `8` (hapus `0`/`62`/`+62`); provinsi/kota/kecamatan **CAPSLOCK**.
@@ -239,7 +239,7 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 | `app/Models/AggregatorSyncBatch.php`, `CourierRule.php` | model sederhana |
 | `app/Services/CourierRuleService.php` | `resolve(payment_method, province)`, cache per request, constants `COURIERS` |
 | `app/Services/OrderOnlineImportService.php` | `parse/preview/import`; calibrate province (config regional), mapping status (completed skip), deteksi duplikat 14 hari, resolve `product_id` via `whereIn`, resolve CS batch via `users.nama/panggilan`, isi `order_online_contacts`, simpan `raw_payload` |
-| `app/Services/OrderTemplateExportService.php` | `download(batch, template, courier?)` → .xlsx atau ZIP per gudang (PhpSpreadsheet); `WAREHOUSE_BY_PRODUCT` (KSP→GTM, SH→Aurora) + `warehouseFor()` (tahan kode varian via `explode('+')`); `PACK_DIMENSIONS=[10,8,6]` + `DEFAULT_COURIER_NOTE`; `phoneSpx()` (mulai 8) + CAPSLOCK utk SPX; filter `EXPORTABLE_STATUSES`; `reserveStock()` (recordOut + stock_note); Kelurahan kosong; nilai=amount (gross_revenue CSV) |
+| `app/Services/OrderTemplateExportService.php` | `download(batch, template, courier?)` → .xlsx atau ZIP per gudang (PhpSpreadsheet); `WAREHOUSE_BY_PRODUCT` (KSP→Aurora, SH→GTM) + `warehouseFor()` (tahan kode varian via `explode('+')`); `PACK_DIMENSIONS=[10,8,6]` + `DEFAULT_COURIER_NOTE`; `phoneSpx()` (mulai 8) + CAPSLOCK utk SPX; filter `EXPORTABLE_STATUSES`; `reserveStock()` (recordOut + stock_note); Kelurahan kosong; nilai=amount (gross_revenue CSV) |
 | `app/Http/Controllers/OrderOnlineController.php` | `index` (batch + orders + `$products` utk select), `preview`, `store` (sender required, tampilkan jumlah duplikat), `update` (edit courier/product_code; varian HANYA di-re-resolve bila product_code berubah via `ProductVariant::where('code')`, reverseReference dulu bila ada jurnal), `export` |
 | `resources/views/order/index.blade.php` | Upload (sender wajib) + preview modal + daftar batch + tabel orders (badge status incl. duplikat/cancel/belum_diproses, kolom produk+stock_note) + edit courier & product_code (dropdown per varian) inline + dropdown export FLIK per courier |
 | `database/migrations/2026_08_09_000000_add_meta_account_to_shipping_orders_table.php` | kolom `shipping_orders.meta_account` (string nullable) |
@@ -325,27 +325,32 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 ## F. ✅ Produk BOX/LAP/KDF + Pengurangan Stok Otomatis (Kemasan & Split KBJ) (9 Agustus 2026)
 
 ### Deskripsi
-Saat stok kacamata (KMP/KSP/KBJ) berkurang lewat pengiriman, stok kemasan ikut berkurang otomatis: **BOX + LAP = floor(qty/2)**. Khusus **KBJ selalu di-split**: KBJ = ceil(qty/2) + KDF = floor(qty/2) (KDF varian ber-power sama dengan varian KBJ, fallback power terkecil). Berlaku di **dua alur**: export order-online (`reserveStock`) DAN import shipment ber-resi (`ShipmentImportService`). Split & kemasan HANYA memengaruhi stok/jurnal — isi template export tetap 1 baris qty asli.
+Saat stok kacamata (KMP/KSP/KBJ) berkurang lewat pengiriman, stok kemasan ikut berkurang otomatis: **BOX + LAP = floor(qty/2)** (rasio diambil dari tabel `packaging_rules` — admin bisa ubah di halaman Gudang). **Aturan kemasan punya 2 JENIS (`rule_type`): `additional` dan `split`** — keduanya data-driven dari `packaging_rules`:
+- **`additional`** (BOX/LAP): tiap `qty_per` unit barang inti → 1 unit pendamping keluar (target pakai varian DEFAULT).
+- **`split`** (promo "Beli 1 Dapat 2"): barang inti dipecah — **main keluar `ceil(qty/qty_per)`, target keluar `floor(qty/qty_per)`** dengan varian target **POWER SAMA** (fallback power terkecil). Contoh `KMP → KDF qty_per=2`: order qty 2 → 1 KMP + 1 KDF keluar; qty 4 → 2 KMP + 2 KDF.
+Berlaku di **dua alur**: export order-online (`reserveStock`) DAN import shipment ber-resi (`ShipmentImportService`). Split & kemasan HANYA memengaruhi stok/jurnal — isi template export tetap 1 baris qty asli.
 
-> **Produk baru (seeder):** BOX 'Box Kacamata' & LAP 'Lap Pembersih' (aksesoris, non-sized, 1 varian default, stok 1000), KDF 'Kacamata Double Fokus' (kacamata pendamping KBJ, sized → 9 power, stok 1000 dibagi rata). KDF tidak memicu pengurangan saat terjual sendiri.
+> **Produk baru (seeder):** BOX 'Box Kacamata' & LAP 'Lap Pembersih' (aksesoris, non-sized, 1 varian default, stok 1000), KDF 'Kacamata Double Fokus' (kacamata pendamping, sized → 9 power, stok 1000 dibagi rata). KDF tidak memicu pengurangan saat terjual sendiri.
 
-### Aturan
+### Aturan (seed default, 13 Agustus)
 | Produk | Pengurangan saat kirim qty |
 |---|---|
-| KMP, KSP | produk −qty; BOX −floor(qty/2); LAP −floor(qty/2) |
-| KBJ | KBJ −ceil(qty/2); KDF −floor(qty/2); BOX −floor(qty/2); LAP −floor(qty/2) |
+| KMP | **KMP −ceil(qty/2); KDF −floor(qty/2)** (split promo); BOX −floor(qty/2); LAP −floor(qty/2) |
+| KSP | produk −qty; BOX −floor(qty/2); LAP −floor(qty/2) |
+| KBJ | **KBJ −ceil(qty/2); KDF −floor(qty/2)** (split promo); BOX −floor(qty/2); LAP −floor(qty/2) |
 | lainnya | produk −qty (tanpa kemasan/split) |
 
-Contoh: KBJ qty 2 → 1 KBJ + 1 KDF + 1 BOX + 1 LAP; qty 1 → 1 KBJ (0 KDF/BOX/LAP).
+Contoh: KMP qty 2 → 1 KMP + 1 KDF + 1 BOX + 1 LAP; KMP qty 1 → 1 KMP (0 KDF/BOX/LAP); KBJ qty 2 → 1 KBJ + 1 KDF + 1 BOX + 1 LAP.
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
-| `database/migrations/2026_08_09_100000_extend_stock_movements_unique_for_packaging.php` | unique `stock_movements_ref_unique` → `(reference, reference_id, type, product_variant_id)` — 1 order/shipment boleh punya banyak baris `out` (kacamata + BOX + LAP [+KDF]) |
-| `app/Services/StockService.php` | konstanta `KACAMATA_CODES`/`PACK_*_CODE`/`PACK_QTY_PER=2`; **`recordOutWithPackaging()`** (1 transaksi: main + KDF(bila KBJ) + BOX + LAP; produk pendamping belum ada/stok kurang → `RuntimeException` → rollback atomik); `packagingVariants()` cache per instance (anti N+1); key `updateOrCreate` `recordIn`/`recordOut` kini SERTA `product_variant_id`; anti silent-reassign di-scope per produk (`whereHas variant.product_id`) |
+| `database/migrations/2026_08_09_100000_extend_stock_movements_unique_for_packaging.php` | unique `stock_movements_ref_unique` → `(reference, reference_id, type, product_variant_id)` — 1 order/shipment boleh punya banyak baris `out` (kacamata + KDF + BOX + LAP) |
+| `database/migrations/2026_08_13_100004_add_rule_type_to_packaging_rules_table.php` | + `packaging_rules.rule_type` string default `additional` + index; nilai `additional` (1 pendamping per qty_per) & `split` (pecah inti+bonus, power sama) |
+| `app/Services/StockService.php` | konstanta `KACAMATA_CODES` (label export) & `PACK_KDF_CODE`; **`recordOutWithPackaging()`** (1 transaksi: main + target split (ceil/floor, power sama via `variantForPower()`) + target additional (varian default); produk pendamping belum ada/stok kurang → `RuntimeException` → rollback atomik); `packagingRulesFor()` (DB-driven, cache per instance, anti N+1) + `defaultVariantOf()` + `variantForPower()`; key `updateOrCreate` `recordIn`/`recordOut` kini SERTA `product_variant_id`; anti silent-reassign di-scope per produk (`whereHas variant.product_id`) |
 | `app/Services/OrderTemplateExportService.php` | `reserveStock` → `recordOutWithPackaging` (alur order-online) |
 | `app/Services/ShipmentImportService.php` | 2 call site `import()` → `recordOutWithPackaging` (alur resi aggregator) |
-| `database/seeders/ProductSeeder.php` | `SIZED_PRODUCTS` + `KDF`; tambah produk BOX/LAP/KDF + opening stock |
+| `database/seeders/ProductSeeder.php` | `SIZED_PRODUCTS` + `KDF`; tambah produk BOX/LAP/KDF + opening stock; `seedPackagingRules()` (6 rule additional KMP/KSP/KBJ→BOX/LAP qty_per=2 **+ 2 rule split KMP/KBJ→KDF qty_per=2**, idempotent) — dipanggil SETELAH produk dibuat (fix DB fresh) |
 | `tests/Feature/OrderOnlineTest.php` | +6 test packaging/split (total 38) |
 
 ### Penting
@@ -436,7 +441,7 @@ Folder `filecoba/` berisi kit uji end-to-end pipeline order-online (import menta
 | `filecoba/actual_export_*.csv` | Hasil export nyata dari service (artefak tiap run verify) |
 
 ### Skenario 10 order
-- **CBC-101..105** (bank_transfer semua provinsi) → `flix-tf` → template FLIK: KMP+1.50, KMP+1 (qty2), KSP+2 (**GTM**), KBJ+1.25 (qty2 → split), KCHP. FLIK jadi **2 gudang** (GTM + GUDANG-PUSAT) → ZIP (rule F).
+- **CBC-101..105** (bank_transfer semua provinsi) → `flix-tf` → template FLIK: KMP+1.50, KMP+1 (qty2), KSP+2 (**Aurora**), KBJ+1.25 (qty2 → split), KCHP. FLIK jadi **2 gudang** (Aurora + GUDANG-PUSAT) → ZIP (rule F).
 - **CBC-201..203** (cod Jawa/Bali) → `sicepat` → template SiCepat: KMP+1.75, KMP+2.25 (qty3), KCHP.
 - **CBC-301/302** (pending+paid → `tembakan`) → selalu `spx` → template SPX: KBJ+1.50 qty2 (variation "Dapat 2"), KMP+1.25.
 - Status tracking tersebar di 3 file mencakup **semua 6 nilai**: `waiting_pickup` (CBC-104), `in_transit` (CBC-102, CBC-202), `delivered` (CBC-101, CBC-201, CBC-301), `returning` (CBC-203), `returned` (CBC-103 FLIK, CBC-302 SPX — uji balik stok), `problem` (CBC-105 FLIK, 3PL "Problem...").
@@ -615,7 +620,7 @@ Pemetaan kolom saat export `shipping_orders` → template courier (FLIK/SiCepat/
 | source_type | Makna | Contoh |
 |---|---|---|
 | `column` | Kolom `shipping_orders` (registry `ExportMappingService::COLUMNS`, 25 kolom) | `customer_name`, `phone_normalized`, `amount` |
-| `computed` | Nilai khusus hasil perhitungan (registry `COMPUTED`, 15 key) | `warehouse` (KSP→GTM/SH→Aurora), `product_name_display` (+power), `phone_spx` (mulai 8), `weight_1`, `pack_length/width/height` (10/8/6), `default_courier_note`, `cod_flag`, `cod_amount`, `payment_method_upper`, `province/city/district_upper` (CAPSLOCK), `order_id_50` |
+| `computed` | Nilai khusus hasil perhitungan (registry `COMPUTED`, 15 key) | `warehouse` (KSP→Aurora/SH→GTM), `product_name_display` (+power), `phone_spx` (mulai 8), `weight_1`, `pack_length/width/height` (10/8/6), `default_courier_note`, `cod_flag`, `cod_amount`, `payment_method_upper`, `province/city/district_upper` (CAPSLOCK), `order_id_50` |
 | `static` | Teks tetap yang diketik admin | `'Barang'` (Jenis Paket SiCepat), `'N'` (Asuransi SPX) |
 | `empty` | Dikosongkan | Kelurahan FLIK, kolom DO Balik SiCepat |
 
@@ -670,6 +675,160 @@ Template export tidak lagi terbatas 3 bawaan: tabel **`export_templates`** (key/
 - Pipeline `filecoba/verify_pipeline.php` tetap **103/103 PASS** (precheck `export_template_mappings` + `buildRows` via reflection).
 
 ---
+
+## O. ✅ Halaman Gudang — 3 Kategori Barang + Aturan Kemasan Dinamis + Acuan Restock (13 Agustus 2026)
+
+### Deskripsi
+Barang gudang dikelompokkan jadi **3 tipe** (kolom `products.goods_type`): **Barang Pasti** (`consumable`), **Barang Inti** (`core`), dan **Barang Additional** (`additional`). Halaman `/gudang` = **1 GUDANG 1 HALAMAN**: user memilih gudang (kartu picker, query `inventory_id`), lalu halaman hanya menampilkan isi gudang itu — Barang Pasti (semua produk consumable, stok per gudang ini, form +/− manual), Barang Inti (produk yang gudang induknya = gudang ini, mis. **SH → GTM**, **KSP → Aurora**), Barang Additional, dan **aturan kemasan** (global + khusus gudang ini). **CRUD PRODUK & VARIAN dipindahkan ke halaman Gudang** (halaman `/product` dihapus total) — saat tambah produk dari halaman gudang, `inventory_id` otomatis = gudang yang dibuka (tidak perlu pilih lagi, tidak ada risiko semua barang mengacu ke Gudang Pusat) dan **varian default dibuat otomatis** (kode = kode produk, power 0; stok awal opsional). Bersamaan dengan ini, mapping gudang di-*swap*: **KSP→Aurora, SH→GTM** (sebelumnya terbalik) dan `products.inventory_id` diselaraskan (seeder + data dev).
+
+### Karakteristik tiap tipe
+| Tipe | `goods_type` | Perilaku stok | Contoh |
+|---|---|---|---|
+| Barang Pasti | `consumable` | **Ada di tiap gudang**; stok **manual oleh admin PER GUDANG** (jurnal `manual` + `inventory_id` via halaman Gudang) — hitungan tidak menentu | Kertas Thermal (`KTH`), Lakban (`LAK`), Bubble Wrap (`BUB`) |
+| Barang Inti | `core` | Berkurang **otomatis** saat export order-online / import shipment | KMP, KSP, KBJ, KDF, KCHP, SH, KNGH, KP |
+| Barang Additional | `additional` | Berkurang **otomatis** mengikuti barang inti sesuai `packaging_rules` | BOX, LAP |
+
+### Aturan kemasan dinamis (`packaging_rules`) — PER GUDANG
+- Tabel `packaging_rules (source_product_id, target_product_id, inventory_id, qty_per, rule_type, is_active)` — `rule_type` = **`additional`** (setiap `qty_per` unit barang inti → 1 unit pendamping keluar, target varian default) atau **`split`** (barang inti dipecah: main = `ceil(qty/qty_per)`, target = `floor(qty/qty_per)`, varian target POWER SAMA fallback power terkecil). UNIQUE `(source, target, inventory_id)` (`inventory_id` NULL = berlaku semua gudang; MySQL membolehkan banyak NULL di unique).
+- **Rule khusus gudang menimpa rule global** untuk kombinasi source→target yang sama (`packagingRulesFor(productId, inventoryId)` = rule spesifik `union` rule global, cache per instance).
+- `StockService::recordOutWithPackaging()` membaca aturan **dari DB** (bukan hardcode): split rules menentukan qty utama (`ceil`) + target bonus (`floor`, power sama); additional rules menentukan target pendamping (varian default); rule nonaktif di-skip; target tanpa varian aktif → `RuntimeException` ("Produk BOX belum terdaftar") → rollback atomik. Semua movement (main/split/additional) tercatat dengan `inventory_id` = gudang induk produk inti (untuk stok per gudang yang benar).
+- Seed default (idempotent di `ProductSeeder::seedPackagingRules()`, dipanggil SETELAH produk dibuat): 6 rule **additional** KMP/KSP/KBJ → BOX/LAP `qty_per=2` global + 2 rule **split** KMP/KBJ → KDF `qty_per=2` global (promo "Beli 1 Dapat 2"; KSP TIDAK dapat KDF). Admin bisa ubah rasio/jenis, nonaktifkan, tambah rule (global atau per gudang), atau hapus di halaman Gudang.
+- **Split KBJ→KDF & KMP→KDF kini data-driven** (`rule_type=split`) — tidak ada lagi special-case hardcode di StockService (kecuali guard "KDF tidak dikirim sendiri").
+
+### Stok per gudang & acuan re-stock (`products.min_stock`)
+- Stok per gudang dihitung dari jurnal (`stock_movements.inventory_id`): Barang Pasti menampilkan tabel per inventory dengan form +/− manual **per gudang**; Barang Inti/Additional menampilkan kolom "Stok per Gudang" (chip per inventory). `StockService::stockOf(variantId, ?inventoryId)` memfilter per gudang.
+- `recordIn`/`recordOut` menerima parameter baru `inventoryId` (paling akhir, backward-compatible); pembelian (`PurchaseController`) & reserve export/shipment ikut mencatat `inventory_id` gudang induk produk.
+- `min_stock` di-set **per produk** di form Produk (satu acuan total). Halaman Gudang menampilkan badge **⚠ Perlu Restock** (merah) saat `total stok produk ≤ min_stock`; selain itu **Stok Aman** (hijau).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_100000_add_goods_type_and_min_stock.php` | `products.goods_type` enum (consumable/core/additional, default core) + index; `products.min_stock` unsigned int default 0 |
+| `database/migrations/2026_08_13_100001_create_packaging_rules_table.php` | tabel `packaging_rules` + UNIQUE `(source_product_id, target_product_id)` |
+| `database/migrations/2026_08_13_100003_add_inventory_to_packaging_rules.php` | + `inventory_id` nullable (FK inventories, nullOnDelete) + UNIQUE `packaging_rules_combo_unique (source, target, inventory)` — idempotent, nama index eksplisit pendek (default-nya > 64 char MySQL) |
+| `database/migrations/2026_08_13_100002_add_manual_to_stock_movements_reference.php` | enum `stock_movements.reference` + `'manual'` |
+| `app/Models/PackagingRule.php` | model + relasi sourceProduct/targetProduct |
+| `app/Models/Product.php` | `goods_type`/`min_stock` fillable + constants `GOODS_TYPES`/`GOODS_TYPE_LABELS` + relasi `packagingRulesAsSource()` |
+| `app/Services/StockService.php` | `recordOutWithPackaging` DB-driven per gudang (`packagingRulesFor(productId, inventoryId)` rule spesifik menimpa global, cache per instance, `defaultVariantOf`, `kdfVariants`); `recordIn`/`recordOut`/`stockOf` + parameter `inventoryId`; semua movement reserve tercatat dgn gudang induk produk |
+| `app/Http/Controllers/GudangController.php` | `index(Request)` — tanpa `inventory_id` → hanya picker; dengan `inventory_id` → scope per gudang (consumable semua, core/additional `where inventory_id`), rules global + khusus gudang, `perVariant` map stok gudang itu (1 query aggregate); `adjust` (manual in/out PER GUDANG, reference `manual` + `reference_id` acak + `inventory_id`); **`productStore/Update/Destroy`** (inventory dari form hidden = gudang dibuka, `productStore` auto buat varian default + stok awal via recordIn ke gudang itu), **`variantStore/Update/Destroy`**, **`toggleStatus/toggleVariantStatus`** (semua logika ProductController lama pindah ke sini); `packagingStore` (opsional inventory_id; duplikat cek per (source,target,inventory)), `packagingUpdate/Destroy` |
+| `resources/views/gudang/index.blade.php` | Kartu **Pilih Gudang** (aktif state) di atas; tanpa pilihan → prompt pilih; dengan pilihan → header gudang + 3 section scoped + **CRUD produk** (tombol ＋ Tambah Produk per section, modal create/edit produk, baris expand varian + modal varian + toggle status) + kartu Aturan Kemasan (rule global + gudang ini, form tambah default gudang aktif). Modal produk menyertakan info "Gudang otomatis: {nama}" |
+| `app/Http/Controllers/ProductController.php` + `resources/views/product/*` | **DIHAPUS** — route `product.*` & `product.variant.*` lama dihapus; diganti `gudang.product.*`/`gudang.variant.*` |
+| `resources/views/layouts/app.blade.php` | link sidebar **Produk dihapus** (digantikan halaman Gudang) |
+| `app/Http/Controllers/ProductController.php` + `resources/views/product/form.blade.php` | validasi & input `goods_type` (select) + `min_stock` (number) |
+| `database/seeders/ProductSeeder.php` | `goods_type` di semua produk (update idempotent saat re-seed, min_stock admin tidak ditimpa); **gudang induk per produk** (SH→GTM, KSP→Aurora, sisanya → Gudang Pusat — selaras `WAREHOUSE_BY_PRODUCT`, di-update saat re-seed); produk baru KTH/LAK/BUB (consumable, 1 varian, stok 1000); opening stock consumable **dibagi rata per inventory** (reference_id unik `variant_id*100+inventory_id`), produk lain tercatat ke gudang induk; `seedPackagingRules()` (6 rule global) |
+| `resources/views/layouts/app.blade.php` | sidebar Gudang & Kiriman → link **Gudang** (🏬) |
+| `routes/web.php` | `/gudang`, `/gudang/adjust`, `/gudang/packaging-rules` (+PUT/DELETE) |
+| `app/Services/OrderTemplateExportService.php` | `WAREHOUSE_BY_PRODUCT` di-swap: **KSP→Aurora, SH→GTM** |
+| `tests/Feature/OrderOnlineTest.php` | +8 test: qty_per dinamis, rule nonaktif, render gudang + adjust, **adjust per gudang**, CRUD rule (global + per gudang), **rule per gudang menimpa global**, badge restock, **scoping per gudang** (GTM = SH, Aurora = KSP, tanpa pilihan = picker saja); 3 test warehouse disesuaikan swap |
+| `filecoba/generate_test_kit.php` + `02_export_flik.csv` | `warehouseFor` KSP→Aurora/SH→GTM + referensi statis di-update |
+
+### Penting
+- **Enum `stock_movements.reference`** — penyesuaian manual memakai nilai `'manual'` dengan `reference_id` acak (`random_int`) agar tidak menimpa jurnal opening stock (`adjustment` + `reference_id=variant_id`) dan tidak saling menimpa.
+- **Nama index MySQL ≤ 64 char** — default unique `packaging_rules_source_product_id_target_product_id_inventory_id_unique` melebihi batas → pakai nama eksplisit `packaging_rules_combo_unique`. Migrasi 100003 idempotent (guard `hasColumn` + cek nama index) karena versi awal sempat ter-apply sebagian.
+- **`recordOutWithPackaging` tanpa hardcode** — penambahan produk inti baru cukup tambahkan rule di halaman Gudang; stok produk yang tidak punya rule hanya berkurang qty-nya sendiri.
+- Re-seed `ProductSeeder` **tidak menimpa `min_stock`** admin (hanya `goods_type` yang dipastikan konsisten).
+- Test packaging lama tetap hijau: rule default qty_per=2 + `ensureCatalog()` me-reseed rule tiap test (updateOrCreate).
+- Pipeline `filecoba/verify_pipeline.php` tetap **103/103 PASS**; `actual_export_*.csv` artefak regenerasi memakai gudang baru (Aurora utk KSP).
+- Penyesuaian manual per gudang: stok total varian = jumlah semua gudang (kolom `product_variants.stock` tetap total; detail per gudang dihitung dari jurnal via `stockOf(variantId, inventoryId)`).
+- Halaman Gudang tidak menampilkan SEMUA gudang sekaligus — pilih dulu gudangnya (1 gudang = 1 halaman). Produk inti/additional milik satu gudang; Barang Pasti muncul di semua gudang dengan stok per gudang masing-masing.
+- **Produk baru di halaman Gudang** → gudang yang dibuka jadi gudang UTAMA (pivot `is_primary`) + **varian default otomatis** (agar stok bisa langsung dicatat). Edit `goods_type` di modal produk bisa memindahkan produk antar section (gudang tetap).
+
+---
+
+## P. ✅ Relasi Many-to-Many Produk ↔ Gudang + Stok per Gudang (13 Agustus 2026)
+
+### Deskripsi
+Relasi `products → inventories` diubah dari 1-ke-banyak (`products.inventory_id`) menjadi **many-to-many** — 1 produk bisa terdaftar di banyak gudang, dengan penanda gudang **UTAMA** (`is_primary`) yang dipakai export/fulfillment & pencatatan stok otomatis. Stok kini disimpan **per varian × gudang** di tabel tersendiri. `products.inventory_id` DIHAPUS.
+
+### Skema baru
+- `product_inventory` (pivot): `(product_id, inventory_id, is_primary)` UNIQUE `(product_id, inventory_id)`. `is_primary` = gudang utama (0/1 baris per produk — dijaga di titik tulis).
+- `product_variant_inventory`: `(product_variant_id, inventory_id, stock)` UNIQUE `(product_variant_id, inventory_id)` — **cache stok per varian per gudang**, disinkronkan `StockService` dari jurnal (`stock_movements` TETAP sumber kebenaran).
+- `products.inventory_id` di-drop (migrasi `2026_08_13_110001`). Backfill (migrasi `110000`): tiap produk → pivot dari `inventory_id` lama (`is_primary=1`); Barang Pasti (consumable) di-attach ke SEMUA inventory (mempertahankan perilaku lama); stok per (varian, gudang) diagregasi dari jurnal (movement `inventory_id` NULL dianggap gudang utama produk).
+
+### Perilaku
+- **Export (`warehouseFor`)** — nama gudang per order kini dari **gudang utama produk** (`Product::where(code)->first()->primaryInventory->first()->name`), cache per instance (anti N+1); fallback `WAREHOUSE_BY_PRODUCT` (KSP→Aurora, SH→GTM) → sender. Konsekuensi: produk non-spesial (KMP/KBJ/KCHP dll.) yang tadinya sender kini tampil `Gudang Pusat` (nama inventory). ZIP split per gudang tetap bekerja.
+- **`recordOutWithPackaging`** memakai `product->primaryInventoryId()` sebagai gudang pencatatan movement (bukan `inventory_id`).
+- **`recordIn`/`recordOut`** — bila `inventoryId` null, di-resolve ke gudang utama produk; setelah recalc total, `syncVariantInventoryStocks()` meng-upsert cache per (varian, gudang). `reverseReference` & `recalculateAll` ikut menyinkronkan cache.
+- **Halaman Gudang** — scoping per gudang via `whereHas('inventories')` (bukan `where inventory_id`); `perInventoryStockByVariant` membaca tabel cache (1 query ringan). Modal edit produk punya seksi **Gudang Produk**: checkbox gudang + radio gudang utama, dikirim ke `gudang.product.update` (`inventory_ids[]` + `primary_inventory_id`). Detach gudang → hapus baris pivot + cache stok gudang tsb (jurnal tidak diubah).
+- **Pembelian (`PurchaseController`)** mencatat stok ke `primaryInventoryId()`.
+- **Seeder** — `syncInventoryMembership()`: inti/additional → gudang induk (primary), consumable → semua gudang (primary = pertama); re-seed memaksa primary ke bawaan tapi TIDAK menghapus keanggotaan tambahan admin; opening stock consumable tetap dibagi rata per gudang.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_110000_create_product_inventory_tables.php` | tabel pivot + cache stok + backfill dari `products.inventory_id` & jurnal |
+| `database/migrations/2026_08_13_110001_drop_inventory_id_from_products.php` | drop `products.inventory_id` |
+| `app/Models/ProductInventory.php`, `ProductVariantInventory.php` | model pivot & cache stok |
+| `app/Models/Product.php` | `inventories()`/`primaryInventory()`/`primaryInventoryId()`/`stockAt()`; `inventory_id` dikeluarkan dari fillable; relasi `inventory()` dihapus |
+| `app/Models/Inventory.php` | `products()` → BelongsToMany |
+| `app/Models/ProductVariant.php` | `inventoryStocks()` + `stockAt()` |
+| `app/Services/StockService.php` | `syncVariantInventoryStocks()`; resolve `inventoryId` null → gudang utama; `recordOutWithPackaging` pakai `primaryInventoryId()` |
+| `app/Http/Controllers/GudangController.php` | scoping `whereHas('inventories')`, `perVariant` dari cache, `productStore` attach pivot (primary), `productUpdate` terima `inventory_ids`/`primary_inventory_id`, `productDestroy` redirect pakai primary |
+| `app/Http/Controllers/PurchaseController.php` | `primaryInventoryId()` |
+| `app/Services/OrderTemplateExportService.php` | `warehouseFor` DB-driven (gudang utama produk), cache per instance |
+| `database/seeders/ProductSeeder.php` | `syncInventoryMembership()` + opening stock via gudang utama |
+| `resources/views/gudang/index.blade.php` | seksi Gudang Produk di modal edit (checkbox + radio primary) + `data-wh`/`data-primary-wh` |
+| `tests/Feature/OrderOnlineTest.php` | +`test_warehouse_export_uses_primary_inventory`, `test_product_belongs_to_multiple_warehouses_with_per_warehouse_stock`; update test warehouse (KMP→Gudang Pusat), rule per gudang (pivot), gudang page (attach KTH) |
+| `filecoba/generate_test_kit.php` | `warehouseFor` kit → `Gudang Pusat` untuk non-KSP/SH; referensi statis diregenerasi |
+
+### Penting
+- **Jurnal tetap sumber kebenaran** — `product_variant_inventory.stock` & `product_variants.stock` keduanya cache; jangan edit manual langsung.
+- **`primaryInventory()` dipanggil sebagai PROPERTY** (koleksi) di service/view, bukan method (relasi) — `->primaryInventory?->first()?->name`, bukan `->primaryInventory()->name` (BelongsToMany tidak punya atribut `name`).
+- Test M2M yang mengubah primary produk WAJIB mengembalikan primary asli di `finally` (kalau tidak, test berikutnya yang bergantung gudang utama ikut gagal).
+- Test pakai DB `awannacoba` tanpa refresh → migrasi 110000/110001 otomatis ter-apply sebelum test (tabel sudah ada).
+- `products.inventory_id` tidak boleh dipakai lagi di kode baru — ganti dengan `primaryInventoryId()` (gudang utama) atau membership `inventories()`.
+
+---
+
+## Q. ✅ Master Produk Terpusat — Halaman Produk Sendiri; Gudang Hanya Attach (13 Agustus 2026)
+
+### Deskripsi
+Membuat/mengubah produk & varian kini **hanya** di halaman master **Produk** (`/product`, sidebar Data Master). Halaman **Gudang** TIDAK lagi membuat produk — tombol "＋ Tambah Produk ke Gudang" hanya **mendaftarkan produk yang SUDAH ADA** (beserta variannya dari `product_variants`) ke gudang yang dibuka. Ini membalik keputusan fitur O (yang sempat memindahkan CRUD produk ke halaman Gudang) — semua produk di gudang kini teratur karena master data terpusat.
+
+### Perilaku
+- **Master Produk (`/product`)**: daftar + filter (search/tipe/status), kolom Kode, Nama, Tipe, Gudang utama + jumlah gudang, Stok total, Min. Stok (badge Restock), HPP, Harga Jual, Status (toggle), Aksi (Varian/Edit/Hapus). Modal buat/edit produk (tanpa gudang & tanpa stok awal — produk belum terdaftar di gudang mana pun saat dibuat; **varian default otomatis** agar stok bisa dicatat). Kelola varian (add/edit/delete/toggle) di baris expand. Stok per gudang tetap dikelola di Gudang/Barang Masuk — varian master dibuat dengan `stock=0`.
+- **Halaman Gudang**: tombol per section "＋ Tambah Produk ke Gudang" → modal pilih produk master yang **belum terdaftar** di gudang ini (difilter per section via JS, `data-goods-type`), `stock_awal` opsional (varian default, jurnal `adjustment`), checkbox "Jadikan gudang utama". Produk pertama terdaftar otomatis jadi gudang utama. Tombol `🏷` per baris → modal **Kelola Gudang Produk** (centang gudang + radio utama). Tombol `🗑` → **Lepas dari gudang ini** (bukan hapus produk). Baris expand varian **read-only** (stok per gudang). Status produk/varian & edit field produk TIDAK ada di halaman Gudang lagi.
+- **Controller**: `ProductController` baru (index/store/update/destroy/toggle + variant CRUD); `GudangController` hanya `productAttach`/`productWarehousesUpdate`/`productDetach` (method lama `productStore`/`productUpdate`/`productDestroy`/`variant*`/`toggle*` DIHAPUS).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/ProductController.php` | (baru) master produk + varian; varian default otomatis saat create |
+| `app/Http/Controllers/GudangController.php` | `productAttach` (attach produk master + stok awal opsional + auto-primary pertama), `productWarehousesUpdate`, `productDetach`; index kirim `$availableProducts` |
+| `routes/web.php` | `product.*` + `product.variant.*` (baru); `gudang.product.attach/warehouses/detach` (ganti store/update/destroy/toggle & variant lama) |
+| `resources/views/product/index.blade.php` | (baru) master produk + modal + varian |
+| `resources/views/gudang/index.blade.php` | modal attach & kelola gudang (form biasa), varian read-only, tombol detach |
+| `resources/views/layouts/app.blade.php` | sidebar Data Master → link **Produk** (📦) |
+| `tests/Feature/OrderOnlineTest.php` | +`test_gudang_attach_existing_product_to_warehouse`, `test_gudang_product_warehouses_update_and_detach`, `test_product_master_variant_crud`, `test_product_master_page_create_update_toggle_destroy`; test scoping pakai hitungan per section (nama produk lintas-gudang tampil di dropdown attach) |
+
+### Penting
+- Produk di halaman Gudang yang diklik `🗑` = **lepas dari gudang** (`gudang.product.detach`, kirim `inventory_id`), BUKAN hapus — hapus produk hanya di halaman Produk (`product.destroy`, soft delete).
+- Dropdown attach memuat SEMUA produk aktif yang belum terdaftar di gudang itu (semua tipe) → test `assertDontSee` berbasis nama produk antar-gudang TIDAK valid; gunakan hitungan section (header "Barang Inti: N").
+- `stock_awal` attach memakai `reference='adjustment'` + `reference_id` acak (`random_int`) agar tidak menimpa jurnal opening stock seeder (pola sama dengan penyesuaian manual).
+- Ini membalik bagian fitur O yang memindahkan CRUD produk ke halaman Gudang; halaman `/product` dihidupkan kembali dengan skema M2M (fitur P): tanpa `inventory_id`, tanpa stok awal.
+
+### Penting: gudang UTAMA (`is_primary`) HANYA untuk Barang Inti (core)
+- Label "gudang utama" **hanya berlaku produk `core`** — Barang Pasti (consumable, ada di semua gudang) & Barang Additional (mengikuti barang inti) **tidak pernah** punya gudang utama (is_primary selalu false). Migrasi `2026_08_13_120000_primary_only_for_core` membersihkan data lama; seeder/`productAttach`/`productWarehousesUpdate` menjaganya (non-core: `is_primary=false`, radio/checkbox utama disembunyikan di UI, `Product::primaryInventoryId()` return null untuk non-core).
+- **`Product::primaryInventoryId()`** guard memakai `goods_type !== null && goods_type !== 'core'` — instance baru dari `create()` punya `goods_type` null di memori (DB default 'core' tidak di-refresh ke model) sehingga TIDAK boleh salah terblokir.
+
+---
+
+## R. ✅ Barang Masuk (Purchase) — Opsi Gudang Tujuan (13 Agustus 2026)
+
+### Deskripsi
+Halaman **Barang Masuk** kini punya pilihan **Gudang Tujuan** — stok pembelian dicatat ke gudang yang dipilih (stok per gudang), bukan lagi selalu ke gudang utama produk (yang hanya ada untuk Barang Inti).
+
+### Perubahan
+- Migrasi `2026_08_13_130000_add_inventory_id_to_purchases`: `purchases.inventory_id` nullable FK (nullOnDelete) + index — data lama tetap valid.
+- `Purchase` model: `inventory_id` fillable + relasi `inventory()`.
+- `PurchaseController::store` validasi `inventory_id` **required** + `recordIn(..., $purchase->inventory_id)`; catatan jurnal menyertakan nama gudang. `index` eager-load `inventory` + filter `inventory_id` + pass `$inventories`.
+- View `purchase/index.blade.php`: select **GUDANG TUJUAN** (required) di form + JS autofill gudang utama produk saat varian dipilih (`data-primary-wh` di `<optgroup>`; Barang Pasti/Additional tidak punya primary → tetap pilih manual), kolom **Gudang** di tabel (badge 🏭), filter gudang di bilah filter.
+- Test `test_purchase_records_stock_to_selected_warehouse`: pembelian ke gudang B (bukan gudang utama A) → `purchases.inventory_id` = B, stok B bertambah, gudang utama A tetap 0, index menampilkan/filter gudang.
+
+### Penting
+- `inventory_id` WAJIB di form (produk tanpa gudang utama — Barang Pasti/Additional — harus dipilih manual; autofill hanya untuk Barang Inti).
+- HPP tetap per produk (rata-rata tertimbang semua jurnal masuk) — tidak berubah.
+- `purchase.destroy` tetap `reverseReference('purchase', id)` (jurnal dihapus apa adanya, `inventory_id` ikut terhapus).
 
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 

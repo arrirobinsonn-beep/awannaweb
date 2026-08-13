@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\ExportTemplateMapping;
 use App\Models\OrderOnlineImportBatch;
+use App\Models\Product;
 use App\Models\ShippingOrder;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -26,10 +27,9 @@ use ZipArchive;
  * diekspor (sudah dikirim = tidak boleh di-reserve/ekspor ulang). Saat export, stok
  * produk dikurangi lewat jurnal `stock_movements` (reference `order_online`, idempotent
  * per order).
- *
- * Order dikelompokkan per gudang (lihat `warehouseFor()`): KSP→GTM, SH→Aurora,
- * selain itu → sender. Satu gudang = 1 file .xlsx langsung; ≥ 2 gudang =
- * 1 ZIP berisi file per gudang (karena alamat pickup tiap gudang berbeda).
+ *     * Order dikelompokkan per gudang (lihat `warehouseFor()`): KSP→Aurora, SH→GTM,
+     * selain itu → sender. Satu gudang = 1 file .xlsx langsung; ≥ 2 gudang =
+     * 1 ZIP berisi file per gudang (karena alamat pickup tiap gudang berbeda).
  *
  * Kolom "Kelurahan" (FLIK) dibiarkan kosong karena data mentah tidak menyediakannya.
  * "Total Nilai Barang / Total Nilai COD" diisi amount (gross_revenue CSV).
@@ -65,11 +65,14 @@ class OrderTemplateExportService
     /** Dimensi paket default (panjang, lebar, tinggi) dalam cm. */
     public const PACK_DIMENSIONS = [10, 8, 6];
 
-    /** Mapping kode produk → kode gudang. */
+    /** Mapping kode produk → kode gudang. KSP→Aurora, SH→GTM, selain itu → sender. */
     public const WAREHOUSE_BY_PRODUCT = [
-        'KSP' => 'GTM',
-        'SH' => 'Aurora',
+        'KSP' => 'Aurora',
+        'SH' => 'GTM',
     ];
+
+    /** Cache nama gudang utama per kode produk (anti N+1 per instance). */
+    private array $primaryWarehouseByCode = [];
 
     public function __construct(
         private readonly CourierRuleService $couriers = new CourierRuleService,
@@ -87,7 +90,9 @@ class OrderTemplateExportService
     }
 
     /**
-     * Kode gudang untuk sebuah order. KSP→GTM, SH→Aurora, selain itu sender.
+     * Kode gudang untuk sebuah order — mengikuti gudang UTAMA produk
+     * (pivot `product_inventory.is_primary`). Produk tanpa gudang utama
+     * jatuh ke mapping kode lama (KSP→Aurora, SH→GTM), lalu sender.
      */
     public function warehouseFor(?string $productCode, ?string $sender): string
     {
@@ -96,7 +101,14 @@ class OrderTemplateExportService
             $code = explode('+', $code)[0];
         }
 
-        return self::WAREHOUSE_BY_PRODUCT[$code] ?? ($sender ?? '');
+        if ($code !== '' && ! array_key_exists($code, $this->primaryWarehouseByCode)) {
+            $this->primaryWarehouseByCode[$code] = Product::where('code', $code)
+                ->first()?->primaryInventory?->first()?->name;
+        }
+
+        $name = $this->primaryWarehouseByCode[$code] ?? null;
+
+        return $name ?: (self::WAREHOUSE_BY_PRODUCT[$code] ?? ($sender ?? ''));
     }
 
     /**
