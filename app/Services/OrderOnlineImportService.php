@@ -316,7 +316,7 @@ class OrderOnlineImportService
                 } elseif ($row['status'] === 'tembakan') {
                     $row['courier'] = 'spx';
                 } else {
-                    $row['courier'] = $this->couriers->resolve($row['payment_method'], $row['province']);
+                    $row['courier'] = $this->couriers->resolve($row['payment_method'], $row['province'], $row['product_code'] ?? null);
                 }
 
                 $row['product_id'] = $productMap[$row['product_code'] ?? ''] ?? null;

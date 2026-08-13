@@ -12,6 +12,7 @@ class CourierRule extends Model
         'sort_order',
         'payment_method',
         'province',
+        'product_code',
         'courier',
         'is_active',
     ];

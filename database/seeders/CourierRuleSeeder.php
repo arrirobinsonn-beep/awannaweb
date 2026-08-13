@@ -13,11 +13,15 @@ class CourierRuleSeeder extends Seeder
 
         $rules = [];
 
-        // 1. bank_transfer → flix-tf (semua provinsi)
-        $rules[] = ['sort_order' => 1, 'payment_method' => 'bank_transfer', 'province' => null, 'courier' => 'flix-tf'];
+        // 1. Produk SH → SELALU flix-tf (khusus produk, menang atas aturan
+        //    provinsi/metode bayar — evaluasi 2 fase di CourierRuleService).
+        $rules[] = ['sort_order' => 1, 'payment_method' => null, 'province' => null, 'product_code' => 'SH', 'courier' => 'flix-tf'];
 
-        // 2. COD → flix-idx (Sumatera tertentu)
-        $sort = 2;
+        // 2. bank_transfer → flix-tf (semua provinsi)
+        $rules[] = ['sort_order' => 2, 'payment_method' => 'bank_transfer', 'province' => null, 'courier' => 'flix-tf'];
+
+        // 3. COD → flix-idx (Sumatera tertentu)
+        $sort = 3;
         foreach ([
             'BENGKULU', 'JAMBI', 'LAMPUNG', 'RIAU',
             'SUMATRA BARAT', 'SUMATRA SELATAN', 'SUMATRA UTARA',

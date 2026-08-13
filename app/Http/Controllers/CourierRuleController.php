@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\CourierRule;
+use App\Models\Product;
 use App\Services\CourierRuleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -32,6 +33,7 @@ class CourierRuleController extends Controller
             'nextOrder' => ($rules->max('sort_order') ?? 0) + 1,
             'couriers' => CourierRuleService::COURIERS,
             'provinces' => config('regional.master_provinces', []),
+            'productCodes' => Product::query()->pluck('code')->sort()->values(),
         ]);
     }
 
@@ -41,6 +43,7 @@ class CourierRuleController extends Controller
             'sort_order' => ['required', 'integer', 'min:1', 'max:999999'],
             'payment_method' => ['nullable', 'string', 'max:50'],
             'province' => ['nullable', 'string', 'max:191'],
+            'product_code' => ['nullable', 'string', 'max:50'],
             'courier' => ['required', 'string', 'in:'.implode(',', CourierRuleService::COURIERS)],
             'is_active' => ['sometimes', 'boolean'],
         ]));
@@ -62,6 +65,7 @@ class CourierRuleController extends Controller
             'sort_order' => ['required', 'integer', 'min:1', 'max:999999'],
             'payment_method' => ['nullable', 'string', 'max:50'],
             'province' => ['nullable', 'string', 'max:191'],
+            'product_code' => ['nullable', 'string', 'max:50'],
             'courier' => ['required', 'string', 'in:'.implode(',', CourierRuleService::COURIERS)],
             'is_active' => ['sometimes', 'boolean'],
         ]));
@@ -125,6 +129,9 @@ class CourierRuleController extends Controller
         $data['province'] = ! empty($data['province'])
             ? strtoupper(trim($data['province']))
             : null;
+        $data['product_code'] = ! empty($data['product_code'])
+            ? strtoupper(explode('+', trim($data['product_code']))[0])
+            : null;
         $data['is_active'] = (bool) ($data['is_active'] ?? false);
 
         return $data;
@@ -134,6 +141,7 @@ class CourierRuleController extends Controller
     {
         return CourierRule::where('payment_method', $data['payment_method'])
             ->where('province', $data['province'])
+            ->where('product_code', $data['product_code'])
             ->when($ignoreId !== null, fn ($q) => $q->where('id', '!=', $ignoreId))
             ->exists();
     }

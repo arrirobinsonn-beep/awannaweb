@@ -78,6 +78,7 @@ class OrderTemplateExportService
         private readonly CourierRuleService $couriers = new CourierRuleService,
         private readonly StockService $stock = new StockService,
         private readonly ExportMappingService $mappings = new ExportMappingService,
+        private readonly WarehouseRuleService $warehouseRules = new WarehouseRuleService,
     ) {}
 
     /**
@@ -90,9 +91,12 @@ class OrderTemplateExportService
     }
 
     /**
-     * Kode gudang untuk sebuah order — mengikuti gudang UTAMA produk
-     * (pivot `product_inventory.is_primary`). Produk tanpa gudang utama
-     * jatuh ke mapping kode lama (KSP→Aurora, SH→GTM), lalu sender.
+     * Kode gudang untuk sebuah order — prioritas:
+     *  1. Rule dinamis (tabel `warehouse_rules`, menu Aturan Gudang) —
+     *     pengganti konstanta lama, admin bisa ubah tanpa kode.
+     *  2. Gudang UTAMA produk (pivot `product_inventory.is_primary`).
+     *  3. Mapping kode lama (KSP→Aurora, SH→GTM) sebagai jaring pengaman.
+     *  4. sender (nama pengirim batch).
      */
     public function warehouseFor(?string $productCode, ?string $sender): string
     {
@@ -101,6 +105,13 @@ class OrderTemplateExportService
             $code = explode('+', $code)[0];
         }
 
+        // 1. Rule dinamis dari DB (anti N+1, cache per instance di service)
+        $rule = $code !== '' ? $this->warehouseRules->resolve($code) : null;
+        if ($rule !== null && $rule !== '') {
+            return $rule;
+        }
+
+        // 2. Gudang utama produk
         if ($code !== '' && ! array_key_exists($code, $this->primaryWarehouseByCode)) {
             $this->primaryWarehouseByCode[$code] = Product::where('code', $code)
                 ->first()?->primaryInventory?->first()?->name;
@@ -108,6 +119,7 @@ class OrderTemplateExportService
 
         $name = $this->primaryWarehouseByCode[$code] ?? null;
 
+        // 3–4. Mapping kode lama, lalu sender
         return $name ?: (self::WAREHOUSE_BY_PRODUCT[$code] ?? ($sender ?? ''));
     }
 

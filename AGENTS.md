@@ -589,10 +589,10 @@ Semua elemen halaman spending advertiser (`index-advertiser`) kini fleksibel di 
 ### Deskripsi
 Aturan auto-mapping kurir (tabel `courier_rules`) kini bisa dikelola langsung dari aplikasi lewat halaman **Aturan Courier** (`/courier-rules`) — tanpa ubah kode/seeder. Aturan tersimpan di DB sejak fitur D; halaman ini menutup celah "cara mengubahnya" (sebelumnya hanya via seeder yang truncate, atau akses DB manual).
 
-### Cara kerja (tetap)
-- Evaluasi berurutan dari `sort_order` terkecil; rule pertama yang cocok (`payment_method` + `province`) menang. `payment_method`/`province` null = berlaku semua.
+### Cara kerja (tetap + perluasan fitur P)
+- Evaluasi 2 fase (sejak 13 Agustus, fitur P): **fase 1 = rule khusus produk** (`product_code` terisi, selalu menang) → **fase 2 = rule umum** (`product_code` null, perilaku lama). Dalam tiap fase dievaluasi berurutan dari `sort_order` terkecil; rule pertama yang cocok (`payment_method` + `province`) menang. `payment_method`/`province` null = berlaku semua.
 - Fallback bila tidak ada rule cocok: `spx` (konstanta `FALLBACK_COURIER`, belum dinamis).
-- `CourierRuleService::resolve()` membaca DB per-request (cache per instance) → perubahan langsung berlaku untuk import order berikutnya.
+- `CourierRuleService::resolve(paymentMethod, province, productCode?)` membaca DB per-request (cache per instance) → perubahan langsung berlaku untuk import order berikutnya.
 
 ### Implementasi
 | File | Keterangan |
@@ -829,6 +829,54 @@ Halaman **Barang Masuk** kini punya pilihan **Gudang Tujuan** — stok pembelian
 - `inventory_id` WAJIB di form (produk tanpa gudang utama — Barang Pasti/Additional — harus dipilih manual; autofill hanya untuk Barang Inti).
 - HPP tetap per produk (rata-rata tertimbang semua jurnal masuk) — tidak berubah.
 - `purchase.destroy` tetap `reverseReference('purchase', id)` (jurnal dihapus apa adanya, `inventory_id` ikut terhapus).
+
+## P. ✅ Aturan Gudang Dinamis (produk → gudang) + Rule Courier Khusus Produk (13 Agustus 2026)
+
+### Deskripsi
+Dua aturan "data mentah" yang tadinya hardcoded kini dinamis dari DB:
+1. **Aturan Gudang** (`warehouse_rules`, halaman `/warehouse-rules`): mapping kode produk → nama gudang (kolom "Kode Warehouse" export) — pengganti konstanta `WAREHOUSE_BY_PRODUCT` (SH→GTM, KSP→Aurora).
+2. **Rule courier khusus produk** (`courier_rules.product_code`): mis. produk **SH → SELALU `flix-tf`**, dievaluasi di fase terpisah sehingga **tidak terpengaruh aturan provinsi** (aturan provinsi Jawa → sicepat, Sumatera → flix-idx, dst. tidak berlaku untuk SH).
+
+### Cara kerja courier 2 fase (`CourierRuleService::resolve`)
+- **Fase 1 — rule khusus produk**: rule dengan `product_code` terisi & cocok dengan kode produk order (normalisasi uppercase + buang sufiks `+varian`). Rule pertama yang cocok menang — SELALU didahulukan dari fase 2.
+- **Fase 2 — rule umum**: `product_code` null (perilaku lama: `payment_method` + `province`, `sort_order` terkecil menang).
+- Tanpa rule cocok → fallback `spx`.
+- `OrderOnlineImportService` meneruskan `product_code` (master dari CSV) ke `resolve()`; `tembakan` tetap SELALU `spx` (tidak masuk fase manapun).
+
+### Cara kerja warehouse (`OrderTemplateExportService::warehouseFor`)
+Prioritas: **rule dinamis** (`warehouse_rules` aktif, product_code cocok) → **gudang utama produk** (pivot `is_primary`) → mapping kode lama (`WAREHOUSE_BY_PRODUCT`) → **sender**. Admin menonaktifkan rule agar produk jatuh ke gudang utama/sender.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_140000_create_warehouse_rules_table.php` | `warehouse_rules`: `product_code` (unique), `warehouse`, `is_active` |
+| `database/migrations/2026_08_13_140001_add_product_code_to_courier_rules.php` | `courier_rules.product_code` nullable + index |
+| `app/Models/WarehouseRule.php` | model sederhana |
+| `app/Services/WarehouseRuleService.php` | `resolve(productCode)` + `rules()` index by product_code (cache per instance, anti N+1); normalisasi uppercase/`explode('+')` |
+| `app/Services/CourierRuleService.php` | `resolve(paymentMethod, province, productCode)` 2 fase (produk → umum); `matches()` helper |
+| `app/Services/OrderOnlineImportService.php` | `resolve(..., $row['product_code'])` |
+| `app/Services/OrderTemplateExportService.php` | `warehouseFor()` cek `warehouse_rules` lebih dulu (via `WarehouseRuleService`, cache per instance) |
+| `app/Http/Controllers/CourierRuleController.php` | validasi + normalisasi `product_code` (uppercase, buang `+varian`); cek duplikat kombinasi (payment+province+product_code) |
+| `app/Http/Controllers/WarehouseRuleController.php` (baru) | `index/store/update/destroy/toggle`; duplikat per `product_code`; normalisasi uppercase/`explode('+')` |
+| `resources/views/courier_rule/index.blade.php` | Field **Kode Produk** (datalist produk) di form & modal edit, kolom badge produk di tabel, info box cara kerja 2 fase |
+| `resources/views/warehouse_rule/index.blade.php` (baru) | Form tambah (kode produk + gudang + aktif) + tabel (badge, toggle, edit modal, hapus) + info box prioritas |
+| `routes/web.php` | `/warehouse-rules` (GET/POST/PUT/PATCH toggle/DELETE, nama `warehouse-rule.*`) |
+| `resources/views/layouts/app.blade.php` | Sidebar Data Master → **Aturan Gudang** (di bawah Aturan Courier) |
+| `database/seeders/WarehouseRuleSeeder.php` (baru) | 2 rule bawaan idempotent: SH→GTM, KSP→Aurora (updateOrCreate, tidak menimpa tambahan admin) |
+| `database/seeders/CourierRuleSeeder.php` | + rule `product_code='SH'` → `flix-tf` (payment/province null = semua) di sort_order 1 |
+| `tests/Feature/CourierRuleTest.php` | +3 test: rule produk menang atas provinsi (termasuk nonaktif → jatuh provinsi), store normalisasi product_code, duplikat kombinasi produk |
+| `tests/Feature/WarehouseRuleTest.php` (baru) | 7 test: index, store+resolve dinamis, normalisasi, duplikat, update, toggle, destroy |
+| `tests/Feature/OrderOnlineTest.php` | +2 test: import SH (cod Jawa Barat) → flix-tf & KMP → sicepat; warehouse rule menimpa gudang utama (termasuk nonaktif → Gudang Pusat) |
+
+### Penting
+- **Evaluasi 2 fase** — rule produk tidak bergantung posisi `sort_order` vs rule umum; selalu menang. Ini kunci "tidak terpengaruh aturan courier provinsi".
+- `product_code` di-normalisasi saat simpan (uppercase, `explode('+')[0]`) DAN saat evaluasi — kode varian `SH+1.25` tetap cocok rule `SH`.
+- `CourierRuleSeeder` tetap truncate (defaults menang); `WarehouseRuleSeeder` idempotent `updateOrCreate` (tambahan admin dipertahankan).
+- Test courier produk memakai kode unik (bukan `SH` — DB dev sudah punya rule seed SH→flix-tf).
+- Test import SH memakai **phone unik per run** — phone tetap + produk `SH` + alamat tetap akan kena deteksi duplikat signature dari run sebelumnya (order_id beda) → courier null.
+- Suite: **122 pass** (hanya `ExampleTest` 302 pre-existing) · pipeline `verify_pipeline.php` **103/103 PASS**.
+
+---
 
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 

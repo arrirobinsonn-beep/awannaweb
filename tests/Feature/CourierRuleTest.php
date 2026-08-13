@@ -212,4 +212,89 @@ class CourierRuleTest extends TestCase
         $low->delete();
         $high->delete();
     }
+
+    public function test_product_specific_rule_overrides_province_rules(): void
+    {
+        $province = $this->uniqueProvince();
+        // Kode unik (bukan SH — SH sudah punya rule seed di DB dev)
+        $code = 'CR'.strtoupper(substr(uniqid(), -6));
+        $provinceRule = $this->createRule(['payment_method' => 'cod', 'province' => $province, 'courier' => 'sicepat']);
+        $productRule = CourierRule::create([
+            'sort_order' => 1,
+            'payment_method' => null,
+            'province' => null,
+            'product_code' => $code,
+            'courier' => 'flix-tf',
+            'is_active' => true,
+        ]);
+
+        try {
+            $svc = new CourierRuleService;
+
+            // Produk lain tetap ikut rule provinsi
+            $this->assertSame('sicepat', $svc->resolve('cod', $province, 'KMP'));
+
+            // Produk ber-rule selalu flix-tf, apa pun metode bayar / provinsi
+            $this->assertSame('flix-tf', $svc->resolve('cod', $province, $code));
+            $this->assertSame('flix-tf', $svc->resolve('bank_transfer', 'RIAU', $code));
+
+            // Normalisasi: kode varian tetap cocok rule master
+            $this->assertSame('flix-tf', $svc->resolve('cod', $province, $code.'+1.25'));
+
+            // Nonaktifkan rule produk → jatuh ke rule provinsi
+            $productRule->update(['is_active' => false]);
+            $this->assertSame('sicepat', (new CourierRuleService)->resolve('cod', $province, $code));
+        } finally {
+            $provinceRule->delete();
+            $productRule->delete();
+        }
+    }
+
+    public function test_store_accepts_product_code_and_normalizes(): void
+    {
+        $province = $this->uniqueProvince();
+        $code = 'CR'.strtoupper(substr(uniqid(), -6));
+
+        $this->actingAs($this->adminUser())
+            ->post(route('courier-rule.store'), [
+                'sort_order' => 1,
+                'payment_method' => 'cod',
+                'province' => $province,
+                'product_code' => ' '.strtolower($code).'+1.25 ',
+                'courier' => 'flix-tf',
+                'is_active' => '1',
+            ])
+            ->assertRedirect();
+
+        $rule = CourierRule::where('product_code', $code)->first();
+        $this->assertNotNull($rule);
+        $this->assertSame($code, $rule->product_code);
+        $this->assertSame('flix-tf', (new CourierRuleService)->resolve('cod', $province, $code));
+
+        $rule->delete();
+    }
+
+    public function test_store_rejects_duplicate_product_combination(): void
+    {
+        $province = $this->uniqueProvince();
+        $code = 'CR'.strtoupper(substr(uniqid(), -6));
+        $rule = $this->createRule([
+            'payment_method' => 'cod',
+            'province' => $province,
+            'product_code' => $code,
+            'courier' => 'flix-tf',
+        ]);
+
+        $this->actingAs($this->adminUser())
+            ->post(route('courier-rule.store'), [
+                'sort_order' => 99,
+                'payment_method' => 'cod',
+                'province' => $province,
+                'product_code' => $code,
+                'courier' => 'sicepat',
+            ])
+            ->assertSessionHasErrors('rule');
+
+        $rule->delete();
+    }
 }

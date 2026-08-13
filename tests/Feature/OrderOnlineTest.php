@@ -1228,6 +1228,52 @@ class OrderOnlineTest extends TestCase
         $this->assertSame('Aurora', $svc->warehouseFor('KSP', null));
     }
 
+    public function test_import_sh_product_always_gets_flix(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $uid = uniqid();
+        // Phone unik per run — kalau tetap, signature duplikat (phone+produk+alamat)
+        // dari run sebelumnya menandai order ini `duplikat` → courier null.
+        $ph1 = '628'.random_int(100000000, 999999999);
+        $ph2 = '628'.random_int(100000000, 999999999);
+
+        $path = $this->writeTempCsv([
+            // SH + cod + JAWA BARAT → rule produk SH (flix-tf) menang atas sicepat (provinsi)
+            $this->row($uid.'-1', $ph1, 'processing', 'paid', 'SH'),
+            // KMP + cod + JAWA BARAT → tetap rule provinsi sicepat
+            $this->row($uid.'-2', $ph2, 'processing', 'paid', 'KMP'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $svc->import($path, 'eresgestore');
+
+        $orders = ShippingOrder::whereIn('order_id', [$uid.'-1', $uid.'-2'])->get()->keyBy('order_id');
+
+        $this->assertSame('flix-tf', $orders[$uid.'-1']->courier);
+        $this->assertSame('sicepat', $orders[$uid.'-2']->courier);
+    }
+
+    public function test_warehouse_rule_overrides_primary_inventory(): void
+    {
+        $rule = \App\Models\WarehouseRule::create([
+            'product_code' => 'KMP',
+            'warehouse' => 'WH TEST '.uniqid(),
+            'is_active' => true,
+        ]);
+
+        try {
+            $svc = new OrderTemplateExportService;
+            $this->assertSame($rule->warehouse, $svc->warehouseFor('KMP', 'eresgestore'));
+            $this->assertSame($rule->warehouse, $svc->warehouseFor('KMP+1.50', 'eresgestore'));
+
+            // Nonaktif → jatuh ke gudang utama produk (Gudang Pusat)
+            $rule->update(['is_active' => false]);
+            $this->assertSame('Gudang Pusat', (new OrderTemplateExportService)->warehouseFor('KMP', 'eresgestore'));
+        } finally {
+            $rule->delete();
+        }
+    }
+
     public function test_export_dimensions_and_courier_note_per_template(): void
     {
         $batch = OrderOnlineImportBatch::create([

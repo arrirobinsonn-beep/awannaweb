@@ -19,6 +19,7 @@ use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TopUpController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\WarehouseRuleController;
 use App\Http\Controllers\WhitelistController;
 use Illuminate\Support\Facades\Route;
 
@@ -62,6 +63,13 @@ Route::middleware('auth')->group(function () {
         Route::patch('/courier-rules/{courierRule}/toggle', [CourierRuleController::class, 'toggle'])->name('courier-rule.toggle');
         Route::post('/courier-rules/{courierRule}/move/{direction}', [CourierRuleController::class, 'move'])->name('courier-rule.move');
         Route::delete('/courier-rules/{courierRule}', [CourierRuleController::class, 'destroy'])->name('courier-rule.destroy');
+
+        // Aturan Gudang (kode produk → gudang/nama pengirim saat export — dinamis dari DB)
+        Route::get('/warehouse-rules', [WarehouseRuleController::class, 'index'])->name('warehouse-rule.index');
+        Route::post('/warehouse-rules', [WarehouseRuleController::class, 'store'])->name('warehouse-rule.store');
+        Route::put('/warehouse-rules/{warehouseRule}', [WarehouseRuleController::class, 'update'])->name('warehouse-rule.update');
+        Route::patch('/warehouse-rules/{warehouseRule}/toggle', [WarehouseRuleController::class, 'toggle'])->name('warehouse-rule.toggle');
+        Route::delete('/warehouse-rules/{warehouseRule}', [WarehouseRuleController::class, 'destroy'])->name('warehouse-rule.destroy');
 
         // Aturan Export (template dinamis: index daftar, create/edit terpisah, hapus permanen)
         Route::get('/export-mapping', [ExportMappingController::class, 'index'])->name('export-mapping.index');

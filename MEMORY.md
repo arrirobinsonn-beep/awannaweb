@@ -1,5 +1,16 @@
 # MEMORY — 13 Agustus 2026
 
+## Session: Aturan Gudang Dinamis (produk→gudang) + Rule Courier Khusus Produk (fitur P)
+
+- **Latar**: user minta mapping "kode produk → nama pengirim" (SH→GTM, KSP→Aurora) yang tadinya konstanta `WAREHOUSE_BY_PRODUCT` dibuat dinamis seperti `courier_rules`; plus **rule SH → courier selalu flix**, tidak terpengaruh aturan courier provinsi.
+- **Migrasi `2026_08_13_140000`**: tabel `warehouse_rules` (`product_code` unique, `warehouse`, `is_active`). `2026_08_13_140001`: `courier_rules.product_code` nullable + index.
+- **`WarehouseRuleService`** (baru): `resolve(productCode)` dari tabel aktif (cache per instance, anti N+1), normalisasi uppercase + `explode('+')[0]`. `OrderTemplateExportService::warehouseFor` prioritas: **warehouse_rules → gudang utama produk (is_primary) → WAREHOUSE_BY_PRODUCT → sender**.
+- **`CourierRuleService::resolve` 2 fase**: fase 1 = rule `product_code` terisi & cocok (SELALU menang, berapa pun sort_order) → fase 2 = rule umum (payment+province, sort_order terkecil menang). `OrderOnlineImportService` meneruskan `product_code` CSV. `tembakan` tetap spx.
+- **Controller/UI**: `WarehouseRuleController` (index/store/update/destroy/toggle; duplikat per product_code; normalisasi) + view `warehouse_rule/index.blade.php` (pola cr-modal, sidebar Data Master → Aturan Gudang, routes `/warehouse-rules`). `CourierRuleController` + view: field **Kode Produk** (datalist produk) di form/tabel/modal edit; cek duplikat (payment+province+product_code).
+- **Seeder**: `WarehouseRuleSeeder` (baru, idempotent updateOrCreate: SH→GTM, KSP→Aurora — tambahan admin dipertahankan); `CourierRuleSeeder` + rule `product_code='SH'` → flix-tf (payment/province null, sort 1).
+- **Test**: CourierRuleTest +3 (rule produk menang atas provinsi — pakai kode UNIK karena SH sudah di-seed di DB dev; nonaktif → jatuh ke provinsi; store normalisasi; duplikat kombinasi). `WarehouseRuleTest` baru 7 test. OrderOnlineTest +2: import SH cod Jawa Barat → flix-tf & KMP → sicepat (**phone unik per run** — phone tetap + SH + alamat tetap kena dup-signature dari run sebelumnya → courier null); warehouse rule menimpa gudang utama (nonaktif → Gudang Pusat).
+- **Suite**: **122 pass** (hanya ExampleTest 302 pre-existing); pipeline **103/103 PASS**. AGENTS.md section P + update section M.
+
 ## Session: Barang Masuk (Purchase) — Opsi Gudang Tujuan (fitur R)
 
 - **Latar**: user minta halaman Barang Masuk diperbaiki karena sekarang sudah ada konsep gudang (M2M) — stok pembelian harus bisa masuk ke gudang tertentu, bukan selalu gudang utama produk.

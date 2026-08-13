@@ -442,6 +442,13 @@
                 <span class="sidebar-label">Aturan Courier</span>
             </a>
 
+            <a href="{{ route('warehouse-rule.index') }}"
+               class="nav-item {{ request()->routeIs('warehouse-rule.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Gudang (kode produk → gudang saat export)">
+                <span class="nav-icon">🏬</span>
+                <span class="sidebar-label">Aturan Gudang</span>
+            </a>
+
             <a href="{{ route('export-mapping.index') }}"
                class="nav-item {{ request()->routeIs('export-mapping.*') ? 'active' : '' }}"
                data-page-link data-tip="Aturan Export (mapping template CSV)">

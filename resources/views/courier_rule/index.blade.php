@@ -27,6 +27,7 @@
     .cr-badge-all { background: #f3f4f6; color: #6b7280; font-weight: 600; }
     .cr-badge-pm  { background: #e0f2fe; color: #0369a1; font-weight: 600; }
     .cr-badge-prov { background: #fef3c7; color: #92400e; font-weight: 600; }
+    .cr-badge-code { background: #fae8ff; color: #86198f; font-weight: 700; font-family: monospace; }
     .cr-badge-cou { font-weight: 800; }
     .cou-flix-tf   { background:#dbeafe; color:#1d4ed8; }
     .cou-flix-idx  { background:#e0f2fe; color:#0369a1; }
@@ -125,6 +126,8 @@
         💡 <b>Cara kerja:</b> aturan dievaluasi berurutan dari <b>Urutan</b> terkecil → rule pertama yang cocok
         (<code>metode bayar</code> + <code>provinsi</code>) yang menang.
         Kosongkan <b>Metode Bayar</b> / <b>Provinsi</b> agar berlaku untuk <b>semua</b>.
+        Isi <b>Kode Produk</b> (mis. <code>SH</code>) untuk rule yang <b>khusus produk</b> — rule ini SELALU
+        dievaluasi lebih dulu daripada aturan provinsi (courier produk tidak terpengaruh provinsi).
         Bila tidak ada rule yang cocok, courier fallback otomatis <code>spx</code>.
         Perubahan langsung berlaku untuk import order berikutnya — tanpa ubah kode.
     </div>
@@ -169,6 +172,16 @@
             </div>
 
             <div class="cr-field">
+                <label>Kode Produk (khusus produk)</label>
+                <input type="text" name="product_code" class="clay-input" list="cr-code-list"
+                       placeholder="kosongkan = semua produk" value="{{ old('product_code') }}">
+                <datalist id="cr-code-list">
+                    @foreach($productCodes as $pc)<option value="{{ $pc }}">@endforeach
+                </datalist>
+                <div class="cr-hint">Mis. <b>SH</b> — rule ini menang atas aturan provinsi untuk produk tsb.</div>
+            </div>
+
+            <div class="cr-field">
                 <label>Courier *</label>
                 <select name="courier" class="clay-input" required>
                     <option value="" disabled {{ old('courier') ? '' : 'selected' }}>— pilih courier —</option>
@@ -204,6 +217,7 @@
                         <th style="width:70px;text-align:center;">Urutan</th>
                         <th>Metode Bayar</th>
                         <th>Provinsi</th>
+                        <th>Kode Produk</th>
                         <th>Courier</th>
                         <th style="text-align:center;">Status</th>
                         <th style="width:170px;">Aksi</th>
@@ -225,6 +239,13 @@
                                 <span class="clay-badge cr-badge-prov" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;">{{ $rule->province }}</span>
                             @else
                                 <span class="clay-badge cr-badge-all">Semua Provinsi</span>
+                            @endif
+                        </td>
+                        <td>
+                            @if($rule->product_code)
+                                <span class="clay-badge cr-badge-code">{{ $rule->product_code }}</span>
+                            @else
+                                <span class="clay-badge cr-badge-all">Semua</span>
                             @endif
                         </td>
                         <td>
@@ -257,12 +278,13 @@
                                         data-sort="{{ $rule->sort_order }}"
                                         data-payment="{{ $rule->payment_method ?? '' }}"
                                         data-province="{{ $rule->province ?? '' }}"
+                                        data-product="{{ $rule->product_code ?? '' }}"
                                         data-courier="{{ $rule->courier }}"
                                         data-active="{{ $rule->is_active ? '1' : '' }}">✏️ Edit</button>
 
                                 {{-- Hapus — label confirm dari data attribute (aman utk teks bebas) --}}
                                 <form method="POST" action="{{ route('courier-rule.destroy', $rule) }}" class="cr-del-form"
-                                      data-confirm="Hapus aturan {{ $rule->courier }} untuk {{ $rule->province ?? 'semua provinsi' }}?">
+                                      data-confirm="Hapus aturan {{ $rule->courier }} untuk {{ $rule->province ?? 'semua provinsi' }}{{ $rule->product_code ? ' (produk '.$rule->product_code.')' : '' }}?">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="cr-del-btn">🗑 Hapus</button>
                                 </form>
@@ -271,7 +293,7 @@
                     </tr>
                     @empty
                     <tr>
-                        <td colspan="6" style="text-align:center;padding:48px;color:#9ca3af;">
+                        <td colspan="7" style="text-align:center;padding:48px;color:#9ca3af;">
                             Belum ada aturan. Tambahkan aturan pertama di form sebelah kiri.
                         </td>
                     </tr>
@@ -309,6 +331,12 @@
                     <input type="text" name="province" id="cr-e-province" class="clay-input" list="cr-prov-list"
                            placeholder="kosongkan = semua provinsi">
                     <div class="cr-hint">Tulis nama provinsi (otomatis di-uppercase).</div>
+                </div>
+                <div class="cr-field">
+                    <label>Kode Produk (khusus produk)</label>
+                    <input type="text" name="product_code" id="cr-e-product" class="clay-input" list="cr-code-list"
+                           placeholder="kosongkan = semua produk">
+                    <div class="cr-hint">Rule khusus produk menang atas aturan provinsi.</div>
                 </div>
                 <div class="cr-field">
                     <label>Courier *</label>
@@ -351,6 +379,7 @@
         document.getElementById('cr-e-sort').value     = btn.dataset.sort;
         document.getElementById('cr-e-payment').value  = btn.dataset.payment;
         document.getElementById('cr-e-province').value = btn.dataset.province;
+        document.getElementById('cr-e-product').value  = btn.dataset.product;
         document.getElementById('cr-e-courier').value  = btn.dataset.courier;
         document.getElementById('cr-e-active').checked = btn.dataset.active === '1';
 
