@@ -921,6 +921,54 @@ Mapping raw status file dashboard aggregator (FLIK / SiCepat / SPX) → `shippin
 
 ---
 
+## T. ✅ Laporan Operasional — Dashboard Hari Ini + Detail per Pengirim (13 Agustus 2026)
+
+### Deskripsi
+Dashboard admin (general) kini menampilkan 4 kartu operasional **hari ini** yang bisa diklik: **Barang Keluar**, **Barang Masuk**, **Resi**, dan **Metode Pembayaran (COD · Bank Transfer)**. Klik kartu → halaman **Laporan Operasional** (`/laporan-operasional`) yang merinci **per nama pengirim** (`order_online_import_batches.sender`) pada rentang tanggal (date-range picker, default hari ini): total pengeluaran (nilai order / gross revenue), jumlah resi, jumlah COD & bank_transfer — plus di baris paling bawah **TOTAL KESELURUHAN**: uang masuk vs HPP (margin) berdampingan.
+
+### Keputusan performa (jawaban atas pertanyaan "berat tidak?")
+- **Semua angka pakai QUERY AGREGAT (GROUP BY/SUM di SQL)** — total hanya **3 query** utk seluruh halaman (stok hari ini 1, order hari ini 1, laporan per sender 1) + total keseluruhan dihitung dari collection hasil GROUP BY (**tanpa query tambahan**, pola batch AGENTS.md). Tidak ada query per baris/per pengirim dalam loop.
+- **TIDAK pakai `whereDate()`** — Laravel menerjemahkannya ke `DATE(col)=?` yang mematikan index → pakai range `>=`/`<` (created_at `>= today 00:00` & `< tomorrow`).
+- **Index baru**: `shipping_orders.created_at` (migration `2026_08_13_160000`) — sebelumnya hanya `last_synced_at` yang ber-index; filter "hari ini"/rentang butuh index ini (aturan AGENTS.md #1).
+- **Tabel ringkasan TIDAK dibuat** — skala data masih kecil (ratusan order/hari); aggregate langsung dari jurnal/sumber kebenaran selalu konsisten. Baru buat summary table kalau data sudah jutaan baris DAN dashboard terasa lambat (cek slow query > 500ms di `storage/logs/laravel.log`).
+- EXPLAIN: query filter+join memakai full scan pada tabel kecil (210 baris, 6ms) — normal; index `created_at` siap dipakai optimizer saat tabel membesar.
+
+### Definisi angka
+- **Barang keluar/masuk hari ini** = `stock_movements` (`type` in/out, `date` = hari ini) → SUM quantity.
+- **Resi** = order yang sudah punya `awb` terisi (non-kosong).
+- **Metode pembayaran** = `shipping_orders.payment_method` (`cod` / `bank_transfer`, disimpan lowercase).
+- **Total pengeluaran / uang masuk** = `SUM(shipping_orders.amount)` (gross revenue).
+- **HPP** = `SUM(quantity × products.purchase_price)` (HPP per PRODUK, bukan per varian).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_160000_add_created_at_index_to_shipping_orders.php` | index `shipping_orders.created_at` (dipakai filter hari ini/rentang) |
+| `app/Http/Controllers/OperationalReportController.php` (baru) | `index(Request)` — parse & balik `dari/sampai`, 2 aggregate hari ini + 1 aggregate laporan per sender (JOIN batches + LEFT JOIN products utk HPP), total dihitung dari collection; `parseDate()` validasi Y-m-d dgn fallback hari ini |
+| `app/Http/Controllers/DashboardController.php` | `dashboardGeneral()` + `opsHariIni` (keluar/masuk/resi/cod/bank_transfer) dari 2 aggregate (`StockMovement` by date, `ShippingOrder` by created_at range) |
+| `resources/views/dashboard/general.blade.php` | 4 kartu stat operasional (klik → laporan dgn dari/sampai=hari ini) di atas kartu Spending |
+| `resources/views/laporan/operasional.blade.php` (baru) | Kartu ringkasan PERIODE TERPILIH + date-range picker + tabel per pengirim (pengeluaran, resi `N / total`, COD, TF, uang masuk, HPP) + tfoot TOTAL KESELURUHAN & baris Margin (uang masuk − HPP, % ) |
+| `resources/views/laporan/batch.blade.php` (baru, 14 Agustus) | **Detail per batch/pengirim** — kartu ringkasan (order/resi, qty terjual, uang masuk, margin) + tabel **Barang Terjual & Rincian Varian**: grup per produk master, baris per varian (badge power) + nama terjual + qty/order + jumlah order + qty terjual + uang masuk + HPP |
+| `resources/views/layouts/app.blade.php` | Sidebar Gudang & Kiriman → **Laporan Operasional** (owner/super_admin/admin) |
+| `routes/web.php` | `GET /laporan-operasional` (`operational-report.index`); `GET /laporan-operasional/{batch}` (`operational-report.batch`) |
+| `tests/Feature/OperationalReportTest.php` (baru) | 5 test: kartu dashboard render, laporan per sender + totals, rentang tanggal, empty state, total per sender = sum |
+| `tests/Feature/OperationalReportTest.php` (+4, 14 Agustus) | link baris → detail batch, detail memisahkan pcs (2 vs 4), detail hormati rentang tanggal |
+
+### Penting
+- **Kartu di halaman laporan MENGIKUTI periode terpilih** (`dari`/`sampai`), bukan hardcoded hari ini — saat user ganti range, kartu barang keluar/masuk/resi ikut menyesuaikan; label otomatis jadi "Hari Ini" (default) atau "Periode Terpilih" (range lain). Dashboard tetap menampilkan kartu "hari ini".
+- **Fix 14 Agustus — kartu tampil 0 terus padahal query benar**: kartu stat memakai `data-counter` (JS animasi angka dari 0), tapi di lingkungan tanpa build Vite (`public/build/manifest.json` tidak ada) `@vite` tidak me-render `app.js`/`animations.js` → angka visible tetap `0` apa pun hasil query. Solusi: **teks awal kartu diisi nilai asli** (`data-counter="{{ $nilai }}">{{ $nilai }}`): tanpa JS langsung tampil benar, dengan JS animasi counter tetap berjalan (override textContent). Diterapkan ke semua kartu `data-counter` di `dashboard/general`, `dashboard/keuangan`, `laporan/operasional`, `regional/index`, `team/performance`.
+- `stock_movements.date` bertipe datetime → range stok memakai eksklusif `< besok` (sama seperti created_at) agar movement di hari `sampai` tidak terlewat.
+- `payment_method` disimpan **lowercase** (`cod`/`bank_transfer`) — CASE SUM memakai literal lowercase.
+- Kolom "Resi" menampilkan `N ber-resi / total order` (rese = ber-awb).
+- **Detail per batch (14 Agustus)**: nama pengirim & kolom Total Pengeluaran di tabel laporan adalah link → `operational-report.batch` dgn `dari/sampai` diteruskan. Kunci pemisah varian: kacamata promo "Dapat N" disimpan sbg `product_name = "... N pcs"` + `quantity = N`, jadi GROUP BY menyertakan `product_name` + `quantity` (qty per order) — varian sama (mis. KMP+1.50) dgn isi 2 pcs dan 4 pcs tampil **baris terpisah**. JOIN `products` (LEFT) utk nama/kode master + `product_variants` (LEFT) utk power/badge.
+- **HANYA order yang DIPROSES (14 Agustus)**: scope `ShippingOrder::processed()` = status `real`/`tembakan` DAN courier ≠ `undeliverable` (paket tak terkirim/tak ter-cover aggregator). Order `cancel`/`belum_diproses`/`duplikat` TIDAK pernah diproses → dikecualikan dari SEMUA angka operasional: kartu dashboard (`orderHariIni`), laporan per sender (`$orderPeriode` + `$rows`), detail batch (`$rows` + `resi`). Kolom `status`/`courier` dikualifikasi `shipping_orders.*` karena scope dipakai pada query ber-JOIN (products/batches juga punya `status`).
+- **`created_at` di query detail batch WAJIB dikualifikasi** `shipping_orders.created_at` — setelah LEFT JOIN `products`/`product_variants` (keduanya punya `created_at`) kolom jadi ambigu (SQLSTATE 1052).
+- Test memakai DB bersama tanpa refresh → data di-isolasi dgn tanggal unik prefix `2026-01-XX` + `uniqid()` di sender/order_id, batch di-delete di `finally`; empty-state memakai rentang `2019-01-01..31`.
+- Sidebar hanya utk role yang punya akses Gudang & Kiriman (owner/super_admin/admin); route tetap bisa dibuka role lain yg login (profil lengkap).
+- Suite: **144 pass** (hanya `ExampleTest` 302 pre-existing) · pipeline `verify_pipeline.php` **104/104 PASS**.
+
+---
+
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 
 Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier`, dan `Gudang` (master tempat gudang, `gudang.master*`).

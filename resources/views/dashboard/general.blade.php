@@ -9,28 +9,60 @@
 <div class="grid-stats" style="margin-bottom:20px;">
     <div class="stat-card stat-card-1" data-reveal>
         <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">Total Supplier</div>
-        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $stats['total_supplier'] }}">0</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $stats['total_supplier'] }}">{{ $stats['total_supplier'] }}</div>
         <div style="font-size:.72rem;opacity:.8;margin-top:4px;">🏭 Aktif</div>
         <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">🏭</div>
     </div>
     <div class="stat-card stat-card-2" data-reveal>
         <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">Total Produk</div>
-        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $stats['total_produk'] }}">0</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $stats['total_produk'] }}">{{ $stats['total_produk'] }}</div>
         <div style="font-size:.72rem;opacity:.8;margin-top:4px;">📦 Aktif</div>
         <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">📦</div>
     </div>
     <div class="stat-card stat-card-3" data-reveal>
         <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">Total User</div>
-        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $stats['total_user'] }}">0</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $stats['total_user'] }}">{{ $stats['total_user'] }}</div>
         <div style="font-size:.72rem;opacity:.8;margin-top:4px;">👥 Aktif</div>
         <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">👥</div>
     </div>
     <div class="stat-card stat-card-4" data-reveal>
         <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">Total Whitelist</div>
-        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $stats['total_whitelist'] }}">0</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $stats['total_whitelist'] }}">{{ $stats['total_whitelist'] }}</div>
         <div style="font-size:.72rem;opacity:.8;margin-top:4px;">✅ Aktif</div>
         <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">✅</div>
     </div>
+</div>
+
+{{-- ── Kartu Operasional Hari Ini (klik → laporan per pengirim) ── --}}
+<div class="grid-stats" style="margin-bottom:20px;">
+    <a href="{{ route('operational-report.index', ['dari' => now()->format('Y-m-d'), 'sampai' => now()->format('Y-m-d')]) }}"
+       class="stat-card stat-card-1" data-reveal style="text-decoration:none;display:block;">
+        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">Barang Keluar Hari Ini</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $opsHariIni['keluar'] }}">{{ $opsHariIni['keluar'] }}</div>
+        <div style="font-size:.72rem;opacity:.8;margin-top:4px;">📦 Keluar (jurnal stok)</div>
+        <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">🚚</div>
+    </a>
+    <a href="{{ route('operational-report.index', ['dari' => now()->format('Y-m-d'), 'sampai' => now()->format('Y-m-d')]) }}"
+       class="stat-card stat-card-2" data-reveal style="text-decoration:none;display:block;">
+        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">Barang Masuk Hari Ini</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $opsHariIni['masuk'] }}">{{ $opsHariIni['masuk'] }}</div>
+        <div style="font-size:.72rem;opacity:.8;margin-top:4px;">📦 Masuk (jurnal stok)</div>
+        <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">📥</div>
+    </a>
+    <a href="{{ route('operational-report.index', ['dari' => now()->format('Y-m-d'), 'sampai' => now()->format('Y-m-d')]) }}"
+       class="stat-card stat-card-3" data-reveal style="text-decoration:none;display:block;">
+        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">Resi Hari Ini</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $opsHariIni['resi'] }}">{{ $opsHariIni['resi'] }}</div>
+        <div style="font-size:.72rem;opacity:.8;margin-top:4px;">🧾 Order ber-resi</div>
+        <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">🧾</div>
+    </a>
+    <a href="{{ route('operational-report.index', ['dari' => now()->format('Y-m-d'), 'sampai' => now()->format('Y-m-d')]) }}"
+       class="stat-card stat-card-4" data-reveal style="text-decoration:none;display:block;">
+        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">Metode Pembayaran</div>
+        <div style="font-size:1.15rem;font-weight:900;">💵 {{ $opsHariIni['cod'] }} COD · {{ $opsHariIni['bank_transfer'] }} TF</div>
+        <div style="font-size:.72rem;opacity:.8;margin-top:4px;">🧾 Order masuk hari ini</div>
+        <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">💳</div>
+    </a>
 </div>
 
 {{-- ── Spending Hari Ini + Bulan Ini ────────────────────────── --}}

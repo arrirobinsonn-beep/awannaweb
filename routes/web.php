@@ -8,6 +8,7 @@ use App\Http\Controllers\GudangController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OperationalReportController;
 use App\Http\Controllers\OrderOnlineController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PurchaseController;
@@ -46,6 +47,10 @@ Route::middleware('auth')->group(function () {
 
         // Dashboard
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+        // Laporan Operasional (barang keluar/masuk, resi, metode bayar per pengirim)
+        Route::get('/laporan-operasional', [OperationalReportController::class, 'index'])->name('operational-report.index');
+        Route::get('/laporan-operasional/{batch}', [OperationalReportController::class, 'show'])->name('operational-report.batch');
 
         // Profil
         Route::get('/profil', [ProfileController::class, 'show'])->name('profile.show');

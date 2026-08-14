@@ -283,19 +283,19 @@
     <div class="grid-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:0;" data-reveal>
         <div class="stat-card stat-card-1" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Lead (Regional)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['lead'] }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['lead'] }}">{{ $totalRegional['lead'] }}</div>
         </div>
         <div class="stat-card stat-card-2" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Paid (Regional)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['paid'] }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['paid'] }}">{{ $totalRegional['paid'] }}</div>
         </div>
         <div class="stat-card stat-card-3" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Lead (Spending)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['lead'] }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['lead'] }}">{{ $totalSpending['lead'] }}</div>
         </div>
         <div class="stat-card stat-card-4" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Paid (Spending)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['paid'] }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['paid'] }}">{{ $totalSpending['paid'] }}</div>
         </div>
     </div>
 

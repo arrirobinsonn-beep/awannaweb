@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\ShippingOrder;
 use App\Models\SpendingHarian;
+use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Whitelist;
@@ -30,6 +32,28 @@ class DashboardController extends Controller
     private function dashboardGeneral($user): View
     {
         $today = now()->format('Y-m-d');
+
+        // ── Kartu operasional "hari ini" (query agregat, anti N+1) ──
+        $stokHariIni = StockMovement::where('date', $today)
+            ->selectRaw("SUM(CASE WHEN type='in' THEN quantity ELSE 0 END) as masuk, SUM(CASE WHEN type='out' THEN quantity ELSE 0 END) as keluar")
+            ->first();
+
+        $orderHariIni = ShippingOrder::processed()
+            ->where('created_at', '>=', $today)
+            ->where('created_at', '<', now()->addDay()->format('Y-m-d'))
+            ->selectRaw('COUNT(*) as total,
+                SUM(CASE WHEN awb IS NOT NULL AND awb != \'\' THEN 1 ELSE 0 END) as resi,
+                SUM(CASE WHEN payment_method = \'cod\' THEN 1 ELSE 0 END) as cod,
+                SUM(CASE WHEN payment_method = \'bank_transfer\' THEN 1 ELSE 0 END) as bank_transfer')
+            ->first();
+
+        $opsHariIni = [
+            'keluar' => (int) ($stokHariIni->keluar ?? 0),
+            'masuk' => (int) ($stokHariIni->masuk ?? 0),
+            'resi' => (int) ($orderHariIni->resi ?? 0),
+            'cod' => (int) ($orderHariIni->cod ?? 0),
+            'bank_transfer' => (int) ($orderHariIni->bank_transfer ?? 0),
+        ];
 
         $stats = [
             'total_supplier' => Supplier::aktif()->count(),
@@ -66,7 +90,8 @@ class DashboardController extends Controller
 
         return view('dashboard.general', compact(
             'stats', 'spendingHariIni', 'spendingBulanIni',
-            'chartSpending', 'topAdvertiser', 'spendingPerWhitelist'
+            'chartSpending', 'topAdvertiser', 'spendingPerWhitelist',
+            'opsHariIni'
         ));
     }
 

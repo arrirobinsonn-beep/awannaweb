@@ -86,4 +86,22 @@ class ShippingOrder extends Model
     {
         return in_array($this->status, self::EXPORTABLE_STATUSES, true);
     }
+
+    /**
+     * Order yang BENAR-BENAR diproses untuk laporan operasional:
+     * status exportable (real/tembakan) DAN courier bukan `undeliverable`
+     * (paket tidak dapat terkirim / tidak ter-cover aggregator).
+     * Order cancel/belum_diproses/duplikat tidak pernah diproses → dikecualikan.
+     *
+     * WAJIB dipakai pada JOIN ber-tabel `status`/`courier` ambigu → kolom
+     * dikualifikasi dengan nama tabel `shipping_orders`.
+     */
+    public function scopeProcessed($query)
+    {
+        return $query->whereIn('shipping_orders.status', self::EXPORTABLE_STATUSES)
+            ->where(function ($q) {
+                $q->where('shipping_orders.courier', '!=', 'undeliverable')
+                  ->orWhereNull('shipping_orders.courier');
+            });
+    }
 }

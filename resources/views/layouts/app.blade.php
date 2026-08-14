@@ -498,6 +498,13 @@
                 <span class="sidebar-label">Data Mentah</span>
             </a>
 
+            <a href="{{ route('operational-report.index') }}"
+               class="nav-item {{ request()->routeIs('operational-report.*') ? 'active' : '' }}"
+               data-page-link data-tip="Laporan Operasional (stok keluar/masuk, resi, metode bayar per pengirim)">
+                <span class="nav-icon">📋</span>
+                <span class="sidebar-label">Laporan Operasional</span>
+            </a>
+
             @endif
 
             {{-- ── Keuangan ──────────────────────────────────────── --}}

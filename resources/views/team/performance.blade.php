@@ -97,19 +97,19 @@ tbody .cs-name-sticky { z-index: 2; }
     <div class="grid-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:0;" data-reveal>
         <div class="stat-card stat-card-1" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Lead (CS)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('lead') }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('lead') }}">{{ collect($totalPerCs)->sum('lead') }}</div>
         </div>
         <div class="stat-card stat-card-2" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Paid (CS)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('paid') }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('paid') }}">{{ collect($totalPerCs)->sum('paid') }}</div>
         </div>
         <div class="stat-card stat-card-3" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total CS</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $mainMembers->count() + $guestMembers->count() }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $mainMembers->count() + $guestMembers->count() }}">{{ $mainMembers->count() + $guestMembers->count() }}</div>
         </div>
         <div class="stat-card stat-card-4" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Hari</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ count($byDate) }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ count($byDate) }}">{{ count($byDate) }}</div>
         </div>
     </div>
 
