@@ -27,12 +27,14 @@ return new class extends Migration
     {
         Schema::create('tracking_status_rules', function (Blueprint $table) {
             $table->id();
-            $table->string('source');
-            $table->string('raw_status');
-            $table->string('match_type')->default('exact');
-            $table->string('status');
-            $table->string('problem_mode')->default('none');
-            $table->string('problem_keyword')->nullable();
+            // Panjang kolom dibatasi agar index unik gabungan (5 kolom) tidak
+            // melebihi batas key MySQL (3072 bytes untuk utf8mb4).
+            $table->string('source', 20);
+            $table->string('raw_status', 191);
+            $table->string('match_type', 20)->default('exact');
+            $table->string('status', 20);
+            $table->string('problem_mode', 20)->default('none');
+            $table->string('problem_keyword', 191)->nullable();
             $table->unsignedInteger('sort_order')->default(100);
             $table->boolean('is_active')->default(true);
             $table->timestamps();

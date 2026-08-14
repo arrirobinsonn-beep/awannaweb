@@ -910,6 +910,8 @@ Mapping raw status file dashboard aggregator (FLIK / SiCepat / SPX) → `shippin
 | `filecoba/verify_pipeline.php` | + precheck `tracking_status_rules` |
 
 ### Penting
+- **Batas key MySQL (3072 bytes utf8mb4)**: kolom unik 5 string() default (255 char) melebihi batas → `source`/`match_type`/`status`/`problem_mode` dibatasi `string(20)`, `raw_status`/`problem_keyword` `string(191)`; UNIQUE `tracking_status_rules_combo_unique` (`source, raw_status, match_type, problem_mode, status`) tetap 5 kolom (dipakai `updateOrCreate` seeder).
+- **Migrasi gagal di tengah**: bila `alter table ... add unique` error, tabel sudah terbuat tapi migrasi tidak tercatat → `Schema::dropIfExists('tracking_status_rules')` dulu, baru `php artisan migrate`.
 - **Perubahan perilaku kecil**: FLIK problem dulu `stripos(..., 'problem') === 0` (prefix), kini `contains` (MENGANDUNG) via `problem_keyword='problem'` — lebih longgar, dan bisa diubah admin.
 - `AggregatorTrackingImportService::mapStatus` menerima argumen ketiga string (kolom masalah) ATAU `true` (kompatibilitas lama: paksa `problem`).
 - Aturan bermasalah harus `sort_order` KECIL dari rule normal utk status yang sama (kalau tidak, rule normal menang duluan). Seeder meletakkan problem di sort 1.

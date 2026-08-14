@@ -1,5 +1,13 @@
 # MEMORY — 13 Agustus 2026
 
+## Hotfix: migration tracking_status_rules gagal (key terlalu panjang)
+
+- **Gejala**: `SQLSTATE[42000] ... 1071 Specified key was too long; max key length is 3072 bytes` saat `alter table tracking_status_rules add unique tracking_status_rules_combo_unique(source, raw_status, match_type, problem_mode, status)` — 5 kolom `string()` default (255 char × 4 bytes utf8mb4) = 5100 bytes > 3072.
+- **Fix**: batasi panjang kolom di migration `2026_08_13_150000` — `source`/`match_type`/`status`/`problem_mode` → `string(20)`, `raw_status`/`problem_keyword` → `string(191)`; UNIQUE 5 kolom tetap (seeder `updateOrCreate` bergantung padanya).
+- **Pemulihan**: migrasi sempat ter-apply sebagian (tabel ada, index tidak, entry migrations tidak tercatat) → `Schema::dropIfExists('tracking_status_rules')` lalu `php artisan migrate` ulang + `db:seed TrackingStatusRuleSeeder` (23 rule).
+- **Temuan saat verifikasi**: DB dev `awannacoba` ternyata belum ter-seed lengkap (inventories=0, pivot kosong, produk lama 7/8 varian) → `php artisan db:seed --force` (semua seeder idempotent) memulihkan: inventories=3, products=20, variants=61, pivot=19, variant_inventory=59.
+- **Verifikasi**: suite **133 pass** (hanya ExampleTest 302 pre-existing) · pipeline `verify_pipeline.php` **104/104 PASS**.
+
 ## Session: Aturan Status Aggregator Dinamis — Mapping Status Dashboard → Status Sistem (fitur S)
 
 - **Latar**: user minta fitur update status aggregator (upload file dashboard → `shipping_orders.aggregator_status`) dibuat dinamis seperti Aturan Courier / Aturan Gudang — mapping raw status → status sistem tidak lagi hardcoded di `AggregatorTrackingImportService::mapStatus`.
