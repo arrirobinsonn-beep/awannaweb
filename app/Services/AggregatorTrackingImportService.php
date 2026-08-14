@@ -27,6 +27,7 @@ class AggregatorTrackingImportService
     public function __construct(
         private readonly ProductNameMatcher $matcher = new ProductNameMatcher,
         private readonly StockService $stock = new StockService,
+        private readonly TrackingStatusRuleService $statusRules = new TrackingStatusRuleService,
     ) {}
 
     /**
@@ -220,8 +221,7 @@ class AggregatorTrackingImportService
         }
 
         $rawStatus = $this->text($row, $colMap, 'status');
-        $problem = $this->isProblem($source, $rawStatus, $this->text($row, $colMap, 'problem'));
-        $status = $this->mapStatus($source, $rawStatus, $problem);
+        $status = $this->mapStatus($source, $rawStatus, $this->text($row, $colMap, 'problem'));
 
         $productText = $this->text($row, $colMap, 'product_name');
         $quantity = (int) $this->decimal($this->value($row, $colMap, 'quantity'));
@@ -250,69 +250,21 @@ class AggregatorTrackingImportService
     /**
      * Mapping raw status dashboard → nilai aggregator_status (Inggris).
      *
-     * Aturan bermasalah:
-     *  - FLIK: status Dikonfirmasi/Sedang Diantar + kolom 3PL berawalan "Problem"
-     *  - SICEPAT: status "Bermasalah"
-     *  - SPX: status Pending Pickup/In Transit/Delivering + kolom OnHold Reason berisi
+     * Mapping kini dinamis dari tabel `tracking_status_rules` (dikelola admin
+     * di halaman Aturan Status). Aturan bermasalah (FLIK 3PL "Problem...",
+     * SPX OnHold reason, SICEPAT Bermasalah) juga didefinisikan di sana lewat
+     * `problem_mode=required` — jadi raw status tak dikenal → null.
+     *
+     * @param  string|bool|null  $problemColumn  nilai kolom masalah file, atau
+     *        `true` (kompatibilitas lama: paksa hasil 'problem').
      */
-    public function mapStatus(string $source, string $rawStatus, bool $problem = false): ?string
+    public function mapStatus(string $source, string $rawStatus, string|bool|null $problemColumn = null): ?string
     {
-        if ($problem) {
+        if ($problemColumn === true) {
             return 'problem';
         }
 
-        $status = strtolower(trim($rawStatus));
-        if ($status === '') {
-            return null;
-        }
-
-        $map = [
-            'flik' => [
-                'dikonfirmasi' => 'waiting_pickup',
-                'sedang diantar' => 'in_transit',
-                'dicairkan' => 'delivered',
-                'terkirim' => 'delivered',
-                'dalam transit pengembalian' => 'returning',
-                'dikembalikan' => 'returned',
-            ],
-            'sicepat' => [
-                'menunggu pickup' => 'waiting_pickup',
-                'proses pengiriman' => 'in_transit',
-                'terkirim' => 'delivered',
-                'proses retur' => 'returning',
-                'retur' => 'returned',
-                'bermasalah' => 'problem',
-            ],
-            'spx' => [
-                'pending pickup' => 'waiting_pickup',
-                'in transit' => 'in_transit',
-                'delivering' => 'in_transit',
-                'delivered' => 'delivered',
-                'returning' => 'returning',
-                'returned' => 'returned',
-            ],
-        ];
-
-        return $map[$source][$status] ?? null;
-    }
-
-    protected function isProblem(string $source, string $rawStatus, string $problemColumn): bool
-    {
-        $status = strtolower(trim($rawStatus));
-
-        if ($source === 'sicepat') {
-            return $status === 'bermasalah';
-        }
-        if ($source === 'flik') {
-            return in_array($status, ['dikonfirmasi', 'sedang diantar'], true)
-                && stripos($problemColumn, 'problem') === 0;
-        }
-        if ($source === 'spx') {
-            return in_array($status, ['pending pickup', 'in transit', 'delivering'], true)
-                && trim($problemColumn) !== '';
-        }
-
-        return false;
+        return $this->statusRules->resolve($source, $rawStatus, $problemColumn === false ? null : $problemColumn);
     }
 
     protected function extractQuantity(string $productText): int

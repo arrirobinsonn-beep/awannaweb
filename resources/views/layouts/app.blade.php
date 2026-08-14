@@ -449,6 +449,13 @@
                 <span class="sidebar-label">Aturan Gudang</span>
             </a>
 
+            <a href="{{ route('tracking-status-rule.index') }}"
+               class="nav-item {{ request()->routeIs('tracking-status-rule.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Status Aggregator (status dashboard → status sistem)">
+                <span class="nav-icon">📡</span>
+                <span class="sidebar-label">Aturan Status</span>
+            </a>
+
             <a href="{{ route('export-mapping.index') }}"
                class="nav-item {{ request()->routeIs('export-mapping.*') ? 'active' : '' }}"
                data-page-link data-tip="Aturan Export (mapping template CSV)">

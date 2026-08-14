@@ -18,6 +18,7 @@ use App\Http\Controllers\StockMovementController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TopUpController;
+use App\Http\Controllers\TrackingStatusRuleController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseRuleController;
 use App\Http\Controllers\WhitelistController;
@@ -70,6 +71,14 @@ Route::middleware('auth')->group(function () {
         Route::put('/warehouse-rules/{warehouseRule}', [WarehouseRuleController::class, 'update'])->name('warehouse-rule.update');
         Route::patch('/warehouse-rules/{warehouseRule}/toggle', [WarehouseRuleController::class, 'toggle'])->name('warehouse-rule.toggle');
         Route::delete('/warehouse-rules/{warehouseRule}', [WarehouseRuleController::class, 'destroy'])->name('warehouse-rule.destroy');
+
+        // Aturan Status Aggregator (raw status dashboard → status sistem — dinamis dari DB)
+        Route::get('/tracking-status-rules', [TrackingStatusRuleController::class, 'index'])->name('tracking-status-rule.index');
+        Route::post('/tracking-status-rules', [TrackingStatusRuleController::class, 'store'])->name('tracking-status-rule.store');
+        Route::put('/tracking-status-rules/{trackingStatusRule}', [TrackingStatusRuleController::class, 'update'])->name('tracking-status-rule.update');
+        Route::patch('/tracking-status-rules/{trackingStatusRule}/toggle', [TrackingStatusRuleController::class, 'toggle'])->name('tracking-status-rule.toggle');
+        Route::post('/tracking-status-rules/{trackingStatusRule}/move/{direction}', [TrackingStatusRuleController::class, 'move'])->name('tracking-status-rule.move');
+        Route::delete('/tracking-status-rules/{trackingStatusRule}', [TrackingStatusRuleController::class, 'destroy'])->name('tracking-status-rule.destroy');
 
         // Aturan Export (template dinamis: index daftar, create/edit terpisah, hapus permanen)
         Route::get('/export-mapping', [ExportMappingController::class, 'index'])->name('export-mapping.index');

@@ -170,8 +170,10 @@ class AggregatorTrackingImportTest extends TestCase
         $this->assertSame('returning', $svc->mapStatus('spx', 'Returning'));
         $this->assertSame('returned', $svc->mapStatus('spx', 'Returned'));
 
-        $this->assertSame('problem', $svc->mapStatus('flik', 'Dikonfirmasi', true));
-        $this->assertSame('problem', $svc->mapStatus('spx', 'In Transit', true));
+        $this->assertSame('problem', $svc->mapStatus('flik', 'Dikonfirmasi', 'Problem: alamat tidak lengkap'));
+        $this->assertSame('waiting_pickup', $svc->mapStatus('flik', 'Dikonfirmasi', 'OK'));
+        $this->assertSame('problem', $svc->mapStatus('spx', 'In Transit', 'On Hold - alamat'));
+        $this->assertSame('in_transit', $svc->mapStatus('spx', 'In Transit', ''));
         $this->assertNull($svc->mapStatus('flik', 'Status Tidak Dikenal'));
     }
 

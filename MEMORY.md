@@ -1,5 +1,18 @@
 # MEMORY — 13 Agustus 2026
 
+## Session: Aturan Status Aggregator Dinamis — Mapping Status Dashboard → Status Sistem (fitur S)
+
+- **Latar**: user minta fitur update status aggregator (upload file dashboard → `shipping_orders.aggregator_status`) dibuat dinamis seperti Aturan Courier / Aturan Gudang — mapping raw status → status sistem tidak lagi hardcoded di `AggregatorTrackingImportService::mapStatus`.
+- **Migrasi `2026_08_13_150000`**: tabel `tracking_status_rules` — `source` (flik/sicepat/spx), `raw_status` (lowercase), `match_type` (exact/contains), `status` (6 nilai `ShippingOrder::TRACKING_STATUSES`), `problem_mode` (none/required), `problem_keyword` nullable, `sort_order`, `is_active`; UNIQUE `(source, raw_status, match_type, problem_mode, status)` (nama pendek eksplisit).
+- **`TrackingStatusRuleService::resolve(source, rawStatus, ?problemColumn)`** (baru): cache per instance (groupBy source, anti N+1), evaluasi urut `sort_order`; rule `problem_mode=required` hanya cocok bila kolom masalah terpenuhi — `problem_keyword` null = kolom tidak kosong (SPX OnHold), terisi = MENGANDUNG keyword (FLIK 3PL `problem`, case-insensitive). `match_type` exact/contains. Tanpa cocok → null.
+- **`AggregatorTrackingImportService`**: `mapStatus(source, rawStatus, problemColumn)` delegasi ke service; argumen `true` lama tetap diterima (paksa 'problem', kompatibilitas); `isProblem()` DIHAPUS; `normalizeRow` kirim teks kolom masalah langsung (ganti boolean hasil isProblem).
+- **Controller/UI**: `TrackingStatusRuleController` (index/store/update/destroy/toggle/move; validasi source/match/status/problem_mode `in:...`; duplikat per kombinasi; normalisasi lowercase) + view `tracking_status_rule/index.blade.php` (pola cr-modal: form tambah dengan select Sumber/Cara Cocok/Status Sistem/Kolom Masalah + input kata kunci kondisional via JS, tabel badge + toggle + ↑↓ + edit modal + hapus, info box). Sidebar Data Master → **Aturan Status** (di bawah Aturan Gudang). Routes `/tracking-status-rules` (`tracking-status-rule.*`).
+- **Seeder `TrackingStatusRuleSeeder`** (DatabaseSeeder #8c, idempotent updateOrCreate): 23 rule — FLIK 8 (dikonfirmasi/sedang diantar → problem mode required keyword 'problem' sort 1 + rule normal sort 10/20, dicairkan/terkirim→delivered, dalam transit pengembalian→returning, dikembalikan→returned), SICEPAT 6 (incl. bermasalah→problem), SPX 9 (pending pickup/in transit/delivering → problem mode required keyword null sort 1 + normal, delivered/returning/returned).
+- **Test**: `TrackingStatusRuleTest` baru 10 test (index, store+resolve dinamis, problem required keyword null & terisi, prioritas problem atas normal by sort_order, contains, toggle, destroy, duplikat, move swap, update; + import ikut rules DB). `AggregatorTrackingImportTest::test_map_status_english_values` — argumen `true` diganti string kolom masalah. **Trap**: `TrackingStatusRuleService` cache PER INSTANCE → test yang buat rule di tengah jalan harus pakai service baru (`$flikSvc = new TrackingStatusRuleService`).
+- **verify_pipeline.php**: + precheck `tracking_status_rules` (butuh seeder utk langkah tracking).
+- **Perubahan perilaku kecil**: FLIK problem dulu `stripos(...,'problem')===0` (prefix) → kini contains; lebih longgar & bisa diubah admin.
+- **Suite**: **133 pass** (hanya ExampleTest 302 pre-existing); pipeline **104/104 PASS**.
+
 ## Session: Aturan Gudang Dinamis (produk→gudang) + Rule Courier Khusus Produk (fitur P)
 
 - **Latar**: user minta mapping "kode produk → nama pengirim" (SH→GTM, KSP→Aurora) yang tadinya konstanta `WAREHOUSE_BY_PRODUCT` dibuat dinamis seperti `courier_rules`; plus **rule SH → courier selalu flix**, tidak terpengaruh aturan courier provinsi.

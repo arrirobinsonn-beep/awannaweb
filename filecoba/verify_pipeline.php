@@ -19,6 +19,7 @@
 
 use App\Models\CourierRule;
 use App\Models\ExportTemplateMapping;
+use App\Models\TrackingStatusRule;
 use App\Models\OrderOnlineImportBatch;
 use App\Models\ProductVariant;
 use App\Models\ShippingOrder;
@@ -92,7 +93,9 @@ check('produk & varian ter-seed', ProductVariant::count() > 0,
     'jalankan: php artisan db:seed --class=ProductSeeder');
 check('export_template_mappings terisi (Aturan Export)', ExportTemplateMapping::count() > 0,
     'jalankan: php artisan db:seed --class=ExportTemplateMappingSeeder');
-if (CourierRule::count() === 0 || ProductVariant::count() === 0 || ExportTemplateMapping::count() === 0) {
+check('tracking_status_rules terisi (Aturan Status)', TrackingStatusRule::count() > 0,
+    'jalankan: php artisan db:seed --class=TrackingStatusRuleSeeder');
+if (CourierRule::count() === 0 || ProductVariant::count() === 0 || ExportTemplateMapping::count() === 0 || TrackingStatusRule::count() === 0) {
     exit(summary());
 }
 
