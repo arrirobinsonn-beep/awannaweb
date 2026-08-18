@@ -363,7 +363,7 @@
             </a>
             @endif
 
-            @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs']))
+            @if($u->hasRole(['owner','super_admin','mentor','cs']))
             <a href="{{ route('orders.index') }}"
                class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
                data-page-link data-tip="Upload Data Mentah & Export Template">

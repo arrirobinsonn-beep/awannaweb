@@ -527,6 +527,58 @@ Semua elemen halaman spending advertiser (`index-advertiser`) kini fleksibel di 
 
 ---
 
+## M. ✅ Batas Tinggi Tabel Performa Team — ±7 baris (11 Agustus 2026)
+
+### Deskripsi
+Tabel performa team (`team/performance.blade.php`, sisi advertiser & CS) dibatasi tingginya agar hanya menampilkan **±7 baris data CS**, sisanya bisa di-scroll vertikal di dalam container (pola sama dengan batas 5 baris tabel spending).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `resources/views/team/performance.blade.php` | Kedua wrapper tabel (`<div style="overflow-x:auto;">`) diberi class `.perf-scroll-limit` (overflow-y:auto + scrollbar tipis); script baru: hitung `maxHeight = tinggi header + 7 baris data + tinggi baris GRAND TOTAL` (baris total sticky-bottom dihitung agar tidak menutupi baris ke-7), pass-2 setelah scrollbar muncul + re-measure saat resize; gaya JS `const`/arrow (konsisten dgn script donut di file yang sama) |
+
+### Penting
+- Baris data di-deteksi dari `tbody.rows` yang inline `position` BUKAN `sticky` (baris GRAND TOTAL memakai `position:sticky;bottom:0` inline) & bukan `display:none` — jika baris total dipindah ke CSS class, filter ini harus disesuaikan (sudah dicatat sebagai komentar di script).
+- Header (2 baris, sticky top) & kolom sticky kiri/kanan tetap berfungsi di dalam container scroll karena tabel memakai `border-collapse:separate`.
+- ≤7 CS / empty state → tanpa batasan (tinggi natural).
+
+---
+
+## J. ✅ Ringkasan Periode — 4 Kartu Summary di Halaman Spending Advertiser (11 Agustus 2026)
+
+### Deskripsi
+Halaman spending sisi advertiser kini punya 4 kartu summary (Total Spending, Total Lead/Paid, CPA Lead/Paid, Paid Ratio) di antara area filter rentang periodik dan tabel utama. Seluruh kartu terpengaruh rentang periodik yang sedang aktif. Warna paid ratio: <50% merah, 50–75% kuning, >75% hijau.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/SpendingHarianController.php` | `indexGeneral()` hitung summary batch per rentang (1 query aggregate, bukan per baris) |
+| `resources/views/spending/index.blade.php` | 4 kartu summary + logic warna ratio |
+
+## K. ✅ Top Up: Area Sisa Saldo Berdampingan + Centang Whitelist (11 Agustus 2026)
+
+### Deskripsi
+Halaman `topup/create` kini punya **dua area berdampingan** (grid 1fr 1fr, collapse 1 kolom di ≤900px):
+- **📋 Rencana Top Up per Whitelist** — tiap whitelist punya **checkbox** untuk memilih whitelist yang di-top up; input nominal `disabled` sampai dicentang. Total hanya menghitung baris tercentang.
+- **💳 Input Sisa Saldo per Whitelist** — otomatis menampilkan whitelist yang ber-**spending kemarin** (aggregate `SUM(spending/lead/paid)` per whitelist, 1 query batch `whereDate` + `groupBy`), input sisa saldo default = `sisa_saldo` saat ini.
+
+> Tahap ini **UI dulu**: `store()` belum menyimpan field `sisa_saldo[*]` (ada info kecil di view). Sisa saldo saat ini tetap di-input di tahap akhir (confirm setelah VA dibayar) — pemindahan penyimpanan ke awal menyusul.
+
+### Penting
+- Baris tidak dicentang → `syncRowState()` men-disable **input nominal DAN hidden `items[id][whitelist_id]`** sekaligus. Kalau hidden whitelist_id tidak ikut di-disable, baris tak dicentang tetap terkirim `items[id]` tanpa `nominal` → validasi `items.*.nominal required` gagal membingungkan.
+- `sisa_saldo` adalah **accessor** (`total_topup − total_spending`), bukan kolom DB.
+- Query spending kemarin memakai `whereDate('tanggal', now()->subDay())` + `whereIn` whitelist milik advertiser (aman saat whitelists kosong — Laravel `0=1`).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/TopUpController.php` | `create()`: import `SpendingHarian`, query batch spending kemarin → `$sisaSaldoWhitelists` (properti dinamis `spending_kemarin`/`lead_kemarin`/`paid_kemarin`); `store()`: pesan error custom + atribut `items.{id}.nominal` → nama whitelist |
+| `resources/views/topup/create.blade.php` | `.topup-split` grid dua card, checkbox `.wl-select`, JS `syncRowState()`/`hitungTotal()` (hitung baris tercentang saja); tinggi card disamakan via `align-items:stretch` + `height:100%` + `flex:1` pada daftar item |
+
+> **Validasi submit top-up (fix 11 Agustus):** whitelist dicentang tapi nominal kosong → dulu error membingungkan `The items.8.nominal field is required.`. Kini: form pakai **`novalidate`** (native browser dimatikan agar guard JS yang jalan), guard submit mengecek `.wl-select:checked` dengan nominal kosong/negatif → `preventDefault` + alert nama whitelist (`WL_NAMES` dari `@json`) + highlight merah + scroll ke baris. `store()` punya pesan custom `Nominal top up untuk :attribute wajib diisi` dgn atribut dinamis `items.{id}.nominal` → nama whitelist. Saat validasi gagal, `old('items.{id}.nominal')` memulihkan centang + nilai input (`data-was-filled` + `restoreRowState()`), jadi user tidak mengetik ulang. |
+
+> ⚠️ **Reserved word MySQL — kolom `lead` WAJIB backtick di raw SQL** (fix 11 Agustus): `spending_harians.lead` adalah **reserved word** di MySQL 8.4 → `SUM(lead)` tanpa backtick memicu `SQLSTATE[42000] 1064`. SELALU tulis `SUM(\`lead\`)` di `selectRaw` (contoh kanonik: `DashboardController`, `SpendingHarianController`, `RegionalController`). Kolom `spending` & `paid` aman tanpa backtick.
+
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 
 Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier`, dan `Gudang` (master tempat gudang, `gudang.master*`).
