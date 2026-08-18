@@ -26,13 +26,13 @@
     </div>
     <div class="stat-card stat-card-2" data-reveal>
         <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.8;margin-bottom:8px;">Total Lead</div>
-        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $tLead }}">0</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $tLead }}">{{ $tLead }}</div>
         <div style="font-size:.72rem;opacity:.8;margin-top:4px;">Bulan {{ now()->translatedFormat('F') }}</div>
         <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;">📢</div>
     </div>
     <div class="stat-card stat-card-3" data-reveal>
         <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.8;margin-bottom:8px;">Total Paid</div>
-        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $tPaid }}">0</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $tPaid }}">{{ $tPaid }}</div>
         <div style="font-size:.72rem;opacity:.8;margin-top:4px;">Paid Ratio {{ $pr }}%</div>
         <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;">✅</div>
     </div>

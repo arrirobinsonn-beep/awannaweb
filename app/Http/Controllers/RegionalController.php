@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CsAssignment;
 use App\Models\Notification;
 use App\Models\OrderOnlineContact;
 use App\Models\RegionalCsStat;
@@ -133,7 +134,7 @@ class RegionalController extends Controller
         // ─── Alarm: bandingkan dengan Spending Harian ────────
         $spendingTotals = SpendingHarian::where('user_id', $targetUserId)
             ->whereBetween('tanggal', [$dari, $sampai])
-            ->selectRaw('tanggal, COALESCE(SUM(lead), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
+            ->selectRaw('tanggal, COALESCE(SUM(`lead`), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
             ->groupBy('tanggal')
             ->get()
             ->keyBy('tanggal')
@@ -169,6 +170,24 @@ class RegionalController extends Controller
             'paid' => (int) $spendingTotals->sum('total_paid'),
         ];
 
+        // ─── Guard tombol "Upload File Excel": advertiser wajib punya CS yang ditugaskan ──
+        $hasAssignedCs = true;
+        if ($user->hasRole('advertiser')) {
+            $bulanSekarang = now()->format('Y-m');
+
+            if (CsAssignment::where('bulan', $bulanSekarang)->exists()) {
+                // Sumber utama: rotasi bulanan cs_assignments
+                $hasAssignedCs = CsAssignment::where('bulan', $bulanSekarang)
+                    ->where('advertiser_id', $user->id)
+                    ->exists();
+            } else {
+                // Fallback data lama: snapshot users.advertiser_id
+                $hasAssignedCs = User::where('advertiser_id', $user->id)
+                    ->role('cs')
+                    ->exists();
+            }
+        }
+
         return view('regional.index', compact(
             'masterProvinces',
             'allDates',
@@ -182,6 +201,7 @@ class RegionalController extends Controller
             'sampai',
             'advertisers',
             'targetUserId',
+            'hasAssignedCs',
         ));
     }
 
@@ -282,7 +302,7 @@ class RegionalController extends Controller
                 $existingMap = RegionalReport::where('user_id', $targetUserId)
                     ->whereIn('tanggal', $dates)
                     ->get()
-                    ->keyBy(fn ($r) => $r->tanggal->format('Y-m-d') . '|' . $r->province);
+                    ->keyBy(fn ($r) => $r->tanggal->format('Y-m-d').'|'.$r->province);
 
                 foreach ($items as $item) {
                     $tanggalKey = date('Y-m-d', strtotime($item['tanggal']));
@@ -296,7 +316,11 @@ class RegionalController extends Controller
 
                     RegionalReport::computeRatio($data);
 
+<<<<<<< HEAD
                     $key = $tanggalKey . '|' . $item['province'];
+=======
+                    $key = $item['tanggal'].'|'.$item['province'];
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
                     $existing = $existingMap[$key] ?? null;
 
                     if ($existing) {

@@ -55,23 +55,7 @@
                     @error('platform')<p style="color:#ef4444;font-size:.72rem;margin-top:4px;">{{ $message }}</p>@enderror
                 </div>
 
-                {{-- Pemilik --}}
-                <div class="col-span-2">
-                    <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;">
-                        Pemilik (Advertiser) <span style="color:#f87171;">*</span>
-                    </label>
-                    <select name="user_id" class="clay-input @error('user_id') border-red-400 @enderror">
-                        <option value="">— Pilih Pemilik —</option>
-                        @foreach($advertisers as $adv)
-                        <option value="{{ $adv->id }}"
-                            {{ old('user_id',$whitelist->user_id)==$adv->id?'selected':'' }}>
-                            {{ $adv->panggilan ?? $adv->nama ?? $adv->email }}
-                            ({{ $adv->email }})
-                        </option>
-                        @endforeach
-                    </select>
-                    @error('user_id')<p style="color:#ef4444;font-size:.72rem;margin-top:4px;">{{ $message }}</p>@enderror
-                </div>
+                {{-- Pemilik: otomatis = advertiser yang sedang login (tidak perlu dipilih) --}}
 
                 {{-- Tanggal --}}
                 <div>

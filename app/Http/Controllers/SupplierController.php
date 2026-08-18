@@ -11,7 +11,7 @@ class SupplierController extends Controller
 {
     public function index(Request $request): View
     {
-        $query = Supplier::withCount('products')->latest();
+        $query = Supplier::latest();
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -58,8 +58,6 @@ class SupplierController extends Controller
 
     public function show(Supplier $supplier): View
     {
-        $supplier->load(['products', 'whitelists', 'spendingHarians' => fn ($q) => $q->latest()->limit(5)]);
-
         return view('supplier.show', compact('supplier'));
     }
 

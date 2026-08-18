@@ -78,13 +78,20 @@
         <span>🚨</span>
         <div style="flex:1;font-size:.78rem;">
             <strong>Ketidaksesuaian Data!</strong> Lead/Paid Regional tidak sama dengan Spending Harian.
-            @foreach($data['discrepancies'] as $tgl => $d)
-            <div style="margin-top:3px;font-size:.74rem;">
-                📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
-                Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
-                Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+            @if(count($data['discrepancies']) > 5)
+            <div style="margin-top:5px;font-size:.68rem;color:#b91c1c;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($data['discrepancies']) }} tanggal — scroll untuk melihat sisanya
             </div>
-            @endforeach
+            @endif
+            <div style="margin-top:3px;max-height:102px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach($data['discrepancies'] as $tgl => $d)
+                <div style="margin-top:3px;font-size:.74rem;line-height:1.45;">
+                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                    Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                    Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+                </div>
+                @endforeach
+            </div>
         </div>
     </div>
     @endif
@@ -145,7 +152,7 @@
                 <td style="text-align:right;font-weight:700;color:var(--color-purple);">{{ number_format($s['lead']) }}</td>
                 <td style="text-align:right;font-weight:700;color:var(--color-secondary);">{{ number_format($s['paid']) }}</td>
                 <td style="text-align:right;">
-                    <span class="clay-badge {{ $s['paid_ratio']>=30?'clay-badge-green':($s['paid_ratio']>=10?'clay-badge-yellow':'clay-badge-red') }}">
+                    <span class="clay-badge {{ $s['paid_ratio']>=75?'clay-badge-green':($s['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}">
                         {{ round($s['paid_ratio']) }}%
                     </span>
                 </td>
@@ -169,6 +176,13 @@
                              onmouseenter="this.style.background='#f3f4f6'"
                              onmouseleave="this.style.background=''">
 
+                            {{-- Select-all whitelist produk ini (bulk delete) --}}
+                            <label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0;"
+                                   onclick="event.stopPropagation()"
+                                   title="Pilih semua whitelist produk ini untuk dihapus">
+                                <input type="checkbox" class="bd-check-all" data-prod="{{ $adv->id }}-{{ $dateKey }}-{{ $prodId }}">
+                            </label>
+
                             <span id="chev-{{ $lvl2 }}"
                                   style="display:inline-block;transition:transform .22s;
                                          color:var(--color-secondary);font-size:.72rem;flex-shrink:0;">▶</span>
@@ -179,10 +193,10 @@
                                                  font-size:.62rem;font-weight:700;padding:2px 8px;
                                                  border-radius:999px;flex-shrink:0;">📦 Produk</span>
                                     <span style="font-weight:700;font-size:.85rem;color:#1e1b2e;">
-                                        {{ $prodData['product']->nama_produk ?? 'Tidak Diketahui' }}
+                                        {{ $prodData['product']->name ?? 'Tidak Diketahui' }}
                                     </span>
                                     <span style="font-size:.68rem;color:#9ca3af;">
-                                        {{ $prodData['product']->kode_produk ?? '' }}
+                                        {{ $prodData['product']->code ?? '' }}
                                     </span>
                                 </div>
                                 <div style="font-size:.67rem;color:#9ca3af;margin-top:2px;padding-left:52px;">
@@ -205,7 +219,7 @@
                                         <span style="color:var(--color-secondary);">{{ $prodData['paid'] }}</span>
                                     </div>
                                 </div>
-                                <span class="clay-badge {{ $prodData['paid_ratio']>=30?'clay-badge-green':($prodData['paid_ratio']>=10?'clay-badge-yellow':'clay-badge-red') }}"
+                                <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
                                       style="font-size:.67rem;">{{ round($prodData['paid_ratio']) }}%</span>
                             </div>
                         </div>
@@ -232,8 +246,27 @@
                                 <tr onmouseenter="this.style.background='#f0fffe'"
                                     onmouseleave="this.style.background=''">
                                     <td style="padding:7px 20px 7px 36px;">
-                                        <div style="font-weight:600;font-size:.8rem;">{{ $item->whitelist->nama ?? '-' }}</div>
-                                        <div style="font-size:.65rem;color:#9ca3af;">{{ $item->whitelist->kode ?? '' }}</div>
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            {{-- Checkbox bulk delete --}}
+                                            <input type="checkbox" class="bd-check"
+                                                   data-id="{{ $item->id }}"
+                                                   data-prod="{{ $adv->id }}-{{ $dateKey }}-{{ $prodId }}"
+                                                   data-tanggal="{{ $dateKey }}"
+                                                   data-product-id="{{ $prodId }}"
+                                                   data-product-name="{{ $prodData['product']->name ?? '' }}"
+                                                   data-product-code="{{ $prodData['product']->code ?? '' }}"
+                                                   data-whitelist-name="{{ $item->whitelist->nama ?? '' }}"
+                                                   data-whitelist-code="{{ $item->whitelist->kode ?? '' }}"
+                                                   data-spending="{{ $item->spending }}"
+                                                   data-lead="{{ $item->lead }}"
+                                                   data-paid="{{ $item->paid }}"
+                                                   title="Pilih untuk dihapus"
+                                                   style="flex-shrink:0;">
+                                            <div style="min-width:0;">
+                                                <div style="font-weight:600;font-size:.8rem;">{{ $item->whitelist->nama ?? '-' }}</div>
+                                                <div style="font-size:.65rem;color:#9ca3af;">{{ $item->whitelist->kode ?? '' }}</div>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td style="padding:7px 10px;text-align:right;font-weight:700;
                                                color:var(--color-primary);font-size:.78rem;white-space:nowrap;">
@@ -242,7 +275,7 @@
                                     <td style="padding:7px 10px;text-align:right;font-size:.78rem;color:var(--color-purple);font-weight:700;">{{ $item->lead }}</td>
                                     <td style="padding:7px 10px;text-align:right;font-size:.78rem;color:var(--color-secondary);font-weight:700;">{{ $item->paid }}</td>
                                     <td style="padding:7px 10px;text-align:right;">
-                                        <span class="clay-badge {{ $item->paid_ratio>=30?'clay-badge-green':($item->paid_ratio>=10?'clay-badge-yellow':'clay-badge-red') }}"
+                                        <span class="clay-badge {{ $item->paid_ratio>=75?'clay-badge-green':($item->paid_ratio>=50?'clay-badge-yellow':'clay-badge-red') }}"
                                               style="font-size:.64rem;">{{ round($item->paid_ratio) }}%</span>
                                     </td>
                                     <td style="padding:7px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($item->cpa_lead,0,',','.') }}</td>
@@ -256,7 +289,7 @@
                                     <td style="padding:6px 10px;text-align:right;font-size:.78rem;color:var(--color-purple);">{{ $prodData['lead'] }}</td>
                                     <td style="padding:6px 10px;text-align:right;font-size:.78rem;color:var(--color-secondary);">{{ $prodData['paid'] }}</td>
                                     <td style="padding:6px 10px;text-align:right;">
-                                        <span class="clay-badge {{ $prodData['paid_ratio']>=30?'clay-badge-green':($prodData['paid_ratio']>=10?'clay-badge-yellow':'clay-badge-red') }}"
+                                        <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
                                               style="font-size:.64rem;">{{ $prodData['paid_ratio'] }}%</span>
                                     </td>
                                     <td style="padding:6px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($prodData['cpa_lead'],0,',','.') }}</td>
@@ -280,6 +313,330 @@
 @endforeach
 
 @endif
+
+{{-- ═══════════════ BULK DELETE (centang produk/whitelist) ═══════════════ --}}
+<form method="POST" action="{{ route('spending.bulk-destroy') }}" id="bulk-delete-form">
+    @csrf
+    <div id="bulk-ids"></div>
+</form>
+<div class="bulk-bar" id="bulk-bar">
+    <span style="font-size:.8rem;font-weight:700;color:#b91c1c;">🗑 <span id="bulk-count">0</span> data terpilih</span>
+    <button type="button" id="bulk-edit" class="clay-btn clay-btn-secondary" style="padding:6px 14px;font-size:.75rem;">✏️ Edit</button>
+    <button type="button" id="bulk-clear" class="clay-btn clay-btn-outline" style="padding:6px 14px;font-size:.75rem;">Batal</button>
+    <button type="button" id="bulk-confirm" class="clay-btn clay-btn-danger" style="padding:6px 14px;font-size:.75rem;">Hapus Terpilih</button>
+</div>
+
+{{-- ═══════════════ MODAL BULK EDIT (spending/lead/paid) ═══════════════ --}}
+<div class="be-modal" id="bulk-edit-modal" role="dialog" aria-modal="true" aria-labelledby="be-title">
+    <div class="be-backdrop" onclick="closeBulkEdit()"></div>
+    <div class="be-container">
+        <div class="be-header">
+            <h2 id="be-title">✏️ Edit Data Terpilih</h2>
+            <button class="be-close" onclick="closeBulkEdit()" type="button">✕</button>
+        </div>
+        <form method="POST" action="{{ route('spending.bulk-update') }}" id="bulk-edit-form">
+            @csrf
+            <div class="be-body">
+                <div class="be-info" id="be-info"></div>
+                <div class="be-groups" id="be-groups"></div>
+            </div>
+            <div class="be-footer">
+                <button type="button" class="clay-btn clay-btn-outline" onclick="closeBulkEdit()">Batal</button>
+                <button type="button" class="clay-btn clay-btn-primary" id="be-save">💾 Simpan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@push('styles')
+<style>
+    /* ── Bulk delete ────────────────────────────────────── */
+    .bulk-bar {
+        position: fixed; bottom: 20px; right: 24px; z-index: 60;
+        display: none; align-items: center; gap: 10px;
+        background: #fff; border: 1px solid #fecaca;
+        border-radius: 16px; padding: 10px 14px;
+        box-shadow: 0 12px 32px rgba(220,38,38,.18);
+        animation: bulkIn .25s ease;
+    }
+    @keyframes bulkIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: none; }
+    }
+    .bd-check { width: 16px; height: 16px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
+    .bd-check-all { width: 15px; height: 15px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
+    tr.bd-row-selected { background: #fff0f0 !important; }
+
+    /* ── Modal Bulk Edit (spending/lead/paid) ───────────── */
+    .be-modal {
+        position: fixed; inset: 0; z-index: 9999;
+        display: none; align-items: center; justify-content: center; padding: 16px;
+    }
+    .be-modal.active { display: flex; }
+    .be-modal .be-backdrop {
+        position: absolute; inset: 0;
+        background: rgba(15,23,42,.55); backdrop-filter: blur(2px);
+    }
+    .be-modal .be-container {
+        position: relative; background: #fff; border-radius: 18px;
+        width: 100%; max-width: 540px; overflow: hidden;
+        display: flex; flex-direction: column;
+        box-shadow: 0 25px 60px rgba(0,0,0,.25);
+        animation: beIn .22s ease;
+    }
+    @keyframes beIn {
+        from { opacity: 0; transform: translateY(10px) scale(.98); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .be-modal .be-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
+        background: linear-gradient(135deg, #FFF5F5, #fff);
+    }
+    .be-modal .be-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
+    .be-modal .be-close {
+        background: #f3f4f6; border: none; border-radius: 8px;
+        width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280;
+        transition: background .15s;
+    }
+    .be-modal .be-close:hover { background: #e5e7eb; }
+    .be-modal .be-body { padding: 14px 20px 8px; }
+    .be-info { font-size: .82rem; color: #4b5563; font-weight: 600; margin-bottom: 10px; line-height: 1.5; }
+    .be-groups {
+        max-height: 48vh; overflow-y: auto; margin-bottom: 10px; padding-right: 4px;
+        scrollbar-width: thin; scrollbar-color: #d1d5db transparent;
+    }
+    .be-date { font-size: .75rem; font-weight: 800; color: var(--color-secondary, #4ECDC4); margin: 10px 0 5px; }
+    .be-prod { border: 1px solid rgba(0,0,0,.07); border-radius: 12px; margin-bottom: 8px; overflow: hidden; background: #fff; }
+    .be-prod-name {
+        display: flex; align-items: center; gap: 6px; padding: 7px 12px;
+        background: #f9fefe; font-size: .75rem; font-weight: 700; color: #1e1b2e;
+    }
+    .be-code { font-size: .62rem; color: #9ca3af; font-weight: 600; }
+    .be-row { padding: 8px 12px 10px; border-top: 1px dashed rgba(0,0,0,.06); }
+    .be-row-meta { font-size: .72rem; color: #374151; margin-bottom: 6px; }
+    .be-old { font-size: .62rem; color: #9ca3af; margin-top: 2px; }
+    .be-row-inputs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .be-row-inputs label {
+        display: block; font-size: .6rem; font-weight: 700; color: #6b7280;
+        margin-bottom: 2px; text-transform: uppercase; letter-spacing: .03em;
+    }
+    .be-row-inputs .clay-input { font-size: .78rem; padding: 6px 8px; }
+    .be-modal .be-footer {
+        display: flex; justify-content: flex-end; gap: 10px;
+        padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
+    }
+</style>
+@endpush
+
+@push('scripts')
+<script>
+{{-- ── Bulk Delete (centang produk & whitelist) ─────────────────────────── --}}
+(function() {
+    'use strict';
+
+    var form = document.getElementById('bulk-delete-form');
+    if (!form) return;
+
+    var bar     = document.getElementById('bulk-bar');
+    var countEl = document.getElementById('bulk-count');
+    var selected = new Set();
+
+    function updateUI() {
+        var n = selected.size;
+        if (bar) bar.style.display = n ? 'flex' : 'none';
+        if (countEl) countEl.textContent = n;
+
+        document.querySelectorAll('.bd-check-all').forEach(function(cb) {
+            var group = document.querySelectorAll('.bd-check[data-prod="' + cb.dataset.prod + '"]');
+            if (!group.length) { cb.checked = false; cb.indeterminate = false; return; }
+            var allChecked = Array.from(group).every(function(c) { return selected.has(c.dataset.id); });
+            var anyChecked = Array.from(group).some(function(c) { return selected.has(c.dataset.id); });
+            cb.checked = allChecked;
+            cb.indeterminate = anyChecked && !allChecked;
+        });
+
+        document.querySelectorAll('.bd-check').forEach(function(c) {
+            var row = c.closest('tr');
+            if (row) row.classList.toggle('bd-row-selected', selected.has(c.dataset.id));
+        });
+    }
+
+    document.querySelectorAll('.bd-check').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            if (cb.checked) selected.add(cb.dataset.id);
+            else selected.delete(cb.dataset.id);
+            updateUI();
+        });
+    });
+
+    document.querySelectorAll('.bd-check-all').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            var group = document.querySelectorAll('.bd-check[data-prod="' + cb.dataset.prod + '"]');
+            group.forEach(function(c) {
+                if (cb.checked) selected.add(c.dataset.id);
+                else selected.delete(c.dataset.id);
+                c.checked = cb.checked;
+            });
+            updateUI();
+        });
+    });
+
+    var clearBtn = document.getElementById('bulk-clear');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            selected.clear();
+            document.querySelectorAll('.bd-check').forEach(function(c) { c.checked = false; });
+            updateUI();
+        });
+    }
+
+    var confirmBtn = document.getElementById('bulk-confirm');
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', function() {
+            if (!selected.size) return;
+            if (!confirm('Hapus ' + selected.size + ' data spending yang terpilih? Tindakan ini tidak dapat dibatalkan.')) return;
+            var box = document.getElementById('bulk-ids');
+            box.innerHTML = '';
+            selected.forEach(function(id) {
+                var inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'ids[]';
+                inp.value = id;
+                box.appendChild(inp);
+            });
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<span class="spinner-sm"></span> Menghapus...';
+            form.submit();
+        });
+    }
+
+    // ── Bulk Edit (modal grup per tanggal & produk, edit per baris) ──
+    var beModal  = document.getElementById('bulk-edit-modal');
+    var beInfo   = document.getElementById('be-info');
+    var beGroups = document.getElementById('be-groups');
+    var beForm   = document.getElementById('bulk-edit-form');
+
+    var BE_MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+
+    function beEsc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function beFmtTanggal(s) {
+        if (!s || s === '?') return s;
+        var p = s.split('-').map(Number);
+        return p[2] + ' ' + BE_MONTHS[(p[1] || 1) - 1] + ' ' + p[0];
+    }
+
+    window.openBulkEdit = function() {
+        if (!selected.size || !beGroups) return;
+
+        // ── Kumpulkan baris terpilih → grup (tanggal → produk) ──
+        var byDate = {};
+        var dateKeys = [];
+
+        document.querySelectorAll('.bd-check:checked').forEach(function(c) {
+            var tanggal = c.dataset.tanggal || '?';
+            var prodKey = c.dataset.productId || '0';
+            if (!byDate[tanggal]) {
+                byDate[tanggal] = {};
+                dateKeys.push(tanggal);
+            }
+            if (!byDate[tanggal][prodKey]) {
+                byDate[tanggal][prodKey] = {
+                    name: c.dataset.productName || 'Tidak Diketahui',
+                    code: c.dataset.productCode || '',
+                    rows: [],
+                };
+            }
+            byDate[tanggal][prodKey].rows.push({
+                id: c.dataset.id,
+                wl: c.dataset.whitelistName || '-',
+                wlCode: c.dataset.whitelistCode || '',
+                spending: c.dataset.spending,
+                lead: c.dataset.lead,
+                paid: c.dataset.paid,
+            });
+        });
+
+        dateKeys.sort().reverse(); // tanggal terbaru di atas
+        var multiDate = dateKeys.length > 1;
+        var prodTotal = 0;
+        dateKeys.forEach(function(t) { prodTotal += Object.keys(byDate[t]).length; });
+
+        beInfo.textContent = 'Mengedit ' + selected.size + ' data terpilih — ' +
+            dateKeys.length + ' tanggal · ' + prodTotal + ' produk. Nilai diisi per baris.';
+
+        var html = '';
+        dateKeys.forEach(function(tanggal) {
+            var prods = byDate[tanggal];
+            if (multiDate) {
+                html += '<div class="be-date">📅 ' + beEsc(beFmtTanggal(tanggal)) + '</div>';
+            }
+            Object.keys(prods).sort(function(a, b) {
+                return (prods[a].name || '').localeCompare(prods[b].name || '');
+            }).forEach(function(pk) {
+                var p = prods[pk];
+                html += '<div class="be-prod">';
+                html += '<div class="be-prod-name">📦 ' + beEsc(p.name) +
+                        (p.code ? ' <span class="be-code">' + beEsc(p.code) + '</span>' : '') + '</div>';
+                p.rows.forEach(function(r) {
+                    html += '<div class="be-row">';
+                    html += '<div class="be-row-meta"><strong>' + beEsc(r.wl) + '</strong>' +
+                            (r.wlCode ? ' <span class="be-code">' + beEsc(r.wlCode) + '</span>' : '') +
+                            '<div class="be-old">sebelum: Rp ' + Number(r.spending).toLocaleString('id-ID') +
+                            ' · lead ' + r.lead + ' · paid ' + r.paid + '</div></div>';
+                    html += '<div class="be-row-inputs">';
+                    html += '<input type="hidden" name="items[' + r.id + '][id]" value="' + r.id + '">';
+                    html += '<div><label>Spending (Rp)</label>' +
+                            '<input type="number" class="clay-input" name="items[' + r.id + '][spending]" value="' + r.spending + '" min="0" step="any" required></div>';
+                    html += '<div><label>Lead</label>' +
+                            '<input type="number" class="clay-input" name="items[' + r.id + '][lead]" value="' + r.lead + '" min="0" required></div>';
+                    html += '<div><label>Paid</label>' +
+                            '<input type="number" class="clay-input" name="items[' + r.id + '][paid]" value="' + r.paid + '" min="0" required></div>';
+                    html += '</div></div>';
+                });
+                html += '</div>';
+            });
+        });
+        beGroups.innerHTML = html;
+        beModal.classList.add('active');
+    };
+
+    window.closeBulkEdit = function() {
+        beModal.classList.remove('active');
+    };
+
+    var editBtn = document.getElementById('bulk-edit');
+    if (editBtn) {
+        editBtn.addEventListener('click', function() {
+            if (!selected.size) return;
+            window.openBulkEdit();
+        });
+    }
+
+    // Simpan: validasi native dulu (bubble field kosong), lalu submit form
+    // (input per baris sudah dirender di dalam form → ikut terkirim)
+    var beSave = document.getElementById('be-save');
+    if (beSave && beForm) {
+        beSave.addEventListener('click', function() {
+            if (!beForm.reportValidity()) return;
+            beSave.disabled = true;
+            beSave.innerHTML = '<span class="spinner-sm"></span> Menyimpan...';
+            beForm.submit();
+        });
+    }
+
+    // Tutup dengan ESC
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && beModal && beModal.classList.contains('active')) window.closeBulkEdit();
+    });
+})();
+</script>
+@endpush
 
 @push('scripts')
 <script>

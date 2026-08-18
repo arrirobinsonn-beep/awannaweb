@@ -5,21 +5,26 @@
 @push('styles')
 
 <style>
+    /* ── Scroll wrapper ──────────────────────────── */
+    .reg-scroll-wrap {
+        position: relative;
+        overflow-x: auto;
+        max-height: 75vh;
+        overflow-y: auto;
+    }
+
     /* ── Sticky columns ─────────────────────────── */
     .reg-sticky-left {
         position: sticky !important;
         left: 0;
         z-index: 4;
+        background: #fff;
         background-clip: padding-box;
     }
-    thead .reg-sticky-left {
-        z-index: 6;
-        top: 0; /* sticky vertikal di header row 1 */
-    }
-    thead tr:nth-child(2) .reg-sticky-left {
-        top: 38px; /* sticky vertikal di header row 2 */
-    }
+    thead .reg-sticky-left { z-index: 6; top: 0; }
+    thead tr:nth-child(2) .reg-sticky-left { top: var(--reg-head2, 38px); }
     tbody .reg-sticky-left { z-index: 2; }
+    tbody tr:hover .reg-sticky-left { background: #f8fafc; }
 
     .reg-sticky-right {
         position: sticky !important;
@@ -27,14 +32,17 @@
         z-index: 5;
         background-clip: padding-box;
     }
-    thead .reg-sticky-right {
-        z-index: 6;
-        top: 0; /* sticky vertikal di header row 1 */
-    }
-    thead tr:nth-child(2) .reg-sticky-right {
-        top: 38px; /* sticky vertikal di header row 2 */
-    }
+    /* ── Sub-kolom TOTAL: offset sticky per kolom (tiap kolom 80px; urut LEAD, RATIO, PAID) ── */
+    .reg-total-lead  { right: 160px; }
+    .reg-total-ratio { right: 80px;  }
+    .reg-total-paid  { right: 0;     }
+    thead .reg-sticky-right { z-index: 6; top: 0; }
+    thead tr:nth-child(2) .reg-sticky-right { top: var(--reg-head2, 38px); }
     tbody .reg-sticky-right { z-index: 3; }
+
+    /* ── Sticky header rows ─────────────────────── */
+    thead .reg-head-row { position: sticky; top: 0; z-index: 7; }
+    thead .reg-head-row-2 { top: var(--reg-head2, 38px); }
 
     /* Bayangan pseudo-element */
     .reg-sticky-left::after {
@@ -219,13 +227,20 @@
         <span>🚨</span>
         <div style="flex:1;font-size:.83rem;">
             <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
-            @foreach($discrepancies as $tgl => $d)
-            <div style="margin-top:4px;font-size:.78rem;">
-                📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
-                Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
-                Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+            @if(count($discrepancies) > 5)
+            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($discrepancies) }} tanggal — scroll untuk melihat sisanya
             </div>
-            @endforeach
+            @endif
+            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach($discrepancies as $tgl => $d)
+                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                    Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                    Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+                </div>
+                @endforeach
+            </div>
         </div>
     </div>
     @endif
@@ -268,27 +283,28 @@
     <div class="grid-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:0;" data-reveal>
         <div class="stat-card stat-card-1" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Lead (Regional)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['lead'] }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['lead'] }}">{{ $totalRegional['lead'] }}</div>
         </div>
         <div class="stat-card stat-card-2" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Paid (Regional)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['paid'] }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['paid'] }}">{{ $totalRegional['paid'] }}</div>
         </div>
         <div class="stat-card stat-card-3" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Lead (Spending)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['lead'] }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['lead'] }}">{{ $totalSpending['lead'] }}</div>
         </div>
         <div class="stat-card stat-card-4" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Paid (Spending)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['paid'] }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['paid'] }}">{{ $totalSpending['paid'] }}</div>
         </div>
     </div>
 
     {{-- ─── Tabel Utama ─────────────────────────────── --}}
     <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
-        <div style="overflow-x:auto;max-height:75vh;overflow-y:auto;position:relative;">                <table style="border-collapse:collapse;width:100%;font-size:.78rem;white-space:nowrap;">
+        <div class="reg-scroll-wrap">
+            <table style="border-collapse:collapse;width:100%;font-size:.78rem;white-space:nowrap;">
                 <thead>
-                    <tr style="position:sticky;top:0;z-index:3;">
+                    <tr class="reg-head-row">
                         <th colspan="1" class="reg-sticky-left" style="background:#4472C4;color:#fff;padding:8px 14px;text-align:left;font-weight:700;font-size:.8rem;min-width:200px;border:1px solid rgba(255,255,255,.15);">
                             PROVINSI
                         </th>
@@ -301,11 +317,11 @@
                         </th>
                         @endforeach
                         {{-- TOTAL sticky kanan --}}
-                        <th colspan="3" class="reg-sticky-right" style="background:#0d9488;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;border:1px solid rgba(255,255,255,.15);min-width:80px;">
+                        <th colspan="3" class="reg-sticky-right reg-total-paid" style="background:#0d9488;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;border:1px solid rgba(255,255,255,.15);width:240px;min-width:240px;">
                             📊 TOTAL
                         </th>
                     </tr>
-                    <tr style="position:sticky;top:38px;z-index:3;">
+                    <tr class="reg-head-row reg-head-row-2">
                         <th class="reg-sticky-left" style="background:#5B9BD5;color:#fff;padding:6px 14px;text-align:left;font-weight:600;font-size:.72rem;border:1px solid rgba(255,255,255,.15);">
                             {{ count($masterProvinces) }} Provinsi
                         </th>
@@ -315,9 +331,9 @@
                             <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">RATIO</th>
                             <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">PAID</th>
                         @endforeach
-                        <th class="reg-sticky-right" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">LEAD</th>
-                        <th class="reg-sticky-right" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">RATIO</th>
-                        <th class="reg-sticky-right" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">PAID</th>
+                        <th class="reg-sticky-right reg-total-lead" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);width:80px;min-width:80px;">LEAD</th>
+                        <th class="reg-sticky-right reg-total-ratio" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);width:80px;min-width:80px;">RATIO</th>
+                        <th class="reg-sticky-right reg-total-paid" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);width:80px;min-width:80px;">PAID</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -329,7 +345,7 @@
                     <tr style="transition:background .12s;"
                         onmouseenter="this.style.background='#f8fafc'"
                         onmouseleave="this.style.background=''">
-                        <td class="reg-sticky-left" style="background:#fff;padding:6px 14px;font-weight:600;font-size:.78rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);white-space:nowrap;">
+                        <td class="reg-sticky-left" style="padding:6px 14px;font-weight:600;font-size:.78rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);white-space:nowrap;">
                             {{ $province }}
                         </td>
                         @foreach($allDates as $dateIndex => $date)
@@ -369,9 +385,9 @@
                         @endforeach
                         {{-- Total per provinsi (sticky kanan) --}}
                         @php $provRatio = $provTotalLead > 0 ? round($provTotalPaid / $provTotalLead * 100, 1) : 0; @endphp
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">{{ number_format($provTotalLead) }}</td>
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">{{ $provRatio > 0 ? number_format($provRatio, 1) . '%' : '0%' }}</td>
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">{{ number_format($provTotalPaid) }}</td>
+                        <td class="reg-sticky-right reg-total-lead" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">{{ number_format($provTotalLead) }}</td>
+                        <td class="reg-sticky-right reg-total-ratio" style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">{{ $provRatio > 0 ? number_format($provRatio, 1) . '%' : '0%' }}</td>
+                        <td class="reg-sticky-right reg-total-paid" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">{{ number_format($provTotalPaid) }}</td>
                     </tr>
                     @endforeach
                     {{-- Grand Total Row (sticky bottom + sticky kanan) --}}
@@ -396,9 +412,9 @@
                             $grandPaid = collect($totalPerTanggal)->sum('paid');
                             $grandRatio = $grandLead > 0 ? round($grandPaid / $grandLead * 100, 1) : 0;
                         @endphp
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#0d9488;border-top:2px solid #0d9488;background:#e6fffa;">{{ number_format($grandLead) }}</td>
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:var(--color-primary);border-top:2px solid #0d9488;background:#e6fffa;">{{ $grandRatio > 0 ? number_format($grandRatio, 1) . '%' : '0%' }}</td>
-                        <td class="reg-sticky-right" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#059669;border-top:2px solid #0d9488;background:#e6fffa;">{{ number_format($grandPaid) }}</td>
+                        <td class="reg-sticky-right reg-total-lead" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#0d9488;border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ number_format($grandLead) }}</td>
+                        <td class="reg-sticky-right reg-total-ratio" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:var(--color-primary);border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ $grandRatio > 0 ? number_format($grandRatio, 1) . '%' : '0%' }}</td>
+                        <td class="reg-sticky-right reg-total-paid" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#059669;border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ number_format($grandPaid) }}</td>
                     </tr>
                 </tbody>
             </table>
@@ -409,7 +425,7 @@
     <div style="display:flex;gap:10px;font-size:.72rem;color:#9ca3af;flex-wrap:wrap;">
         <span>📌 Kolom provinsi <strong>sticky</strong> — tetap terlihat saat scroll horizontal</span>
         <span>🔄 Gunakan date picker untuk mengubah rentang tanggal</span>
-        <span>📤 Klik "Upload File Excel" untuk import data Regional atau Order Online (format otomatis dikenali)</span>
+        <span>📤 Klik "Upload File Excel" untuk import data Regional</span>
     </div>
 </div>
 
@@ -423,7 +439,7 @@
         </div>
         <div class="modal-body">
             <div style="font-size:.78rem;color:#6b7280;margin-bottom:12px;">
-                Upload file Excel <strong>Regional</strong> (Lead/Paid per provinsi). File <strong>Order Online</strong> (mapping CS ke nomor telepon) juga bisa diupload lewat sini — format otomatis dikenali.
+                Upload file Excel <strong>Regional</strong> (Lead/Paid per provinsi) — format otomatis dikenali.
             </div>
 
             <div class="dropzone-wrap">
@@ -540,6 +556,27 @@
     </div>
 </div>
 
+{{-- ═══════════════ ALERT CS BELUM DITUGASKAN ═══════════════ --}}
+<div class="modal-regional" id="modal-cs-alert">
+    <div class="modal-backdrop" id="cs-alert-backdrop"></div>
+    <div class="modal-container modal-container-sm" style="max-width:400px;">
+        <div class="modal-header">
+            <h2>👥 Belum Ada CS</h2>
+            <button class="modal-close" id="cs-alert-close" type="button">✕</button>
+        </div>
+        <div class="modal-body" style="text-align:center;padding:28px 24px;">
+            <div style="font-size:2.6rem;margin-bottom:12px;line-height:1;">🤝</div>
+            <p style="font-size:.92rem;color:#374151;font-weight:600;line-height:1.65;margin:0;">
+                Ups, tampaknya belum ada CS yang ditugaskan khusus untukmu.
+                Segera hubungi <strong style="color:var(--color-primary,#FF6B6B);">Guru</strong> untuk menugaskan seorang CS untuk anda!
+            </p>
+        </div>
+        <div class="modal-footer" style="justify-content:center;">
+            <button class="clay-btn clay-btn-primary" id="cs-alert-ok" type="button">Mengerti</button>
+        </div>
+    </div>
+</div>
+
 @endsection
 
 @push('scripts')
@@ -549,6 +586,14 @@
 
     // ── DOM refs ────────────────────────────────────
     const uploadBtn     = document.getElementById('btn-upload-modal');
+
+    // Guard: advertiser wajib punya CS yang ditugaskan sebelum upload
+    const hasAssignedCs = {{ ($hasAssignedCs ?? true) ? 'true' : 'false' }};
+
+    const mCsAlert      = document.getElementById('modal-cs-alert');
+    const csAlertClose  = document.getElementById('cs-alert-close');
+    const csAlertBackdrop = document.getElementById('cs-alert-backdrop');
+    const csAlertOk     = document.getElementById('cs-alert-ok');
 
     const mUpload       = document.getElementById('modal-upload');
     const uploadClose   = document.getElementById('upload-close-btn');
@@ -575,7 +620,6 @@
     let previewData  = null;
     let previewErrors = [];
     let previewPhoneContacts = [];
-    let uploadType   = null;
     let previewCsStats = []; // CS stats terbaru setelah edit
 
     // ── Helpers ──────────────────────────────────────
@@ -594,7 +638,14 @@
     }
 
     // ── Open/Close Upload Modal ─────────────────────
-    uploadBtn.addEventListener('click', function() { mUpload.classList.add('active'); });
+    uploadBtn.addEventListener('click', function() {
+        // Belum ada CS yang ditugaskan → tampilkan alert, jangan buka modal upload
+        if (!hasAssignedCs) {
+            mCsAlert.classList.add('active');
+            return;
+        }
+        mUpload.classList.add('active');
+    });
 
     function closeUploadModal() {
         mUpload.classList.remove('active');
@@ -603,6 +654,12 @@
     }
     uploadClose.addEventListener('click', closeUploadModal);
     uploadBackdrop.addEventListener('click', closeUploadModal);
+
+    // ── Open/Close CS Alert Modal ───────────────────
+    function closeCsAlert() { mCsAlert.classList.remove('active'); }
+    csAlertClose.addEventListener('click', closeCsAlert);
+    csAlertBackdrop.addEventListener('click', closeCsAlert);
+    csAlertOk.addEventListener('click', closeCsAlert);
 
     // ── Open/Close Preview Modal ────────────────────
     function closePreviewModal() {
@@ -742,11 +799,6 @@
 
     // ── Show Preview Modal ──────────────────────────
     function showPreviewModal() {
-        if (uploadType === 'oo') {
-            showOOPreview();
-            return;
-        }
-
         previewSave.style.display = 'inline-flex';
         const data = previewData;
         const errors = previewErrors;
@@ -988,95 +1040,9 @@
         });
     });
 
-    // ── Show OO Preview ─────────────────────────────
-    function showOOPreview() {
-        previewErrors = [];
-        var data = previewData || {};
-        var errs = data.errors || [];
-
-        previewTitle.textContent = '📊 Preview Order Online — ' + (data.total || 0) + ' Kontak';
-
-        statsEl.innerHTML =
-            '<div class="preview-stat"><div class="val">' + (data.total || 0) + '</div><div class="lbl">Kontak</div></div>' +
-            '<div class="preview-stat"><div class="val">' + (data.unique_cs_count || 0) + '</div><div class="lbl">CS Unik</div></div>' +
-            (errs.length ? '<div class="preview-stat" style="background:#fef2f2;"><div class="val" style="color:#991b1b;">' + errs.length + '</div><div class="lbl">Error</div></div>' : '');
-
-        if (errs.length) {
-            errorsEl.innerHTML = '<strong>⚠️ ' + errs.length + ' error:</strong><br>' + errs.join('<br>');
-            errorsEl.style.display = 'block';
-        } else {
-            errorsEl.style.display = 'none';
-        }
-
-        var rows = data.rows || [];
-        if (rows.length) {
-            var tbl = '<table class="modal-table" style="font-size:.72rem;">';
-            tbl += '<thead><tr><th style="text-align:left;background:#4472C4;width:22%;">Order ID</th><th style="background:#4472C4;width:22%;">Nama</th><th style="background:#4472C4;width:22%;">No Telepon</th><th style="background:#4472C4;width:22%;">CS</th></tr></thead><tbody>';
-            rows.forEach(function(r) {
-                tbl += '<tr><td>' + (r.order_id || '-') + '</td><td>' + (r.buyer_name || '-') + '</td><td>' + (r.phone_normalized || '-') + '</td><td><strong>' + (r.cs_name || '-') + '</strong></td></tr>';
-            });
-            tbl += '</tbody></table>';
-            tbl += '<div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">Menampilkan semua ' + rows.length + ' kontak</div>';
-            tablesEl.innerHTML = tbl;
-        }
-
-        if (data.total > 0) {
-            previewSave.style.display = 'inline-flex';
-        } else {
-            previewSave.style.display = 'none';
-        }
-
-        mPreview.classList.add('active');
-        document.body.style.overflow = 'hidden';
-    }
-
     // ── Save Preview ─────────────────────────────────
     previewSave.addEventListener('click', function() {
         if (!previewData) return;
-
-        if (uploadType === 'oo') {
-            // ─── Save OO via order-online.import ──────
-            previewSave.disabled = true;
-            previewSave.innerHTML = '<span class="spinner-sm"></span> Importing...';
-
-            var fd = new FormData();
-            // Ambil file dari input yang terakhir di-upload
-            var file = document.getElementById('file-input').files[0];
-            if (!file) {
-                previewSave.disabled = false;
-                previewSave.innerHTML = '💾 Simpan Data';
-                return;
-            }
-            fd.append('file', file);
-            fd.append('_token', '{{ csrf_token() }}');
-
-            fetch('{{ route('order-online.import') }}', {
-                method: 'POST',
-                body: fd,
-                headers: { 'Accept': 'application/json' },
-            })
-            .then(function(res) {
-                if (!res.ok) return res.json().then(function(e) { throw new Error(e.message || 'Gagal'); });
-                return res.json();
-            })
-            .then(function(res) {
-                if (res.success) {
-                    alert('✅ ' + res.message);
-                    closePreviewModal();
-                    location.reload();
-                } else {
-                    alert('Gagal: ' + (res.message || 'Unknown error'));
-                }
-            })
-            .catch(function(err) {
-                alert('Gagal: ' + err.message);
-            })
-            .finally(function() {
-                previewSave.disabled = false;
-                previewSave.innerHTML = '💾 Simpan Data';
-            });
-            return;
-        }
 
         previewSave.disabled = true;
         previewSave.innerHTML = '<span class="spinner-sm"></span> Memeriksa...';
@@ -1152,6 +1118,26 @@
         });
     });
 
+})();
+
+// ── Sticky header offset: ukur tinggi header row 1 supaya header row 2
+//    tetap menempel rapi tanpa celah/susun saat scroll vertikal. ──
+(function fixRegStickyHead() {
+    function apply() {
+        var wrap = document.querySelector('.reg-scroll-wrap');
+        if (!wrap) return;
+        var rows = wrap.querySelectorAll('thead tr');
+        if (rows.length < 2) return;
+        var h1 = rows[0].getBoundingClientRect().height;
+        wrap.style.setProperty('--reg-head2', h1 + 'px');
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', apply);
+    } else {
+        apply();
+    }
+    window.addEventListener('load', apply);
+    window.addEventListener('resize', apply);
 })();
 
 </script>

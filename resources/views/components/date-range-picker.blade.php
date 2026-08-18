@@ -25,12 +25,12 @@
 <input type="hidden" name="{{ $inputSampai }}" id="{{ $pid }}-sampai" value="{{ $sampai }}">
 {!! $extraInputs !!}
 
-{{-- Trigger button (di dalam form) --}}
+{{-- Trigger button (di dalam form) — min-width di CSS .drp-trigger agar bisa menyusut di layar kecil --}}
 <button type="button" onclick="DRP.open('{{ $pid }}')"
-        class="clay-btn clay-btn-outline"
-        style="gap:8px;white-space:nowrap;min-width:220px;justify-content:flex-start;">
+        class="clay-btn clay-btn-outline drp-trigger"
+        style="gap:8px;white-space:nowrap;justify-content:flex-start;">
     <span>📅</span>
-    <span id="{{ $pid }}-label" style="font-size:.83rem;font-weight:600;color:#374151;">
+    <span id="{{ $pid }}-label" class="drp-label" style="font-size:.83rem;font-weight:600;color:#374151;">
         {{ \Carbon\Carbon::parse($dari)->translatedFormat('d M Y') }} — {{ \Carbon\Carbon::parse($sampai)->translatedFormat('d M Y') }}
     </span>
     <span style="margin-left:auto;font-size:.7rem;color:#9ca3af;">▼</span>
@@ -42,23 +42,21 @@
     Ini menyelesaikan masalah popup terpotong oleh sidebar yang punya transition:transform.
 --}}
 @push('body-end')
-<div id="{{ $pid }}-popup"
+<div id="{{ $pid }}-popup" class="drp-popup"
      style="display:none;position:fixed;z-index:99999;
             top:0;left:0;width:100vw;height:100vh;
-            background:rgba(0,0,0,.42);
-            align-items:center;justify-content:center;"
+            background:rgba(0,0,0,.42);"
      onclick="if(event.target===this)DRP.close('{{ $pid }}')">
 
-    <div style="background:#fff;border-radius:20px;
+    <div class="drp-popup-panel" style="background:#fff;border-radius:20px;
                 box-shadow:12px 12px 0 rgba(0,0,0,.1);
                 border:2px solid rgba(0,0,0,.07);
-                width:min(700px,96vw);max-height:90vh;
                 font-family:inherit;overflow:hidden;"
          onclick="event.stopPropagation()">
-        <div style="display:flex;">
+        <div class="drp-panel-inner" style="display:flex;">
 
             {{-- Preset shortcuts --}}
-            <div style="width:155px;flex-shrink:0;
+            <div class="drp-presets" style="width:155px;flex-shrink:0;
                         border-right:1.5px solid rgba(0,0,0,.07);
                         padding:12px 0;background:#fafafa;overflow-y:auto;">
                 @foreach($presets as $ps)
@@ -77,7 +75,7 @@
             </div>
 
             {{-- Calendar area --}}
-            <div style="flex:1;padding:18px 20px 0;min-width:0;">
+            <div class="drp-calarea" style="flex:1;padding:18px 20px 0;min-width:0;">
 
                 {{-- Month nav --}}
                 <div style="display:flex;align-items:center;
@@ -107,13 +105,13 @@
                 </div>
 
                 {{-- Dual calendar --}}
-                <div style="display:flex;gap:16px;overflow-x:auto;">
+                <div class="drp-cals" style="display:flex;gap:16px;overflow-x:auto;">
                     <div id="{{ $pid }}-cal-l" style="flex:1;min-width:232px;"></div>
                     <div id="{{ $pid }}-cal-r" style="flex:1;min-width:232px;"></div>
                 </div>
 
                 {{-- Footer --}}
-                <div style="display:flex;justify-content:flex-end;gap:8px;
+                <div class="drp-footer" style="display:flex;justify-content:flex-end;gap:8px;
                             padding:14px 0 16px;margin-top:12px;
                             border-top:1px solid rgba(0,0,0,.06);">
                     <button type="button" onclick="DRP.close('{{ $pid }}')"
@@ -129,4 +127,53 @@
         </div>
     </div>
 </div>
+@endpush
+
+@push('styles')
+<style>
+    /* ── Responsive Date Range Picker ─────────────────────────────── */
+    .drp-trigger { min-width: 220px; }
+    /* Label trigger: boleh menyusut & terpotong (…) saat ruang sempit */
+    .drp-trigger .drp-label {
+        flex: 1; min-width: 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .drp-popup { display: none; align-items: center; justify-content: center; }
+    .drp-popup-panel { width: min(700px, 96vw); max-height: 90vh; }
+
+    @media (max-width: 640px) {
+        /* Trigger menyusut (dipakai .filter-bar untuk tetap 1 jajar) */
+        .drp-trigger { min-width: 0; }
+        .drp-trigger .drp-label { font-size: .74rem !important; }
+
+        /* Popup jadi bottom-sheet: preset di atas (chips), kalender di bawah */
+        .drp-popup { align-items: flex-end; }
+        .drp-popup-panel {
+            width: 100vw !important;
+            border-radius: 18px 18px 0 0 !important;
+            overflow-y: auto !important;
+        }
+        .drp-panel-inner { flex-direction: column; }
+        .drp-presets {
+            width: 100% !important;
+            display: flex;
+            flex-direction: row; overflow-x: auto;
+            border-right: none !important;
+            border-bottom: 1.5px solid rgba(0,0,0,.07);
+            padding: 8px 0 !important;
+            flex-shrink: 0;
+            -webkit-overflow-scrolling: touch;
+        }
+        .drp-presets button { width: auto !important; white-space: nowrap; padding: 8px 14px !important; }
+        .drp-calarea { padding: 14px 14px 0 !important; display: flex; flex-direction: column; }
+        .drp-cals { flex-direction: column; }
+        .drp-cals > div { min-width: 0 !important; }
+        /* Footer tetap terlihat di bawah sheet saat kalender panjang */
+        .drp-footer {
+            position: sticky; bottom: 0;
+            background: #fff;
+            margin-top: auto;
+        }
+    }
+</style>
 @endpush

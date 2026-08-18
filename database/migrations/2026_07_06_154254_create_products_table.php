@@ -10,17 +10,15 @@ return new class extends Migration
     {
         Schema::create('products', function (Blueprint $table) {
             $table->id();
-            $table->string('kode_produk')->unique();
-            $table->string('nama_produk');
-            $table->string('kategori')->nullable();
-            $table->text('deskripsi')->nullable();
-            $table->foreignId('supplier_id')->nullable()->constrained('suppliers')->nullOnDelete();
-            $table->decimal('harga_beli', 15, 2)->default(0);
-            $table->decimal('harga_jual', 15, 2)->default(0);
-            $table->integer('stok')->default(0);
-            $table->string('satuan')->default('pcs');
-            $table->string('gambar')->nullable();
-            $table->enum('status', ['aktif', 'nonaktif'])->default('aktif');
+            $table->string('code')->unique();
+            $table->string('name');
+            $table->string('category')->nullable();
+            $table->text('description')->nullable();
+            $table->foreignId('inventory_id')->nullable()->constrained('inventories')->nullOnDelete();
+            $table->decimal('purchase_price', 15, 2)->default(0);
+            $table->decimal('selling_price', 15, 2)->default(0);
+            $table->string('unit')->default('pcs');
+            $table->enum('status', ['active', 'inactive'])->default('active');
             $table->timestamps();
             $table->softDeletes();
         });

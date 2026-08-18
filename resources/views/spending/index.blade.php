@@ -78,7 +78,7 @@
                     @if($sp->nama_akun)<div style="font-size:.7rem;color:#9ca3af;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ $sp->nama_akun }}</div>@endif
                 </td>
                 <td><span class="clay-badge clay-badge-blue" style="font-size:.7rem;">{{ ucfirst($sp->platform) }}</span></td>
-                <td style="font-size:.82rem;color:#6b7280;">{{ $sp->product->nama_produk ?? '-' }}</td>
+                <td style="font-size:.82rem;color:#6b7280;">{{ $sp->product->name ?? '-' }}</td>
                 <td style="text-align:right;font-weight:700;color:var(--color-primary);font-size:.82rem;white-space:nowrap;">
                     Rp {{ number_format($sp->spending,0,',','.') }}
                 </td>

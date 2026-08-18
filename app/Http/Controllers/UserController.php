@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CsAssignment;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -96,7 +97,16 @@ class UserController extends Controller
                 ->get(['id', 'nama', 'panggilan', 'email']);
         }
 
-        return view('user.edit', compact('user', 'roles', 'advertisers', 'csUsers'));
+        // Riwayat penempatan CS (rotasi bulanan)
+        $csAssignments = collect();
+        if (auth()->user()->canCreateUser() && $user->hasRole('cs')) {
+            $csAssignments = CsAssignment::where('cs_user_id', $user->id)
+                ->with('advertiser')
+                ->orderByDesc('bulan')
+                ->get();
+        }
+
+        return view('user.edit', compact('user', 'roles', 'advertisers', 'csUsers', 'csAssignments'));
     }
 
     public function update(Request $request, User $user): RedirectResponse
@@ -115,9 +125,10 @@ class UserController extends Controller
             'is_active' => ['boolean'],
         ];
 
-        // Hanya superadmin yang bisa set advertiser_id
+        // Hanya superadmin yang bisa set advertiser_id & penempatan bulanan
         if (auth()->user()->canCreateUser()) {
             $rules['advertiser_id'] = ['nullable', 'exists:users,id'];
+            $rules['bulan'] = ['nullable', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'];
         }
 
         $data = $request->validate($rules);
@@ -130,12 +141,42 @@ class UserController extends Controller
 
         $data['is_active'] = $request->boolean('is_active');
 
-        // Bersihkan advertiser_id jika user bukan CS
+        // Apakah user (setelah role diubah) tetap ber-role CS?
+        $isCs = $user->hasRole('cs') || ($data['role'] ?? null) === 'cs';
+
         if (! empty($data['role']) && $data['role'] !== 'cs') {
+            // Role berpindah dari CS → bersihkan snapshot & riwayat penempatan
             $data['advertiser_id'] = null;
-        } elseif (empty($data['advertiser_id'])) {
+            CsAssignment::where('cs_user_id', $user->id)->delete();
+        } elseif (! $isCs) {
+            // Bukan CS → tidak ada penempatan CS utama
             $data['advertiser_id'] = null;
+        } elseif (auth()->user()->canCreateUser() && $request->filled('bulan')) {
+            // ─── Penempatan CS Utama per bulan (rotasi bulanan) ─────────
+            // Admin mengatur 'CS Utama untuk' per bulan. Bulan berjalan ikut
+            // menyinkronkan users.advertiser_id (snapshot) supaya fitur lama tetap jalan.
+            $bulan = $request->input('bulan');
+            $advertiserId = $data['advertiser_id'] ?? null;
+
+            if ($advertiserId) {
+                CsAssignment::updateOrCreate(
+                    ['cs_user_id' => $user->id, 'bulan' => $bulan],
+                    ['advertiser_id' => $advertiserId, 'created_by' => auth()->id()]
+                );
+            } else {
+                // Kosongkan penempatan → hapus riwayat bulan tersebut
+                CsAssignment::where('cs_user_id', $user->id)->where('bulan', $bulan)->delete();
+            }
+
+            if ($bulan === now()->format('Y-m')) {
+                // Snapshot hanya mengikuti bulan berjalan
+                $data['advertiser_id'] = $advertiserId;
+            } else {
+                // Edit bulan lain tidak boleh mengubah penunjuk bulan berjalan
+                unset($data['advertiser_id']);
+            }
         }
+        // Catatan: CS dengan request non-standar (tanpa 'bulan') → snapshot & riwayat dibiarkan apa adanya
 
         $user->update($data);
 

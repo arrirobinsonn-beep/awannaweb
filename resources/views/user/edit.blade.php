@@ -64,23 +64,34 @@
                     </select>
                 </div>
 
-                {{-- Advertiser assignment (hanya untuk role CS) --}}
+                {{-- CS Utama assignment (hanya untuk role CS) — rotasi bulanan --}}
                 <div id="advertiser-field" style="display:none;">
                     <label style="display:block;font-size:.83rem;font-weight:700;margin-bottom:6px;color:#374151;">
-                        👤 Tugaskan ke Advertiser
-                        <span style="font-size:.72rem;font-weight:400;color:#9ca3af;">(pilih tuan untuk CS ini)</span>
+                        ⭐ CS Utama untuk
+                        <span style="font-size:.72rem;font-weight:400;color:#9ca3af;">(penempatan per bulan — rotasi CS bulanan)</span>
                     </label>
-                    <select name="advertiser_id" class="clay-input">
-                        <option value="">— Pilih Advertiser —</option>
-                        @foreach($advertisers as $adv)
-                        <option value="{{ $adv->id }}" {{ $user->advertiser_id == $adv->id ? 'selected' : '' }}>
-                            {{ $adv->nama ?: $adv->panggilan ?: $adv->email }}
-                        </option>
-                        @endforeach
-                    </select>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                        <div style="flex:1;min-width:150px;">
+                            <label style="display:block;font-size:.72rem;font-weight:600;margin-bottom:4px;color:#6b7280;">📅 Bulan Berlaku</label>
+                            <input type="month" name="bulan" id="bulan-input"
+                                   value="{{ old('bulan', now()->format('Y-m')) }}" class="clay-input">
+                        </div>
+                        <div style="flex:2;min-width:200px;">
+                            <label style="display:block;font-size:.72rem;font-weight:600;margin-bottom:4px;color:#6b7280;">Advertiser</label>
+                            <select name="advertiser_id" id="advertiser-select" class="clay-input">
+                                <option value="">— Pilih Advertiser —</option>
+                                @foreach($advertisers as $adv)
+                                <option value="{{ $adv->id }}" {{ $user->advertiser_id == $adv->id ? 'selected' : '' }}>
+                                    {{ $adv->nama ?: $adv->panggilan ?: $adv->email }}
+                                </option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
                     @if($user->hasRole('cs') && $user->advertiser)
                     <div style="margin-top:8px;padding:8px 12px;border-radius:10px;background:#F0FFFE;border:1.5px solid rgba(78,205,196,.3);font-size:.78rem;color:#065f46;">
-                        🏠 Saat ini ditugaskan ke <strong>{{ $user->advertiser->display_name }}</strong>
+                        ⭐ Saat ini CS utama untuk <strong>{{ $user->advertiser->display_name }}</strong>
+                        ⭐ Saat ini CS utama untuk <strong>{{ $user->advertiser->display_name }}</strong>
                     </div>
                     @endif
                 </div>
@@ -111,10 +122,42 @@
             </div>
         </form>
     </div>
+
+    @if($csAssignments->isNotEmpty())
+    <div class="clay-card" style="padding:20px;margin-top:16px;" data-reveal>
+        <h3 style="font-weight:800;font-size:.9rem;color:#1e1b2e;margin-bottom:12px;">🗂️ Riwayat Penempatan CS</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:.78rem;">
+            <thead>
+                <tr style="background:#4472C4;color:#fff;">
+                    <th style="padding:8px 12px;text-align:left;">Bulan Berlaku</th>
+                    <th style="padding:8px 12px;text-align:left;">CS Utama untuk</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($csAssignments as $a)
+                <tr style="border-bottom:1px solid rgba(0,0,0,.05);">
+                    <td style="padding:8px 12px;font-weight:700;">
+                        {{ \Carbon\Carbon::createFromFormat('Y-m', $a->bulan)->translatedFormat('F Y') }}
+                        @if($a->bulan === now()->format('Y-m'))
+                        <span class="clay-badge clay-badge-green" style="font-size:.55rem;">Berjalan</span>
+                        @endif
+                    </td>
+                    <td style="padding:8px 12px;">{{ $a->advertiser?->display_name ?: '—' }}</td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+    @endif
 </div>
 
 @push('scripts')
 <script>
+// Peta penempatan per bulan: { '2026-08': advertiserId, ... }
+var csAssignmentMap = @json($csAssignments->pluck('advertiser_id', 'bulan'));
+var bulanSekarang = '{{ now()->format('Y-m') }}';
+var snapshotAdvertiserId = '{{ $user->advertiser_id }}';
+
 function toggleAdvertiserField() {
     var roleSelect = document.getElementById('role-select');
     var advField = document.getElementById('advertiser-field');
@@ -126,8 +169,26 @@ function toggleAdvertiserField() {
     advField.style.display = isCs ? 'block' : 'none';
 }
 
+// Sinkronkan pilihan advertiser dengan bulan yang dipilih
+function syncAdvertiserSelect() {
+    var bulan = document.getElementById('bulan-input')?.value;
+    var select = document.getElementById('advertiser-select');
+    if (!bulan || !select) return;
+    if (csAssignmentMap[bulan]) {
+        select.value = String(csAssignmentMap[bulan]);
+    } else if (bulan === bulanSekarang && snapshotAdvertiserId) {
+        select.value = String(snapshotAdvertiserId); // fallback snapshot utk bulan berjalan
+    } else {
+        select.value = '';
+    }
+}
+
 // Jalankan saat halaman dimuat
-document.addEventListener('DOMContentLoaded', toggleAdvertiserField);
+document.addEventListener('DOMContentLoaded', function () {
+    toggleAdvertiserField();
+    syncAdvertiserSelect();
+    document.getElementById('bulan-input')?.addEventListener('change', syncAdvertiserSelect);
+});
 </script>
 @endpush
 @endsection

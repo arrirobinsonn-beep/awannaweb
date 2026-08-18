@@ -2,94 +2,54 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Dashboard;
-use App\Models\Gudang;
-use App\Models\KirimanActual;
-use App\Models\PaketTracking;
-use App\Models\PembelianBarang;
+use App\Models\Inventory;
+use App\Models\PackagingRule;
 use App\Models\Product;
-use App\Models\StockMovement;
-use App\Models\StockRecap;
-use App\Models\Supplier;
-use App\Services\KirimanImportService;
-use App\Services\UndelImportService;
-use Illuminate\Http\JsonResponse;
+use App\Models\ProductInventory;
+use App\Models\ProductVariant;
+use App\Models\ProductVariantInventory;
+use App\Services\StockService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class GudangController extends Controller
 {
-    /** Stok Gudang — daftar stok produk terkini */
-    public function stok(Request $request): View
+    public function __construct(private readonly StockService $stock) {}
+
+    /**
+     * Halaman Gudang — 1 GUDANG = 1 HALAMAN.
+     * User memilih gudang (query `inventory_id`); halaman menampilkan isi gudang itu saja:
+     *  - Barang Pasti (consumable): semua produk (ada di tiap gudang), stok per gudang ini
+     *  - Barang Inti (core): produk yang gudang induknya = gudang ini (mis. SH → GTM)
+     *  - Barang Additional: produk additional yang gudang induknya = gudang ini
+     *  - Aturan Kemasan: rule global + rule khusus gudang ini
+     */
+    public function index(Request $request): View
     {
-        $products = Product::with('supplier')
-            ->when($request->filled('gudang_id'), fn($q) => $q->where('gudang_id', $request->gudang_id))
-            ->orderBy('stok', 'asc')
-            ->paginate(15);
+        $inventories = Inventory::orderBy('name')->get();
+        $inventory = $request->filled('inventory_id') ? Inventory::find($request->integer('inventory_id')) : null;
 
-        $gudangs = \App\Models\Gudang::orderBy('nama')->get();
-
-        return view('gudang.stok', compact('products', 'gudangs'));
-    }
-
-    // ─── Master Pembelian Barang ─────────────────────────────────
-
-    public function pembelian(Request $request): View
-    {
-        $produkQuery = Product::with('supplier')->with(['pembelianBarangs' => function ($q) use ($request) {
-            $q->orderBy('tanggal');
-            if ($request->filled('bulan')) {
-                $q->whereYear('tanggal', substr($request->bulan, 0, 4))
-                    ->whereMonth('tanggal', substr($request->bulan, 5, 2));
-            }
-        }])
-            ->whereHas('pembelianBarangs', function ($q) use ($request) {
-                if ($request->filled('bulan')) {
-                    $q->whereYear('tanggal', substr($request->bulan, 0, 4))
-                        ->whereMonth('tanggal', substr($request->bulan, 5, 2));
-                }
-            })
-            ->orderBy('nama_produk');
-
-        $produkList = $produkQuery->paginate(10)->withQueryString();
-
-        foreach ($produkList as $produk) {
-            $runningQty = 0;
-            $runningNilai = 0;
-            $sumQty = 0;
-            $sumTotalBelanja = 0;
-            $sumOngkir = 0;
-            $sumHargaSatuan = 0;
-            foreach ($produk->pembelianBarangs as $pb) {
-                $sumQty += $pb->qty;
-                $sumTotalBelanja += $pb->total_belanja;
-                $sumOngkir += $pb->ongkir;
-                $sumHargaSatuan += $pb->harga_satuan;
-                if ($pb->keterangan === 'MASUK STOK') {
-                    $runningQty += $pb->qty;
-                    $runningNilai += $pb->total_belanja + $pb->ongkir;
-                }
-                $pb->akumulasi_qty = $runningQty;
-                $pb->akumulasi_nilai = $runningNilai;
-                $pb->hpp_rata_rata = $runningQty > 0 ? round($runningNilai / $runningQty, 2) : 0;
-            }
-            $produk->total_qty = $runningQty;
-            $produk->total_nilai = $runningNilai;
-            $produk->hpp_akhir = $runningQty > 0 ? round($runningNilai / $runningQty, 2) : 0;
-            $produk->sum_qty = $sumQty;
-            $produk->sum_total_belanja = $sumTotalBelanja;
-            $produk->sum_ongkir = $sumOngkir;
-            $produk->sum_harga_satuan = $sumHargaSatuan;
+        if ($inventory === null) {
+            return view('gudang.index', [
+                'groups' => collect(),
+                'rules' => collect(),
+                'inventories' => $inventories,
+                'inventory' => null,
+                'perVariant' => collect(),
+            ]);
         }
 
-        $suppliers = Supplier::orderBy('nama_supplier')->get();
-        $products = Product::with('supplier')->orderBy('nama_produk')->get();
+        // Produk di gudang ini = produk yang TERDAFTAR di gudang tsb
+        // (many-to-many via product_inventory). Barang Pasti di-seed ada di
+        // semua gudang; inti/additional hanya di gudang tempatnya terdaftar.
+        $scoped = fn ($query) => $query->whereHas('inventories', fn ($q) => $q->where('inventories.id', $inventory->id));
 
-        return view('gudang.pembelian', compact('produkList', 'suppliers', 'products'));
-    }
+        $with = fn ($query) => $query->with(['variants', 'inventories']);
 
+<<<<<<< HEAD
     public function pembelianStore(Request $request): RedirectResponse
     {
         $data = $request->validate([
@@ -782,143 +742,90 @@ class GudangController extends Controller
         })
             ->whereNotNull('no_telp')
             ->where('no_telp', '!=', '')
+=======
+        $consumables = Product::aktif()->tap($with)
+            ->where('goods_type', Product::GOODS_CONSUMABLE)
+            ->tap($scoped)
+            ->orderBy('code')
             ->get();
 
-        foreach ($affected as $pt) {
-            $normalized = \App\Services\OrderOnlineImportService::normalizePhone($pt->no_telp);
-            if (isset($phoneCsMap[$normalized])) {
-                $pt->update(['handle_by' => $phoneCsMap[$normalized]]);
-                $updated++;
-            }
-        }
+        $cores = Product::aktif()->tap($with)
+            ->where('goods_type', Product::GOODS_CORE)
+            ->tap($scoped)
+            ->orderBy('code')
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
+            ->get();
 
-        return response()->json([
-            'success' => true,
-            'updated' => $updated,
-            'total_affected' => $affected->count(),
-            'message' => 'Berhasil backfill handle_by untuk '.$updated.' paket.',
+        $additionals = Product::aktif()->tap($with)
+            ->where('goods_type', Product::GOODS_ADDITIONAL)
+            ->tap($scoped)
+            ->orderBy('code')
+            ->get();
+
+        $rules = PackagingRule::with(['sourceProduct', 'targetProduct', 'inventory'])
+            ->where(fn ($q) => $q->whereNull('inventory_id')->orWhere('inventory_id', $inventory->id))
+            ->orderBy('inventory_id')
+            ->orderBy('source_product_id')
+            ->orderBy('id')
+            ->get();
+
+        // Produk master yang BELUM terdaftar di gudang ini — untuk modal
+        // "Tambah Produk ke Gudang" (produk dibuat di halaman Produk, bukan di sini).
+        $attachedIds = ProductInventory::where('inventory_id', $inventory->id)->pluck('product_id');
+        $availableProducts = Product::aktif()->with('variants')
+            ->whereNotIn('id', $attachedIds)
+            ->orderBy('code')
+            ->get();
+
+        return view('gudang.index', [
+            'groups' => ['consumable' => $consumables, 'core' => $cores, 'additional' => $additionals],
+            'rules' => $rules,
+            'inventories' => $inventories,
+            'inventory' => $inventory,
+            'perVariant' => $this->perInventoryStockByVariant($inventory->id),
+            'availableProducts' => $availableProducts,
         ]);
-    }
-
-    // ─── Excel Undel — Update status dari file Excel ────────────
-
-    public function excelUndelPreview(Request $request): JsonResponse
-    {
-        $request->validate([
-            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv', 'max:10240'],
-        ]);
-
-        try {
-            $service = app(UndelImportService::class);
-            $result = $service->parseExcel($request->file('file')->getPathname());
-
-            $previewData = [];
-            foreach ($result['data'] as $row) {
-                $exists = PaketTracking::where('awb', $row['awb'])->exists();
-                $previewData[] = [
-                    'awb' => $row['awb'],
-                    'status' => $row['status'],
-                    'handle_by' => $row['handle_by'],
-                    'catatan_kurir' => $row['catatan_kurir'],
-                    'no_telp' => $row['no_telp'],
-                    'exists' => $exists,
-                ];
-            }
-
-            return response()->json([
-                'success' => true,
-                'data' => $previewData,
-                'errors' => $result['errors'],
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal memproses file: ' . $e->getMessage(),
-            ], 422);
-        }
-    }
-
-    public function excelUndelImport(Request $request): JsonResponse
-    {
-        $request->validate([
-            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,application/csv', 'max:10240'],
-        ]);
-
-        try {
-            $service = app(UndelImportService::class);
-            $result = $service->parseExcel($request->file('file')->getPathname());
-            $importResult = $service->import($result);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Berhasil update ' . $importResult['updated'] . ' paket.',
-                'not_found' => $importResult['not_found'],
-                'errors' => $importResult['errors'],
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal import: ' . $e->getMessage(),
-            ], 500);
-        }
     }
 
     /**
-     * Hapus PaketTracking + adjust KirimanActual.jumlah_resi.
-     * Dipanggil dari stokRincianDeleteDate saat movement dihapus.
+     * Stok per gudang per varian: variantId → [inventoryId => stock].
+     * Membaca cache `product_variant_inventory` (di-sync StockService dari jurnal)
+     * — 1 query ringan, anti N+1. Bisa difilter satu gudang.
+     *
+     * @return Collection<int, array<int, int>>
      */
-    private function cleanupKirimanActual(array $productIds, string $gudang, string $bulan): void
+    protected function perInventoryStockByVariant(?int $inventoryId = null): Collection
     {
-        $bulanStart = $bulan . '-01';
-        $bulanEnd = date('Y-m-t', strtotime($bulanStart));
-
-        $movements = StockMovement::whereIn('product_id', $productIds)
-            ->where('gudang', $gudang)
-            ->whereBetween('tanggal', [$bulanStart, $bulanEnd])
-            ->get();
-
-        $affectedKirimanIds = [];
-        foreach ($movements as $m) {
-            if ($m->kiriman_actual_id) {
-                $affectedKirimanIds[$m->kiriman_actual_id] = true;
-            }
-        }
-
-        $affectedKirimanIds = array_keys($affectedKirimanIds);
-
-        foreach ($affectedKirimanIds as $kirimanId) {
-            $kiriman = KirimanActual::find($kirimanId);
-            if (! $kiriman) continue;
-
-            $deleted = PaketTracking::where('kiriman_actual_id', $kirimanId)
-                ->whereIn('product_id', $productIds)
-                ->delete();
-
-            if ($deleted > 0) {
-                $kiriman->decrement('jumlah_resi', $deleted);
-            }
-
-            $remaining = PaketTracking::where('kiriman_actual_id', $kirimanId)->count();
-            if ($remaining === 0) {
-                $kiriman->stockMovements()->delete();
-                $kiriman->products()->delete();
-                $kiriman->delete();
-            }
-        }
+        return ProductVariantInventory::whereNotNull('inventory_id')
+            ->when($inventoryId !== null, fn ($q) => $q->where('inventory_id', $inventoryId))
+            ->get()
+            ->groupBy('product_variant_id')
+            ->map(fn ($rows) => $rows->mapWithKeys(
+                fn ($r) => [(int) $r->inventory_id => (int) $r->stock]
+            )->all());
     }
 
-    public function stokRincianDeleteDate(Request $request): RedirectResponse
+    /**
+     * Penyesuaian stok manual (Barang Pasti) PER GUDANG:
+     * tambah/kurang via jurnal reference 'manual' + inventory_id.
+     */
+    public function adjust(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'product_id' => 'required|exists:products,id',
-            'gudang' => 'required|string|max:255',
-            'tanggal' => 'required|date',
+            'product_variant_id' => ['required', 'exists:product_variants,id'],
+            'inventory_id' => ['nullable', 'exists:inventories,id'],
+            'direction' => ['required', 'in:in,out'],
+            'quantity' => ['required', 'integer', 'min:1'],
+            'note' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $bulan = substr($data['tanggal'], 0, 7);
-        $productId = (int) $data['product_id'];
-        $tanggal = $data['tanggal'];
+        $variant = ProductVariant::with('product')->findOrFail($data['product_variant_id']);
+        $quantity = (int) $data['quantity'];
+        $note = trim((string) ($data['note'] ?? '')) ?: 'Penyesuaian manual (halaman Gudang)';
+        $inventoryId = ! empty($data['inventory_id']) ? (int) $data['inventory_id'] : null;
+        $inventory = $inventoryId !== null ? Inventory::find($inventoryId) : null;
 
+<<<<<<< HEAD
         DB::transaction(function () use ($productId, $data, $tanggal, $bulan) {
             $movements = StockMovement::where('product_id', $productId)
                 ->where('gudang', $data['gudang'])
@@ -993,81 +900,172 @@ class GudangController extends Controller
             $existing = StockMovement::select('gudang')->distinct()->pluck('gudang')->filter();
             foreach ($existing as $nama) {
                 Gudang::create(['nama' => $nama]);
+=======
+        try {
+            if ($data['direction'] === 'in') {
+                $this->stock->recordIn(
+                    $variant->id,
+                    now()->format('Y-m-d'),
+                    $quantity,
+                    null,
+                    'manual',
+                    random_int(100000000, 9999999999),
+                    $note,
+                    auth()->id(),
+                    $inventoryId,
+                );
+            } else {
+                $this->stock->recordOut(
+                    $variant->id,
+                    now()->format('Y-m-d'),
+                    $quantity,
+                    'manual',
+                    random_int(100000000, 9999999999),
+                    $note,
+                    auth()->id(),
+                    $inventoryId,
+                );
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
             }
-        }
-        $gudangs = Gudang::orderBy('nama')->get();
-
-        // Ambil semua movement bulan ini per gudang
-        $allMovements = StockMovement::with('product')
-            ->whereYear('tanggal', substr($bulan, 0, 4))
-            ->whereMonth('tanggal', substr($bulan, 5, 2))
-            ->orderBy('gudang')
-            ->orderBy('product_id')
-            ->orderBy('tanggal')
-            ->get()
-            ->groupBy('gudang');
-
-        // Kumpulkan semua kombinasi gudang+produk untuk ambil stok awal
-        $pairs = collect();
-        foreach ($allMovements as $gudang => $byGudang) {
-            $byGudang->groupBy('product_id')->each(function ($movements, $productId) use ($gudang, $pairs) {
-                $pairs->push(['gudang' => $gudang, 'product_id' => (int) $productId]);
-            });
+        } catch (\RuntimeException $e) {
+            return back()->withErrors(['adjust' => $e->getMessage()])->withInput();
         }
 
-        // Ambil total stok dari bulan-bulan sebelumnya per gudang+produk (1 query bulk)
-        $priorTotals = [];
-        if ($pairs->isNotEmpty()) {
-            $raw = DB::table('stock_movements')
-                ->where('tanggal', '<', $bulanStart)
-                ->selectRaw('UPPER(gudang) as gudang_upper, product_id, COALESCE(SUM(masuk_belanja + masuk_rts + masuk_repair - barang_rusak - barang_keluar), 0) as total')
-                ->groupBy('gudang_upper', 'product_id')
-                ->get();
-            foreach ($raw as $row) {
-                $priorTotals[$row->gudang_upper][$row->product_id] = (int) $row->total;
-            }
-        }
+        $label = $inventory ? ' ('.$inventory->name.')' : '';
+        $productName = $variant->product?->name ?? 'varian';
 
-        $gudangData = [];
-        $seedCache = [];
-        foreach ($allMovements as $gudang => $byGudang) {
-            $produkGroups = $byGudang->groupBy('product_id');
-            $produkData = [];
-            foreach ($produkGroups as $productId => $movements) {
-                $produk = $movements->first()->product;
-                if (! $produk) {
-                    continue;
-                }
-                $priorTotal = $priorTotals[strtoupper($gudang)][$productId] ?? 0;
-
-                // Hitung selisih stok yang tidak tercatat di movement (stok seed/awal)
-                $seedKey = 'seed_'.$productId;
-                if (! isset($seedCache[$seedKey])) {
-                    $totalAllGudang = (int) StockMovement::where('product_id', $productId)
-                        ->sum(DB::raw('masuk_belanja + masuk_rts + masuk_repair - barang_rusak - barang_keluar'));
-                    $seedCache[$seedKey] = max(0, $produk->stok - $totalAllGudang);
-                }
-                $runningStock = max(0, $priorTotal + $seedCache[$seedKey]);
-                foreach ($movements as $m) {
-                    $m->stock_awal_hari = $runningStock;
-                    $totalMasuk = $m->masuk_belanja + $m->masuk_rts + $m->masuk_repair;
-                    $totalKeluar = $m->barang_rusak + $m->barang_keluar;
-                    $runningStock = $runningStock + $totalMasuk - $totalKeluar;
-                    $m->stock_akhir_hari = $runningStock;
-                }
-                $produk->movements = $movements;
-                $produk->stock_akhir_bulan = $runningStock;
-                $produkData[] = $produk;
-            }
-            usort($produkData, fn ($a, $b) => $a->nama_produk <=> $b->nama_produk);
-            $gudangData[$gudang] = $produkData;
-        }
-
-        return view('gudang.stok-rincian', compact('gudangData', 'gudangs', 'bulan'));
+        return back()->with('success', 'Stok '.$productName.$label.' diperbarui.');
     }
 
-    private function movementDelta(array $data): int
+    /** Tambah aturan kemasan baru (opsional per gudang; kosong = semua gudang). */
+    public function packagingStore(Request $request): RedirectResponse
     {
+        $data = $request->validate([
+            'source_product_id' => ['required', 'exists:products,id'],
+            'target_product_id' => ['required', 'exists:products,id', 'different:source_product_id'],
+            'inventory_id' => ['nullable', 'exists:inventories,id'],
+            'qty_per' => ['required', 'integer', 'min:1'],
+            'rule_type' => ['nullable', 'in:'.implode(',', PackagingRule::TYPES)],
+        ]);
+
+        $data['inventory_id'] = ! empty($data['inventory_id']) ? (int) $data['inventory_id'] : null;
+        $data['rule_type'] = $data['rule_type'] ?? PackagingRule::TYPE_ADDITIONAL;
+
+        $exists = PackagingRule::where('source_product_id', $data['source_product_id'])
+            ->where('target_product_id', $data['target_product_id'])
+            ->where('inventory_id', $data['inventory_id'])
+            ->exists();
+
+        if ($exists) {
+            return back()->withErrors(['rule' => 'Aturan untuk kombinasi produk + gudang ini sudah ada.'])->withInput();
+        }
+
+        PackagingRule::create($data + ['is_active' => true]);
+
+        return back()->with('success', 'Aturan kemasan ditambahkan.');
+    }
+
+    /** Ubah rasio (qty_per), jenis aturan & status aktif aturan kemasan. */
+    public function packagingUpdate(Request $request, PackagingRule $packagingRule): RedirectResponse
+    {
+        $data = $request->validate([
+            'qty_per' => ['required', 'integer', 'min:1'],
+            'rule_type' => ['nullable', 'in:'.implode(',', PackagingRule::TYPES)],
+            'is_active' => ['nullable'],
+        ]);
+
+        $packagingRule->update([
+            'qty_per' => (int) $data['qty_per'],
+            'rule_type' => $data['rule_type'] ?? $packagingRule->rule_type,
+            'is_active' => $request->boolean('is_active'),
+        ]);
+
+        return back()->with('success', 'Aturan kemasan diperbarui.');
+    }
+
+    public function packagingDestroy(PackagingRule $packagingRule): RedirectResponse
+    {
+        $packagingRule->delete();
+
+        return back()->with('success', 'Aturan kemasan dihapus.');
+    }
+
+    // ─── Produk di gudang (attach produk MASTER yang sudah ada) ────────────
+
+    /**
+     * Attach produk yang SUDAH ADA di halaman Produk ke gudang ini — produk &
+     * variannya TIDAK dibuat di sini (master data terpusat di halaman Produk).
+     * Bila produk belum punya gudang sama sekali, gudang ini otomatis jadi
+     * gudang UTAMA. `stock_awal` opsional: stok awal varian default di gudang ini.
+     */
+    public function productAttach(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'product_id' => ['required', 'exists:products,id'],
+            'inventory_id' => ['required', 'exists:inventories,id'],
+            'is_primary' => ['nullable', 'boolean'],
+            'stock_awal' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $inventoryId = (int) $data['inventory_id'];
+        $product = Product::findOrFail($data['product_id']);
+
+        if (ProductInventory::where('product_id', $product->id)->where('inventory_id', $inventoryId)->exists()) {
+            return back()->withErrors(['attach' => 'Produk '.$product->name.' sudah terdaftar di gudang ini.']);
+        }
+
+        // Gudang utama HANYA untuk Barang Inti (core) — Barang Pasti/Additional
+        // tidak pernah jadi gudang utama (is_primary selalu false).
+        $isPrimary = $product->goods_type === Product::GOODS_CORE
+            && ($request->boolean('is_primary') || ProductInventory::where('product_id', $product->id)->doesntExist());
+
+        try {
+            DB::transaction(function () use ($product, $inventoryId, $isPrimary, $data, $request) {
+                if ($isPrimary) {
+                    ProductInventory::where('product_id', $product->id)->update(['is_primary' => false]);
+                }
+
+                ProductInventory::create([
+                    'product_id' => $product->id,
+                    'inventory_id' => $inventoryId,
+                    'is_primary' => $isPrimary,
+                ]);
+
+                $stockAwal = (int) ($data['stock_awal'] ?? 0);
+                if ($stockAwal > 0) {
+                    $variant = $product->defaultVariant();
+                    if ($variant === null) {
+                        throw new \RuntimeException('Produk '.$product->name.' belum punya varian aktif.');
+                    }
+                    $this->stock->recordIn(
+                        $variant->id,
+                        now()->format('Y-m-d'),
+                        $stockAwal,
+                        $product->purchase_price ? (float) $product->purchase_price : null,
+                        'adjustment',
+                        random_int(100000000, 9999999999),
+                        'Stok awal (attach ke gudang)',
+                        auth()->id(),
+                        $inventoryId,
+                    );
+                }
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withErrors(['attach' => $e->getMessage()])->withInput();
+        }
+
+        return redirect()->route('gudang.index', ['inventory_id' => $inventoryId])
+            ->with('success', 'Produk '.$product->name.' ditambahkan ke gudang ini'.($isPrimary ? ' (gudang utama)' : '').'.');
+    }
+
+    /**
+     * Kelola gudang produk (many-to-many): centang gudang tempat produk terdaftar
+     * + pilih gudang UTAMA (is_primary). Gudang yang dicopot dihapus keanggotaannya;
+     * stok cache per gudang tsb ikut dihapus (jurnal tetap tersimpan).
+     */
+    public function productWarehousesUpdate(Request $request, Product $product): RedirectResponse
+    {
+<<<<<<< HEAD
         return ($data['masuk_belanja'] + $data['masuk_rts'] + $data['masuk_repair'])
             - ($data['barang_rusak'] + $data['barang_keluar']);
     }
@@ -1237,191 +1235,70 @@ class GudangController extends Controller
             'stok_awal' => 0, 'in' => 0, 'rts' => 0, 'repair' => 0,
             'rusak' => 0, 'out' => 0, 'stok_akhir' => 0,
             'real_stok' => 0, 'value_in' => 0, 'value_s_akhir' => 0, 'value_real' => 0,
+=======
+        $rules = [
+            'inventory_ids' => ['required', 'array', 'min:1'],
+            'inventory_ids.*' => ['integer', 'exists:inventories,id'],
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
         ];
 
-        foreach ($products as $product) {
-            $mov = $thisMonthMovements->get($product->id);
-            $total_in = $mov ? (int) $mov->total_in : 0;
-            $total_rts = $mov ? (int) $mov->total_rts : 0;
-            $total_repair = $mov ? (int) $mov->total_repair : 0;
-            $total_rusak = $mov ? (int) $mov->total_rusak : 0;
-            $total_out = $mov ? (int) $mov->total_out : 0;
-
-            $afterTotal = $movementsFromMonth[$product->id] ?? 0;
-            $stok_awal = max(0, $product->stok - $afterTotal);
-            $stok_akhir = $stok_awal + $total_in + $total_rts + $total_repair - $total_rusak - $total_out;
-
-            $hpp = $hppExact->get($product->id);
-            $hppDisplay = $hpp !== null ? round($hpp, 2) : null;
-            $value_in = $hpp !== null ? round($hpp * $total_in) : 0;
-            $value_s_akhir = $hpp !== null ? round($hpp * $stok_akhir) : 0;
-
-            $recap = $recaps->get($product->id);
-            $real_stok = $recap ? (int) $recap->real_stok : 0;
-            $selisih = $real_stok > 0 ? $stok_akhir - $real_stok : 0;
-            $value_real = $hpp !== null && $real_stok > 0 ? round($hpp * $real_stok) : 0;
-
-            // Keterangan: DEAD STOK jika tidak ada movement sama sekali
-            $keterangan = '';
-            if ($total_in === 0 && $total_rts === 0 && $total_repair === 0 && $total_rusak === 0 && $total_out === 0) {
-                $keterangan = 'DEAD STOK';
-            }
-
-            $data[] = [
-                'product' => $product,
-                'satuan' => $product->satuan,
-                'stok_awal' => $stok_awal,
-                'in' => $total_in,
-                'rts' => $total_rts,
-                'repair' => $total_repair,
-                'rusak' => $total_rusak,
-                'out' => $total_out,
-                'stok_akhir' => $stok_akhir,
-                'hpp' => $hppDisplay,
-                'value_in' => $value_in,
-                'value_s_akhir' => $value_s_akhir,
-                'real_stok' => $real_stok,
-                'selisih' => $selisih,
-                'value_real' => $value_real,
-                'keterangan' => $keterangan,
-            ];
-
-            $grandTotals['stok_awal'] += $stok_awal;
-            $grandTotals['in'] += $total_in;
-            $grandTotals['rts'] += $total_rts;
-            $grandTotals['repair'] += $total_repair;
-            $grandTotals['rusak'] += $total_rusak;
-            $grandTotals['out'] += $total_out;
-            $grandTotals['stok_akhir'] += $stok_akhir;
-            $grandTotals['real_stok'] += $real_stok;
-            $grandTotals['value_in'] += $value_in;
-            $grandTotals['value_s_akhir'] += $value_s_akhir;
-            $grandTotals['value_real'] += $value_real;
+        // Radio gudang utama hanya ada untuk Barang Inti (core).
+        $isCore = $product->goods_type === Product::GOODS_CORE;
+        if ($isCore) {
+            $rules['primary_inventory_id'] = ['required', 'integer', 'exists:inventories,id'];
         }
 
-        return view('gudang.rekap-stok', compact('data', 'bulan', 'grandTotals'));
-    }
+        $wh = $request->validate($rules);
 
-    public function rekapStokBulk(Request $request): RedirectResponse
-    {
-        $bulan = $request->filled('bulan') ? $request->bulan : date('Y-m');
-        $year = substr($bulan, 0, 4);
-        $month = substr($bulan, 5, 2);
-        $bulanStart = $bulan.'-01';
+        $ids = array_values(array_unique(array_map('intval', $wh['inventory_ids'])));
+        $primary = $isCore ? (int) $wh['primary_inventory_id'] : null;
 
-        $data = $request->validate([
-            'real_stok' => 'required|array',
-            'real_stok.*' => 'nullable|integer|min:0',
-        ]);
-
-        $productIds = array_keys(array_filter($data['real_stok'], fn ($v) => $v !== null && $v !== ''));
-        if (empty($productIds)) {
-            return redirect()->route('gudang.rekap-stok', ['bulan' => $bulan])
-                ->with('info', 'Tidak ada data real stok yang diinput.');
+        if ($isCore && ! in_array($primary, $ids, true)) {
+            return back()->withErrors(['warehouse' => 'Gudang utama harus dipilih di daftar gudang produk.']);
         }
 
-        $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+        DB::transaction(function () use ($product, $ids, $primary) {
+            ProductInventory::where('product_id', $product->id)
+                ->whereNotIn('inventory_id', $ids)
+                ->delete();
 
-        // Hitung stok_akhir bulk
-        $movements = StockMovement::whereIn('product_id', $productIds)
-            ->whereYear('tanggal', $year)
-            ->whereMonth('tanggal', $month)
-            ->selectRaw('product_id,
-                COALESCE(SUM(masuk_belanja),0) as total_in,
-                COALESCE(SUM(masuk_rts),0) as total_rts,
-                COALESCE(SUM(masuk_repair),0) as total_repair,
-                COALESCE(SUM(barang_rusak),0) as total_rusak,
-                COALESCE(SUM(barang_keluar),0) as total_out')
-            ->groupBy('product_id')
-            ->get()
-            ->keyBy('product_id');
-
-        $raw = DB::table('stock_movements')
-            ->whereIn('product_id', $productIds)
-            ->where('tanggal', '>=', $bulanStart)
-            ->selectRaw('product_id, COALESCE(SUM(masuk_belanja + masuk_rts + masuk_repair - barang_rusak - barang_keluar), 0) as total')
-            ->groupBy('product_id')
-            ->get()
-            ->keyBy('product_id');
-
-        foreach ($data['real_stok'] as $pid => $realStok) {
-            if ($realStok === null || $realStok === '') {
-                continue;
-            }
-            $product = $products->get($pid);
-            if (! $product) {
-                continue;
+            foreach ($ids as $inventoryId) {
+                ProductInventory::updateOrCreate(
+                    ['product_id' => $product->id, 'inventory_id' => $inventoryId],
+                    ['is_primary' => $primary !== null && $inventoryId === $primary]
+                );
             }
 
-            $mov = $movements->get($pid);
-            $netFromMonth = isset($raw[$pid]) ? (int) $raw[$pid]->total : 0;
-            $stok_awal = max(0, $product->stok - $netFromMonth);
-            $stok_akhir = $stok_awal
-                + ($mov->total_in ?? 0) + ($mov->total_rts ?? 0) + ($mov->total_repair ?? 0)
-                - ($mov->total_rusak ?? 0) - ($mov->total_out ?? 0);
-            $selisih = $stok_akhir - (int) $realStok;
-
-            StockRecap::updateOrCreate(
-                ['product_id' => (int) $pid, 'bulan' => $bulan],
-                ['real_stok' => (int) $realStok, 'selisih' => $selisih],
-            );
-        }
-
-        return redirect()->route('gudang.rekap-stok', ['bulan' => $bulan])
-            ->with('success', 'Real stok berhasil disimpan untuk '.count($productIds).' produk.');
-    }
-
-    public function stokRincianBulkDelete(Request $request): RedirectResponse
-    {
-        $data = $request->validate([
-            'ids' => 'required|array',
-            'ids.*' => 'required|exists:stock_movements,id',
-        ]);
-
-        $ids = $data['ids'];
-        $movements = StockMovement::whereIn('id', $ids)->get();
-
-        if ($movements->isEmpty()) {
-            return back()->with('info', 'Tidak ada data yang dipilih.');
-        }
-
-        $bulan = $movements->first()->tanggal->format('Y-m');
-        $gudang = $movements->first()->gudang;
-
-        DB::transaction(function () use ($movements) {
-            foreach ($movements as $m) {
-                $delta = -$this->movementDelta($m->toArray());
-                Product::where('id', $m->product_id)->increment('stok', $delta);
-
-                $kirimanId = $m->kiriman_actual_id;
-                $productId = $m->product_id;
-                $tanggal = $m->tanggal->format('Y-m-d');
-                $m->delete();
-
-                if ($kirimanId) {
-                    $kiriman = KirimanActual::find($kirimanId);
-                    if (! $kiriman) continue;
-
-                    $deleted = PaketTracking::where('kiriman_actual_id', $kirimanId)
-                        ->where('product_id', $productId)
-                        ->whereDate('created_at', '>=', $tanggal)
-                        ->delete();
-
-                    if ($deleted > 0) {
-                        $kiriman->decrement('jumlah_resi', $deleted);
-                    }
-
-                    $remaining = PaketTracking::where('kiriman_actual_id', $kirimanId)->count();
-                    if ($remaining === 0) {
-                        $kiriman->stockMovements()->delete();
-                        $kiriman->products()->delete();
-                        $kiriman->delete();
-                    }
-                }
-            }
+            ProductVariantInventory::whereIn('product_variant_id', $product->variants()->pluck('id'))
+                ->whereNotIn('inventory_id', $ids)
+                ->delete();
         });
 
-        return redirect()->route('gudang.stok-rincian', ['bulan' => $bulan])
-            ->with('success', ''.count($movements).' data stok berhasil dihapus.');
+        return redirect()->route('gudang.index', ['inventory_id' => $primary ?? $ids[0]])
+            ->with('success', 'Gudang produk '.$product->name.' diperbarui.');
+    }
+
+    /**
+     * Lepas produk dari gudang ini (BUKAN menghapus produk dari sistem — produk
+     * & variannya tetap ada di halaman Produk). Keanggotaan & stok cache gudang
+     * tsb dihapus; jurnal stok tetap tersimpan.
+     */
+    public function productDetach(Request $request, Product $product): RedirectResponse
+    {
+        $data = $request->validate(['inventory_id' => ['required', 'exists:inventories,id']]);
+        $inventoryId = (int) $data['inventory_id'];
+
+        DB::transaction(function () use ($product, $inventoryId) {
+            ProductInventory::where('product_id', $product->id)
+                ->where('inventory_id', $inventoryId)
+                ->delete();
+
+            ProductVariantInventory::whereIn('product_variant_id', $product->variants()->pluck('id'))
+                ->where('inventory_id', $inventoryId)
+                ->delete();
+        });
+
+        return redirect()->route('gudang.index', ['inventory_id' => $inventoryId])
+            ->with('success', 'Produk '.$product->name.' dilepas dari gudang ini.');
     }
 }

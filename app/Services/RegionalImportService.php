@@ -97,9 +97,9 @@ class RegionalImportService
             // ─── Ekstrak phone → CS mapping dari file yang sama ───
             $phoneRaw = trim((string) ($row[4] ?? ''));
             $csName = trim((string) ($row[33] ?? ''));
-            if (!empty($phoneRaw) && !empty($csName)) {
-                $phoneNormalized = OrderOnlineImportService::normalizePhone($phoneRaw);
-                if (!empty($phoneNormalized)) {
+            if (! empty($phoneRaw) && ! empty($csName)) {
+                $phoneNormalized = self::normalizePhone($phoneRaw);
+                if (! empty($phoneNormalized)) {
                     $phoneContacts[] = [
                         'phone_normalized' => $phoneNormalized,
                         'cs_name' => $csName,
@@ -114,7 +114,7 @@ class RegionalImportService
         $uniquePhones = [];
         foreach ($phoneContacts as $pc) {
             $key = $pc['phone_normalized'];
-            if (!isset($uniquePhones[$key])) {
+            if (! isset($uniquePhones[$key])) {
                 $uniquePhones[$key] = $pc;
             }
         }
@@ -287,5 +287,20 @@ class RegionalImportService
         } catch (\Exception $e) {
             return null;
         }
+    }
+
+    public static function normalizePhone(string $phone): string
+    {
+        $phone = preg_replace('/[^0-9]/', '', $phone);
+        if (strlen($phone) < 8) {
+            return '';
+        }
+        if (str_starts_with($phone, '0')) {
+            $phone = '62'.substr($phone, 1);
+        } elseif (! str_starts_with($phone, '62')) {
+            $phone = '62'.$phone;
+        }
+
+        return $phone;
     }
 }

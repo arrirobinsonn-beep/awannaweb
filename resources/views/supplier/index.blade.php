@@ -24,7 +24,7 @@
     <div class="table-scroll">
         <table class="clay-table">
             <thead><tr>
-                <th>Kode</th><th>Nama Supplier</th><th>PIC</th><th>Kota</th><th>Produk</th><th>Status</th><th style="text-align:right;">Aksi</th>
+                <th>Kode</th><th>Nama Supplier</th><th>PIC</th><th>Kota</th><th>Status</th><th style="text-align:right;">Aksi</th>
             </tr></thead>
             <tbody>
             @forelse($suppliers as $s)
@@ -39,7 +39,6 @@
                     @if($s->pic_telepon)<div style="font-size:.72rem;color:#9ca3af;">{{ $s->pic_telepon }}</div>@endif
                 </td>
                 <td style="font-size:.83rem;">{{ $s->kota ?? '-' }}</td>
-                <td><span class="clay-badge clay-badge-blue">{{ $s->products_count ?? 0 }} produk</span></td>
                 <td><span class="clay-badge {{ $s->status==='aktif'?'clay-badge-green':'clay-badge-red' }}">{{ ucfirst($s->status) }}</span></td>
                 <td style="text-align:right;">
                     <div style="display:flex;justify-content:flex-end;gap:6px;">
@@ -53,7 +52,7 @@
                 </td>
             </tr>
             @empty
-            <tr><td colspan="7" style="text-align:center;padding:48px 16px;">
+            <tr><td colspan="6" style="text-align:center;padding:48px 16px;">
                 <div style="font-size:2.5rem;margin-bottom:8px;">🏭</div>
                 <p style="color:#9ca3af;">Belum ada data supplier</p>
             </td></tr>

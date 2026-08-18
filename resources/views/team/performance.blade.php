@@ -10,20 +10,15 @@
 .cs-date-striped.cs-date-alt { background: #f0f4f8; }
 
 /* ── Sticky TOTAL column group (3 sub-kolom dengan offset berbeda) ── */
-/* Semua class TOTAL sticky: position sticky + background-clip */
 .cs-total-lead,
 .cs-total-paid,
 .cs-total-ratio {
     position: sticky !important;
     background-clip: padding-box;
 }
-/* LEAD (paling kiri dari grup TOTAL) — offset 2 kolom (2×80px) dari kanan */
 .cs-total-lead  { right: 160px; z-index: 5; }
-/* PAID (tengah) — offset 1 kolom (1×80px) dari kanan */
 .cs-total-paid  { right: 80px;  z-index: 6; }
-/* RATIO (paling kanan) — nempel di tepi */
 .cs-total-ratio { right: 0;     z-index: 7; }
-/* Bayangan hanya di sel paling kanan */
 .cs-total-ratio::before {
     content: '';
     position: absolute;
@@ -32,19 +27,12 @@
     background: linear-gradient(to left, transparent, rgba(0,0,0,.08));
     pointer-events: none;
 }
-/* Top sticky untuk header baris 1 (top:0) */
 thead .cs-total-lead,
 thead .cs-total-paid,
-thead .cs-total-ratio {
-    top: 0;
-}
-/* Top sticky untuk header baris 2 (top:38px) */
+thead .cs-total-ratio { top: 0; }
 thead tr:nth-child(2) .cs-total-lead,
 thead tr:nth-child(2) .cs-total-paid,
-thead tr:nth-child(2) .cs-total-ratio {
-    top: 38px;
-}
-/* Z-index di tbody */
+thead tr:nth-child(2) .cs-total-ratio { top: 38px; }
 tbody .cs-total-lead { z-index: 3; }
 tbody .cs-total-paid { z-index: 4; }
 tbody .cs-total-ratio { z-index: 5; }
@@ -56,16 +44,10 @@ tbody .cs-total-ratio { z-index: 5; }
     z-index: 4;
     background-clip: padding-box;
 }
-thead .cs-name-sticky {
-    z-index: 5;
-    top: 0;
-}
-thead tr:nth-child(2) .cs-name-sticky {
-    top: 38px;
-}
+thead .cs-name-sticky { z-index: 5; top: 0; }
+thead tr:nth-child(2) .cs-name-sticky { top: 38px; }
 tbody .cs-name-sticky { z-index: 2; }
 .text-right { text-align:right; }
-/* Bayangan */
 .cs-name-sticky::after {
     content: '';
     position: absolute;
@@ -73,6 +55,20 @@ tbody .cs-name-sticky { z-index: 2; }
     width: 8px;
     background: linear-gradient(to right, transparent, rgba(0,0,0,.06));
     pointer-events: none;
+}
+
+/* ── Doughnut porsi lead per CS ── */
+.cs-donut-seg {
+    transition: opacity .15s ease;
+    cursor: pointer;
+}
+.cs-donut-pop {
+    transform-origin: center;
+    animation: csDonutPop .7s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+@keyframes csDonutPop {
+    from { transform: scale(.55); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
 }
 </style>
 @endpush
@@ -101,19 +97,19 @@ tbody .cs-name-sticky { z-index: 2; }
     <div class="grid-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:0;" data-reveal>
         <div class="stat-card stat-card-1" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Lead (CS)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('lead') }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('lead') }}">{{ collect($totalPerCs)->sum('lead') }}</div>
         </div>
         <div class="stat-card stat-card-2" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Paid (CS)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('paid') }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('paid') }}">{{ collect($totalPerCs)->sum('paid') }}</div>
         </div>
         <div class="stat-card stat-card-3" style="padding:14px;">
-            <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total CS Aktif</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $teamMembers->count() }}">0</div>
+            <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total CS</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $mainMembers->count() + $guestMembers->count() }}">{{ $mainMembers->count() + $guestMembers->count() }}</div>
         </div>
         <div class="stat-card stat-card-4" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Hari</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ count($byDate) }}">0</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ count($byDate) }}">{{ count($byDate) }}</div>
         </div>
     </div>
 
@@ -132,174 +128,176 @@ tbody .cs-name-sticky { z-index: 2; }
             </a>
         </div>
     @else
-        {{-- Tabel performa per hari --}}
-        <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
-            <div style="overflow-x:auto;">
-                <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
-                    <thead>
-                        <tr style="position:sticky;top:0;z-index:3;">
-                            <th class="cs-name-sticky" style="background:#4472C4;color:#fff;padding:8px 14px;text-align:left;font-weight:700;font-size:.8rem;min-width:160px;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">
-                                CS / TANGGAL
-                            </th>
-                            @foreach($allDates as $date)
-                            <th colspan="3" style="background:#4472C4;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;min-width:80px;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">
-                                {{ \Carbon\Carbon::parse($date)->format('d') }}
-                                <span style="display:block;font-weight:400;font-size:.65rem;opacity:.8;">
-                                    {{ \Carbon\Carbon::parse($date)->translatedFormat('D') }}
-                                </span>
-                            </th>
-                            @endforeach
-                            {{-- Total kolom sticky kanan (colspan=3 — nempel di tepi kanan) --}}
-                            <th colspan="3" class="cs-total-ratio" style="background:#0d9488;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;min-width:80px;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">
-                                📊 TOTAL
-                            </th>
-                        </tr>
-                        <tr style="position:sticky;top:38px;z-index:3;">
-                            <th class="cs-name-sticky" style="background:#5B9BD5;color:#fff;padding:6px 14px;text-align:left;font-weight:600;font-size:.72rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">
-                                {{ $teamMembers->count() }} CS
-                            </th>
-                            @foreach($allDates as $date)
-                            <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">LEAD</th>
-                            <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">PAID</th>
-                            <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.68rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">RATIO</th>
-                            @endforeach
-                            <th class="cs-total-lead" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">LEAD</th>
-                            <th class="cs-total-paid" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">PAID</th>
-                            <th class="cs-total-ratio" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.68rem;outline:1px solid rgba(255,255,255,.15);outline-offset:-1px;">RATIO</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @php $csNames = $teamMembers->pluck('panggilan')->toArray(); @endphp
-                        @forelse($csNames as $csIndex => $csName)
-                        @php
-                            $csData = $teamMembers->firstWhere('panggilan', $csName);
-                            $rowBg = $csIndex % 2 === 0 ? '#ffffff' : '#fcfcfc';
-                        @endphp
-                        <tr style="transition:background .12s;background:{{ $rowBg }};"
-                            onmouseenter="this.style.background='#f3f7fe'"
-                            onmouseleave="this.style.background='{{ $rowBg }}'">
-                            <td class="cs-name-sticky" style="background:{{ $rowBg }};padding:6px 14px;font-weight:700;font-size:.8rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);white-space:nowrap;">
-                                <div style="display:flex;align-items:center;gap:8px;">
-                                    @if($csData)
-                                    <img src="{{ $csData->avatar_url }}" alt="avatar"
-                                         style="width:28px;height:28px;border-radius:8px;object-fit:cover;flex-shrink:0;">
-                                    @endif
-                                    <span>{{ $csName }}</span>
-                                </div>
-                            </td>
-                            @php
-                                $csTotalLead = 0;
-                                $csTotalPaid = 0;
-                            @endphp
-                            @foreach($allDates as $dateIndex => $date)
-                                @php
-                                    $isAlt = $dateIndex % 2 === 0;
-                                    $stripClass = 'cs-date-striped' . ($isAlt ? '' : ' cs-date-alt');
 
-                                    $found = null;
-                                    if (isset($byDate[$date])) {
-                                        foreach ($byDate[$date] as $stat) {
-                                            $statPanggilan = $stat->cs_panggilan;
-                                            if ($statPanggilan === $csName) {
-                                                $found = $stat;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    $hasData = $found && ($found->lead > 0 || $found->paid > 0);
-                                    $lead = $hasData ? $found->lead : 0;
-                                    $paid = $hasData ? $found->paid : 0;
-                                    $ratio = $lead > 0 ? round($paid / $lead * 100, 1) : 0;
-                                    $csTotalLead += $lead;
-                                    $csTotalPaid += $paid;
-                                @endphp
-                                <td style="padding:8px 6px;text-align:center;font-weight:600;font-size:.82rem;border-bottom:1px solid rgba(0,0,0,.05);{{ $hasData ? 'color:#1e1b2e;' : 'color:#d1d5db;' }}"
-                                    class="{{ $stripClass }}">
-                                    {{ $hasData ? number_format($lead) : '0' }}
-                                </td>
-                                <td style="padding:8px 6px;text-align:center;font-weight:600;font-size:.82rem;border-bottom:1px solid rgba(0,0,0,.05);{{ $hasData ? 'color:#059669;' : 'color:#d1d5db;' }}"
-                                    class="{{ $stripClass }}">
-                                    {{ $hasData ? number_format($paid) : '0' }}
-                                </td>
-                                <td style="padding:8px 6px;text-align:center;font-size:.76rem;border-bottom:1px solid rgba(0,0,0,.05);{{ $hasData ? 'color:var(--color-primary);font-weight:700;' : 'color:#d1d5db;' }}"
-                                    class="{{ $stripClass }}">
-                                    @if($lead > 0)
-                                        {{ number_format($ratio, 1) }}%
-                                    @else
-                                        0%
-                                    @endif
-                                </td>
-                            @endforeach
-                            {{-- Total per CS (sticky kanan dengan offset) --}}
-                            @php $totalRatio = $csTotalLead > 0 ? round($csTotalPaid / $csTotalLead * 100, 1) : 0; @endphp
-                            <td class="cs-total-lead" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">
-                                {{ number_format($csTotalLead) }}
-                            </td>
-                            <td class="cs-total-paid" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">
-                                {{ number_format($csTotalPaid) }}
-                            </td>
-                            <td class="cs-total-ratio" style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;">
-                                {{ $totalRatio > 0 ? number_format($totalRatio, 1) . '%' : '0%' }}
-                            </td>
-                        </tr>
-                        @empty
-                        <tr><td colspan="{{ count($allDates) * 3 + 3 }}" style="text-align:center;padding:48px 16px;">
-                            <p style="color:#9ca3af;">Tidak ada CS dalam tim</p>
-                        </td></tr>
-                        @endforelse
-
-                        {{-- Baris GRAND TOTAL --}}
-                        @php
-                            $grandLead = 0;
-                            $grandPaid = 0;
-                        @endphp
-                        @foreach($allDates as $date)
-                            @php
-                                $dayLead = 0;
-                                $dayPaid = 0;
-                                if (isset($byDate[$date])) {
-                                    foreach ($byDate[$date] as $stat) {
-                                        $dayLead += $stat->lead;
-                                        $dayPaid += $stat->paid;
-                                    }
-                                }
-                                $grandLead += $dayLead;
-                                $grandPaid += $dayPaid;
-                            @endphp
-                        @endforeach
-                        @php $grandRatio = $grandLead > 0 ? round($grandPaid / $grandLead * 100, 1) : 0; @endphp
-                        <tr style="position:sticky;bottom:0;z-index:4;background:#F0FFFE;">
-                            <td class="cs-name-sticky" style="background:#F0FFFE;padding:8px 14px;font-weight:800;font-size:.82rem;color:#0d9488;border-top:2px solid #0d9488;">
-                                📊 GRAND TOTAL
-                            </td>
-                            @foreach($allDates as $dateIndex => $date)
-                                @php
-                                    $dayLead = 0;
-                                    $dayPaid = 0;
-                                    if (isset($byDate[$date])) {
-                                        foreach ($byDate[$date] as $stat) {
-                                            $dayLead += $stat->lead;
-                                            $dayPaid += $stat->paid;
-                                        }
-                                    }
-                                    $dayRatio = $dayLead > 0 ? round($dayPaid / $dayLead * 100, 1) : 0;
-                                    $isAlt = $dateIndex % 2 === 0;
-                                    $stripClass = 'cs-date-striped' . ($isAlt ? '' : ' cs-date-alt');
-                                @endphp
-                                <td style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-top:2px solid #0d9488;" class="{{ $stripClass }}">{{ number_format($dayLead) }}</td>
-                                <td style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-top:2px solid #0d9488;" class="{{ $stripClass }}">{{ number_format($dayPaid) }}</td>
-                                <td style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-top:2px solid #0d9488;" class="{{ $stripClass }}">{{ $dayRatio > 0 ? number_format($dayRatio, 1) . '%' : '0%' }}</td>
-                            @endforeach
-                            <td class="cs-total-lead" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#0d9488;border-top:2px solid #0d9488;background:#e6fffa;">{{ number_format($grandLead) }}</td>
-                            <td class="cs-total-paid" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#059669;border-top:2px solid #0d9488;background:#e6fffa;">{{ number_format($grandPaid) }}</td>
-                            <td class="cs-total-ratio" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:var(--color-primary);border-top:2px solid #0d9488;background:#e6fffa;">{{ $grandRatio > 0 ? number_format($grandRatio, 1) . '%' : '0%' }}</td>
-                        </tr>
-                    </tbody>
-                </table>
+        @if($u->hasRole('cs'))
+            {{-- ═══════ SISI CS: satu tabel — tim di bawah advertiser tempat bernaung ═══════ --}}
+            <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
+                <div style="overflow-x:auto;">
+                    <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
+                        @include('team.partials.performa-head', ['allDates' => $allDates, 'csCount' => $mainMembers->count()])
+                        <tbody>
+                            @include('team.partials.performa-rows', [
+                                'csList' => $mainMembers,
+                                'byDate' => $byDate,
+                                'allDates' => $allDates,
+                                'badge' => 'Utama',
+                            ])
+                        </tbody>
+                    </table>
+                </div>
             </div>
-        </div>
-    @endif
+        @else
+            {{-- ═══════ SISI ADVERTISER: 1 tabel + diagram doughnut di samping ═══════ --}}
+            <div style="display:flex;gap:16px;align-items:stretch;flex-wrap:wrap;">
+                <div class="clay-card" style="padding:0;overflow:hidden;flex:1 1 520px;min-width:0;" data-reveal>
+                    <div style="padding:12px 16px;border-bottom:1px solid rgba(0,0,0,.05);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">👥 Performa Semua CS</span>
+                        <span class="clay-badge clay-badge-green" style="font-size:.65rem;">CS Utama paling atas · urut porsi penerimaan data</span>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
+                            @include('team.partials.performa-head', ['allDates' => $allDates, 'csCount' => $members->count()])
+                            <tbody>
+                                @include('team.partials.performa-rows', [
+                                    'csList' => $members,
+                                    'byDate' => $byDate,
+                                    'allDates' => $allDates,
+                                ])
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
 
+                {{-- 🍩 Diagram doughnut: porsi lead per CS (termasuk CS tamu) --}}
+                <div class="clay-card" style="padding:16px;width:320px;flex:0 0 320px;display:flex;flex-direction:column;" data-reveal data-reveal-delay="120">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">🍩 Porsi Lead per CS</span>
+                    </div>
+                    <div style="font-size:.68rem;color:#9ca3af;margin-top:2px;margin-bottom:10px;">
+                        Hanya CS yang menerima lead pada rentang tanggal ini
+                    </div>
+
+                    @if(empty($chartData))
+                        <div style="flex:1;display:flex;align-items:center;justify-content:center;text-align:center;padding:28px 8px;color:#9ca3af;font-size:.78rem;">
+                            Belum ada CS dengan data pada rentang tanggal ini.
+                        </div>
+                    @else
+                        @php
+                            $palette = ['#FF6B6B', '#4ECDC4', '#FFD93D', '#6BCB77', '#4D96FF', '#9B5DE5', '#FF8FA3', '#00BBF9', '#FEE440', '#F15BB5'];
+                            // Satu peta warna per label → chart & legend dijamin selalu serasi
+                            $colorMap = [];
+                            foreach ($chartData as $i => $d) {
+                                $colorMap[$d['label']] = $palette[$i % count($palette)];
+                            }
+                            $cx = 110; $cy = 110;
+                            $rOuter = 92; $rInner = 60;   // satu ring doughnut (lead)
+                            $gap = 0.035;                 // celah antar segmen (radian)
+                            $leadSum = array_sum(array_column($chartData, 'lead'));
+                            $arc = function (float $rOut, float $rIn, float $a1, float $a2) use ($cx, $cy): string {
+                                if ($a2 - $a1 < 0.001) {
+                                    return '';
+                                }
+                                $p1 = [$cx + $rOut * sin($a1), $cy - $rOut * cos($a1)];
+                                $p2 = [$cx + $rOut * sin($a2), $cy - $rOut * cos($a2)];
+                                $q1 = [$cx + $rIn * sin($a1),  $cy - $rIn * cos($a1)];
+                                $q2 = [$cx + $rIn * sin($a2),  $cy - $rIn * cos($a2)];
+                                $large = ($a2 - $a1) > M_PI ? 1 : 0;
+
+                                return sprintf('M%.2f %.2f A%.2f %.2f 0 %d 1 %.2f %.2f L%.2f %.2f A%.2f %.2f 0 %d 0 %.2f %.2f Z',
+                                    $p1[0], $p1[1], $rOut, $rOut, $large, $p2[0], $p2[1],
+                                    $q2[0], $q2[1], $rIn, $rIn, $large, $q1[0], $q1[1]);
+                            };
+                            // Bangun segmen sekali → chart & legend baca array yang sama (pasti 1:1)
+                            $donutSegments = [];
+                            $aLead = -M_PI / 2;
+                            foreach ($chartData as $d) {
+                                $leadFrac = $leadSum > 0 ? $d['lead'] / $leadSum : 0;
+                                $l1 = $aLead + $gap / 2;
+                                $l2 = $aLead + max($leadFrac * 2 * M_PI - $gap / 2, $l1 + 0.001);
+                                $aLead += $leadFrac * 2 * M_PI;
+                                // Semua CS dengan lead > 0 pasti dapat segmen (yang super kecil jadi sliver tipis)
+                                $dPath = $arc($rOuter, $rInner, $l1, $l2);
+                                if ($dPath !== '') {
+                                    $donutSegments[] = [
+                                        'label' => $d['label'],
+                                        'color' => $colorMap[$d['label']],
+                                        'lead' => $d['lead'],
+                                        'paid' => $d['paid'],
+                                        'is_utama' => $d['is_utama'],
+                                        'pct' => $leadSum > 0 ? round($leadFrac * 100, 1) : 0,
+                                        'd' => $dPath,
+                                    ];
+                                }
+                            }
+                        @endphp
+
+                        <div style="display:flex;justify-content:center;flex-shrink:0;" class="cs-donut-pop">
+                            <svg id="cs-donut" viewBox="0 0 220 220" width="184" height="184" role="img" aria-label="Diagram porsi lead per CS" data-ver="4">
+                                @foreach($donutSegments as $seg)
+                                <path class="cs-donut-seg" d="{{ $seg['d'] }}" fill="{{ $seg['color'] }}" opacity="1" stroke="#fff" stroke-width="1" data-cs="{{ $seg['label'] }}" data-kind="lead">
+                                    <title>{{ $seg['label'] }} — Lead {{ number_format($seg['lead']) }} ({{ $seg['pct'] }}%)</title>
+                                </path>
+                                @endforeach
+                                <text x="110" y="108" text-anchor="middle" font-size="19" font-weight="900" fill="#1e1b2e">{{ number_format($leadSum) }}</text>
+                                <text x="110" y="121" text-anchor="middle" font-size="7.5" font-weight="700" fill="#9ca3af" letter-spacing="2">LEAD</text>
+                            </svg>
+                        </div>
+
+                        {{-- Legend interaktif — mengisi sisa tinggi panel --}}
+                        <div style="margin-top:12px;flex:1;min-height:0;display:flex;flex-direction:column;gap:4px;overflow-y:auto;padding-right:4px;scrollbar-width:thin;">
+                            @foreach($donutSegments as $seg)
+                            <div data-cs-legend="{{ $seg['label'] }}" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;cursor:pointer;transition:background .15s;"
+                                 onmouseenter="this.style.background='#f3f4f6'" onmouseleave="this.style.background=''">
+                                <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:{{ $seg['color'] }};flex-shrink:0;"></span>
+                                <div style="flex:1;min-width:0;">
+                                    <div style="font-weight:700;font-size:.74rem;color:#1e1b2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                        {{ $seg['label'] }} @if($seg['is_utama'])<span title="CS Utama">⭐</span>@endif
+                                    </div>
+                                    <div style="font-size:.62rem;color:#9ca3af;">Lead {{ number_format($seg['lead']) }} · Paid {{ number_format($seg['paid']) }}</div>
+                                </div>
+                                <span style="font-weight:800;font-size:.72rem;color:#1e1b2e;flex-shrink:0;">{{ $seg['pct'] }}%</span>
+                            </div>
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
+            </div>
+        @endif
+
+    @endif
 
 </div>
 @endsection
+
+@push('scripts')
+<script>
+(function () {
+    'use strict';
+    const svg = document.getElementById('cs-donut');
+    if (!svg) return;
+    const segs = svg.querySelectorAll('.cs-donut-seg');
+    const rows = document.querySelectorAll('[data-cs-legend]');
+
+    // Warna segmen selalu tampil penuh (opacity 1) — hover hanya meredupkan yang lain,
+    // jadi warna kepingan di state diam = warna saat di-hover = warna swatch legend.
+    function highlight(name) {
+        segs.forEach(s => {
+            s.style.opacity = (!name || s.getAttribute('data-cs') === name) ? '1' : '0.15';
+        });
+    }
+
+    // State diam = sama persis dengan state hover: set semua segmen ke opacity penuh
+    // lewat jalur inline-style yang identik (bukan atribut), biar render-nya dijamin sama.
+    highlight(null);
+
+    rows.forEach(row => {
+        row.addEventListener('mouseenter', () => highlight(row.getAttribute('data-cs-legend')));
+        row.addEventListener('mouseleave', () => highlight(null));
+    });
+    segs.forEach(seg => {
+        seg.addEventListener('mouseenter', () => highlight(seg.getAttribute('data-cs')));
+        seg.addEventListener('mouseleave', () => highlight(null));
+    });
+})();
+</script>
+@endpush

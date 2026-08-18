@@ -126,7 +126,7 @@
             <tr>
                 <td style="font-size:.82rem;white-space:nowrap;">{{ $sp->tanggal->format('d M Y') }}</td>
                 <td style="font-size:.8rem;">{{ $sp->whitelist->nama ?? '-' }}</td>
-                <td style="font-size:.8rem;">{{ $sp->product->nama_produk ?? '-' }}</td>
+                <td style="font-size:.8rem;">{{ $sp->product->name ?? '-' }}</td>
                 <td style="text-align:right;font-weight:700;color:var(--color-primary);font-size:.82rem;">Rp {{ number_format($sp->spending,0,',','.') }}</td>
                 <td style="text-align:right;font-size:.82rem;color:var(--color-purple);font-weight:600;">{{ $sp->lead }}</td>
                 <td style="text-align:right;font-size:.82rem;color:var(--color-secondary);font-weight:600;">{{ $sp->paid }}</td>

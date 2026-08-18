@@ -8,34 +8,36 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StockMovement extends Model
 {
     protected $fillable = [
-        'product_id',
-        'gudang',
-        'tanggal',
-        'masuk_belanja',
-        'masuk_rts',
-        'masuk_repair',
-        'barang_rusak',
-        'barang_keluar',
-        'catatan',
-        'kiriman_actual_id',
+        'product_variant_id',
+        'inventory_id',
+        'date',
+        'type',
+        'quantity',
+        'unit_price',
+        'reference',
+        'reference_id',
+        'note',
+        'created_by',
     ];
 
     protected $casts = [
-        'tanggal' => 'date',
-        'masuk_belanja' => 'integer',
-        'masuk_rts' => 'integer',
-        'masuk_repair' => 'integer',
-        'barang_rusak' => 'integer',
-        'barang_keluar' => 'integer',
+        'date' => 'date',
+        'quantity' => 'integer',
+        'unit_price' => 'decimal:2',
     ];
 
-    public function product(): BelongsTo
+    public function variant(): BelongsTo
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
     }
 
-    public function kirimanActual(): BelongsTo
+    public function inventory(): BelongsTo
     {
-        return $this->belongsTo(KirimanActual::class);
+        return $this->belongsTo(Inventory::class);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 }

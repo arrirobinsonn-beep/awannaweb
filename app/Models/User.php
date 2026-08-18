@@ -75,12 +75,24 @@ class User extends Authenticatable
         return $this->hasMany(User::class, 'advertiser_id');
     }
 
+    /** Riwayat penempatan CS (skema rotasi bulanan) */
+    public function csAssignments(): HasMany
+    {
+        return $this->hasMany(CsAssignment::class, 'cs_user_id');
+    }
+
     // ─── Helper ────────────────────────────────────────────────
 
     /** Apakah user bisa membuat akun baru (hanya owner & super_admin) */
     public function canCreateUser(): bool
     {
         return $this->hasRole(['owner', 'super_admin']);
+    }
+
+    /** Apakah user bisa mengelola mapping/penugasan CS (termasuk admin operasional) */
+    public function canManageAssignments(): bool
+    {
+        return $this->hasRole(['owner', 'super_admin', 'admin']);
     }
 
     public function isSuperAdmin(): bool

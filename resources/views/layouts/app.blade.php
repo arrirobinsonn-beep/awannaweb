@@ -220,6 +220,39 @@
         @media (max-width: 480px) {
             .topbar-subtitle, .topbar-date { display: none; }
         }
+
+        /* ── Elemen tampilan (non-input): tidak bisa di-select & di-drag ──
+           Seluruh teks/gambar/ikon yang murni tampilan tidak bisa di-block
+           (disorot/di-select) maupun di-drag. Area pengisian data (input,
+           textarea, select, contenteditable) tetap normal. Elemen drag & drop
+           khusus (mis. palette produk di form spending) tetap berfungsi karena
+           memakai draggable="true" pada div, bukan img/a/button. */
+        body {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        /* Input & area pengisian data tetap bisa di-select/ketik normal */
+        input, textarea, select, [contenteditable="true"], [contenteditable=""] {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+        /* Gambar, ikon, link, tombol & elemen visual lain tidak bisa di-drag */
+        img, svg, canvas, video, iframe, a, button, [role="button"] {
+            -webkit-user-drag: none;
+            user-drag: none;
+        }
+        /* Escape hatch: nilai yang memang perlu di-copy (resi, nomor, kode) */
+        .selectable {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
     </style>
 </head>
 <body id="app-body" style="overflow-x:hidden;">
@@ -330,6 +363,15 @@
             </a>
             @endif
 
+            @if($u->hasRole(['owner','super_admin','mentor','admin','cs']))
+            <a href="{{ route('orders.index') }}"
+               class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
+               data-page-link data-tip="Upload Data Mentah & Export Template">
+                <span class="nav-icon">📥</span>
+                <span class="sidebar-label">Data Mentah</span>
+            </a>
+            @endif
+
             @if($u->hasRole(['owner','super_admin','mentor','advertiser']))
             <a href="{{ route('topup.index') }}"
                class="nav-item {{ request()->routeIs('topup.*') ? 'active' : '' }}"
@@ -379,68 +421,90 @@
             </a>
             @endif
 
+            <a href="{{ route('inventory.master') }}"
+               class="nav-item {{ request()->routeIs('inventory.master*') ? 'active' : '' }}"
+               data-page-link data-tip="Inventory">
+                <span class="nav-icon">🏭</span>
+                <span class="sidebar-label">Master Inventory</span>
+            </a>
+
             <a href="{{ route('product.index') }}"
                class="nav-item {{ request()->routeIs('product.*') ? 'active' : '' }}"
-               data-page-link data-tip="Produk">
+               data-page-link data-tip="Master produk & varian">
                 <span class="nav-icon">📦</span>
                 <span class="sidebar-label">Produk</span>
             </a>
 
-            <a href="{{ route('gudang.master') }}"
-               class="nav-item {{ request()->routeIs('gudang.master*') ? 'active' : '' }}"
-               data-page-link data-tip="Gudang">
-                <span class="nav-icon">🏭</span>
-                <span class="sidebar-label">Master Gudang</span>
+            <a href="{{ route('courier-rule.index') }}"
+               class="nav-item {{ request()->routeIs('courier-rule.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Courier (auto-mapping kurir)">
+                <span class="nav-icon">🚚</span>
+                <span class="sidebar-label">Aturan Courier</span>
+            </a>
+
+            <a href="{{ route('warehouse-rule.index') }}"
+               class="nav-item {{ request()->routeIs('warehouse-rule.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Gudang (kode produk → gudang saat export)">
+                <span class="nav-icon">🏬</span>
+                <span class="sidebar-label">Aturan Gudang</span>
+            </a>
+
+            <a href="{{ route('tracking-status-rule.index') }}"
+               class="nav-item {{ request()->routeIs('tracking-status-rule.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Status Aggregator (status dashboard → status sistem)">
+                <span class="nav-icon">📡</span>
+                <span class="sidebar-label">Aturan Status</span>
+            </a>
+
+            <a href="{{ route('export-mapping.index') }}"
+               class="nav-item {{ request()->routeIs('export-mapping.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Export (mapping template CSV)">
+                <span class="nav-icon">📋</span>
+                <span class="sidebar-label">Aturan Export</span>
             </a>
             @endif
 
-            {{-- ── Admin: Gudang ─────────────────────────────────── --}}
+            {{-- ── Admin: Gudang & Kiriman ─────────────────── --}}
             @if($u->hasRole(['owner','super_admin','admin']))
             <div class="sidebar-label nav-divider" style="padding:14px 10px 4px;">
-                <span style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;">Gudang</span>
+                <span style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;">Gudang & Kiriman</span>
             </div>
 
-            <a href="{{ route('gudang.pembelian') }}"
-               class="nav-item {{ request()->routeIs('gudang.pembelian*') ? 'active' : '' }}"
-               data-page-link data-tip="Pembelian Barang">
-                <span class="nav-icon">📦</span>
-                <span class="sidebar-label">Pembelian Barang</span>
+            <a href="{{ route('gudang.index') }}"
+               class="nav-item {{ request()->routeIs('gudang.*') ? 'active' : '' }}"
+               data-page-link data-tip="Stok per kategori & aturan kemasan">
+                <span class="nav-icon">🏬</span>
+                <span class="sidebar-label">Gudang</span>
             </a>
 
-            <a href="{{ route('gudang.kiriman') }}"
-               class="nav-item {{ request()->routeIs('gudang.kiriman*') ? 'active' : '' }}"
-               data-page-link data-tip="Kiriman Actual">
+            <a href="{{ route('purchase.index') }}"
+               class="nav-item {{ request()->routeIs('purchase.*') ? 'active' : '' }}"
+               data-page-link data-tip="Barang Masuk (Pembelian)">
+                <span class="nav-icon">📥</span>
+                <span class="sidebar-label">Barang Masuk</span>
+            </a>
+
+            <a href="{{ route('stock-movement.index') }}"
+               class="nav-item {{ request()->routeIs('stock-movement.*') ? 'active' : '' }}"
+               data-page-link data-tip="Jurnal Stok (Masuk/Keluar)">
+                <span class="nav-icon">📊</span>
+                <span class="sidebar-label">Jurnal Stok</span>
+            </a>
+
+            <a href="{{ route('orders.index') }}"
+               class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
+               data-page-link data-tip="Upload Data Mentah & Export Template">
                 <span class="nav-icon">🚚</span>
-                <span class="sidebar-label">Kiriman Actual</span>
+                <span class="sidebar-label">Data Mentah</span>
             </a>
 
-            <a href="{{ route('gudang.stok-rincian') }}"
-               class="nav-item {{ request()->routeIs('gudang.stok-rincian*') ? 'active' : '' }}"
-               data-page-link data-tip="Rincian Stok">
+            <a href="{{ route('operational-report.index') }}"
+               class="nav-item {{ request()->routeIs('operational-report.*') ? 'active' : '' }}"
+               data-page-link data-tip="Laporan Operasional (stok keluar/masuk, resi, metode bayar per pengirim)">
                 <span class="nav-icon">📋</span>
-                <span class="sidebar-label">Rincian Stok</span>
+                <span class="sidebar-label">Laporan Operasional</span>
             </a>
 
-            <a href="{{ route('gudang.rekap-stok') }}"
-               class="nav-item {{ request()->routeIs('gudang.rekap-stok*') ? 'active' : '' }}"
-               data-page-link data-tip="Rekap Stok Gudang">
-                <span class="nav-icon">📊</span>
-                <span class="sidebar-label">Rekap Stok</span>
-            </a>
-
-            <a href="{{ route('gudang.rts-per-hari') }}"
-               class="nav-item {{ request()->routeIs('gudang.rts-per-hari') ? 'active' : '' }}"
-               data-page-link data-tip="RTS per Hari">
-                <span class="nav-icon">📊</span>
-                <span class="sidebar-label">RTS per Hari</span>
-            </a>
-
-            <a href="{{ route('gudang.stok') }}"
-               class="nav-item {{ request()->routeIs('gudang.stok') ? 'active' : '' }}"
-               data-page-link data-tip="Stok Gudang">
-                <span class="nav-icon">🏪</span>
-                <span class="sidebar-label">Stok Gudang</span>
-            </a>
             @endif
 
             {{-- ── Keuangan ──────────────────────────────────────── --}}
