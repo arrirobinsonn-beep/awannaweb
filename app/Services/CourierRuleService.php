@@ -43,29 +43,70 @@ class CourierRuleService
     /**
      * Evaluasi rules dan kembalikan courier untuk sebuah order.
      * Jika payment_method tidak dikenali, fallback ke spx.
+     *
+     * Evaluasi 2 fase:
+     *  1. Rule KHUSUS PRODUK (product_code terisi & cocok) — selalu menang
+     *     atas rule umum, sehingga mis. SH selalu flix-tf terlepas dari
+     *     payment method / provinsi ("tidak terpengaruh aturan provinsi").
+     *  2. Rule UMUM (product_code null) — perilaku lama (metode bayar + provinsi).
+     * Urutan dalam tiap fase tetap mengikuti `sort_order` terkecil.
      */
-    public function resolve(?string $paymentMethod, ?string $province): string
+    public function resolve(?string $paymentMethod, ?string $province, ?string $productCode = null): string
     {
         $paymentMethod = strtolower(trim((string) $paymentMethod));
         $province = strtoupper(trim((string) $province));
+        $productCode = $this->normalizeProductCode($productCode);
 
         foreach ($this->rules() as $rule) {
-            // payment_method rule = null artinya berlaku untuk semua
-            if ($rule->payment_method !== null
-                && strtolower($rule->payment_method) !== $paymentMethod) {
+            // Fase 1: rule khusus produk — hanya untuk produk yang sama
+            if ($rule->product_code !== null && $rule->product_code !== '') {
+                if ($productCode !== '' && $this->normalizeProductCode($rule->product_code) === $productCode) {
+                    if ($this->matches($rule, $paymentMethod, $province)) {
+                        return $rule->courier;
+                    }
+                }
+
                 continue;
             }
+        }
 
-            // province rule = null artinya berlaku untuk semua
-            if ($rule->province !== null
-                && strtoupper($rule->province) !== $province) {
-                continue;
+        foreach ($this->rules() as $rule) {
+            // Fase 2: rule umum (berlaku semua produk)
+            if ($rule->product_code === null || $rule->product_code === '') {
+                if ($this->matches($rule, $paymentMethod, $province)) {
+                    return $rule->courier;
+                }
             }
-
-            return $rule->courier;
         }
 
         return self::FALLBACK_COURIER;
+    }
+
+    private function matches(CourierRule $rule, string $paymentMethod, string $province): bool
+    {
+        // payment_method rule = null artinya berlaku untuk semua
+        if ($rule->payment_method !== null
+            && strtolower($rule->payment_method) !== $paymentMethod) {
+            return false;
+        }
+
+        // province rule = null artinya berlaku untuk semua
+        if ($rule->province !== null
+            && strtoupper($rule->province) !== $province) {
+            return false;
+        }
+
+        return true;
+    }
+
+    protected function normalizeProductCode(?string $productCode): string
+    {
+        $code = strtoupper(trim((string) $productCode));
+        if ($code === '') {
+            return '';
+        }
+
+        return explode('+', $code)[0];
     }
 
     /**

@@ -9,14 +9,17 @@
  *      delivered_at + stok kembali saat `returned` + idempotent re-import
  *   4. Stok: capture sebelum export → sesudah export → sesudah tracking
  *
- * Syarat: produk (ProductSeeder) & courier_rules (CourierRuleSeeder) sudah di-seed
- * di DB aktif (.env). Skrip TIDAK menjalankan seeder (CourierRuleSeeder truncate).
+ * Syarat: produk (ProductSeeder), courier_rules (CourierRuleSeeder), dan
+ * export_template_mappings (ExportTemplateMappingSeeder) sudah di-seed di DB
+ * aktif (.env). Skrip TIDAK menjalankan seeder (semua seeder truncate).
  * Skrip boleh dijalankan ulang: order CBC-* lama di-bersihkan dulu (jurnal + row).
  *
  * Jalankan: php filecoba/verify_pipeline.php
  */
 
 use App\Models\CourierRule;
+use App\Models\ExportTemplateMapping;
+use App\Models\TrackingStatusRule;
 use App\Models\OrderOnlineImportBatch;
 use App\Models\ProductVariant;
 use App\Models\ShippingOrder;
@@ -88,7 +91,11 @@ check('courier_rules terisi', CourierRule::count() > 0,
     'jalankan: php artisan db:seed --class=CourierRuleSeeder');
 check('produk & varian ter-seed', ProductVariant::count() > 0,
     'jalankan: php artisan db:seed --class=ProductSeeder');
-if (CourierRule::count() === 0 || ProductVariant::count() === 0) {
+check('export_template_mappings terisi (Aturan Export)', ExportTemplateMapping::count() > 0,
+    'jalankan: php artisan db:seed --class=ExportTemplateMappingSeeder');
+check('tracking_status_rules terisi (Aturan Status)', TrackingStatusRule::count() > 0,
+    'jalankan: php artisan db:seed --class=TrackingStatusRuleSeeder');
+if (CourierRule::count() === 0 || ProductVariant::count() === 0 || ExportTemplateMapping::count() === 0 || TrackingStatusRule::count() === 0) {
     exit(summary());
 }
 
@@ -155,12 +162,8 @@ foreach ($trackVariants as $label => $v) {
 // ─── 2. EXPORT ──────────────────────────────────────────────────────────────
 echo "\n── 2. Export & diff dgn referensi ────────────────────────\n";
 $export = new OrderTemplateExportService;
-$templateDefs = [
-    'flik' => ['method' => 'flikRows', 'sender' => true],
-    'sicepat' => ['method' => 'sicepatRows', 'sender' => false],
-    'spx' => ['method' => 'spxRows', 'sender' => false],
-];
-foreach ($templateDefs as $tpl => $def) {
+$templateDefs = ['flik' => true, 'sicepat' => false, 'spx' => false]; // [template => pakai sender?]
+foreach ($templateDefs as $tpl => $useSender) {
     $templateOrders = ShippingOrder::where('order_online_import_batch_id', $batch->id)
         ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
         ->whereIn('courier', $export->couriersForTemplate($tpl))
@@ -169,11 +172,7 @@ foreach ($templateDefs as $tpl => $def) {
         ->get();
 
     $exportable = invoke($export, 'reserveStock', [$templateOrders]);
-    $args = [$exportable];
-    if ($def['sender']) {
-        $args[] = $batch->sender;
-    }
-    $actual = invoke($export, $def['method'], $args);
+    $actual = invoke($export, 'buildRows', [$tpl, $exportable, $useSender ? $batch->sender : null]);
 
     $refRows = readCsvRows("$dir/02_export_{$tpl}.csv");
     $mismatch = null;
@@ -276,5 +275,22 @@ echo "\n── 5. Re-import FLIK (idempotent) ───────────�
 $reflik = $tracking->import("$dir/03_tracking_flik.csv");
 echo '  FLIK (ulang): stock_returned='.$reflik['stock_returned']."\n";
 check('re-import returned tidak menggandakan (stock_returned=0)', $reflik['stock_returned'] === 0);
+
+// ─── 6. RE-EXPORT SETELAH SEMUA ORDER BER-AWB → HANYA HEADER ───────────────
+echo "\n── 6. Re-export setelah seluruh order ber-AWB → hanya header ─\n";
+check('semua 10 order sudah ber-AWB', ShippingOrder::whereIn('order_id', $orderIds)->whereNull('awb')->count() === 0);
+foreach (['flik' => true, 'sicepat' => false, 'spx' => false] as $tpl => $useSender) {
+    $templateOrders = ShippingOrder::where('order_online_import_batch_id', $batch->id)
+        ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
+        ->where(fn ($q) => $q->whereNull('awb')->orWhere('awb', ''))
+        ->whereIn('courier', $export->couriersForTemplate($tpl))
+        ->with('variant')
+        ->orderBy('order_id')
+        ->get();
+
+    $exportable = invoke($export, 'reserveStock', [$templateOrders]);
+    $actual = invoke($export, 'buildRows', [$tpl, $exportable, $useSender ? $batch->sender : null]);
+    check("re-export {$tpl} hanya header (0 order ber-AWB)", count($actual) === 1, 'baris='.count($actual));
+}
 
 exit(summary());

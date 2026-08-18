@@ -1,11 +1,15 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CourierRuleController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ExportMappingController;
+use App\Http\Controllers\GudangController;
+use App\Http\Controllers\ProductController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OperationalReportController;
 use App\Http\Controllers\OrderOnlineController;
-use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PurchaseController;
 use App\Http\Controllers\RegionalController;
@@ -15,7 +19,9 @@ use App\Http\Controllers\StockMovementController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TopUpController;
+use App\Http\Controllers\TrackingStatusRuleController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\WarehouseRuleController;
 use App\Http\Controllers\WhitelistController;
 use Illuminate\Support\Facades\Route;
 
@@ -42,6 +48,10 @@ Route::middleware('auth')->group(function () {
         // Dashboard
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
+        // Laporan Operasional (barang keluar/masuk, resi, metode bayar per pengirim)
+        Route::get('/laporan-operasional', [OperationalReportController::class, 'index'])->name('operational-report.index');
+        Route::get('/laporan-operasional/{batch}', [OperationalReportController::class, 'show'])->name('operational-report.batch');
+
         // Profil
         Route::get('/profil', [ProfileController::class, 'show'])->name('profile.show');
         Route::put('/profil', [ProfileController::class, 'update'])->name('profile.update');
@@ -50,15 +60,39 @@ Route::middleware('auth')->group(function () {
         // Supplier
         Route::resource('supplier', SupplierController::class)->names('supplier');
 
-        // Produk
-        Route::resource('product', ProductController::class)->except('show')->names('product');
+        // Produk & Varian — dikelola DI DALAM halaman Gudang (inventory otomatis = gudang yang dibuka)
 
-        // Varian Produk (kelola di dalam list expandable produk)
-        Route::post('/product/{product}/variant', [ProductController::class, 'variantStore'])->name('product.variant.store');
-        Route::put('/product/variant/{variant}', [ProductController::class, 'variantUpdate'])->name('product.variant.update');
-        Route::delete('/product/variant/{variant}', [ProductController::class, 'variantDestroy'])->name('product.variant.destroy');
-        Route::patch('/product/{product}/toggle-status', [ProductController::class, 'toggleStatus'])->name('product.toggle-status');
-        Route::patch('/product/variant/{variant}/toggle-status', [ProductController::class, 'toggleVariantStatus'])->name('product.variant.toggle-status');
+        // Aturan Courier (auto-mapping kurir berdasarkan provinsi — dinamis dari DB)
+        Route::get('/courier-rules', [CourierRuleController::class, 'index'])->name('courier-rule.index');
+        Route::post('/courier-rules', [CourierRuleController::class, 'store'])->name('courier-rule.store');
+        Route::put('/courier-rules/{courierRule}', [CourierRuleController::class, 'update'])->name('courier-rule.update');
+        Route::patch('/courier-rules/{courierRule}/toggle', [CourierRuleController::class, 'toggle'])->name('courier-rule.toggle');
+        Route::post('/courier-rules/{courierRule}/move/{direction}', [CourierRuleController::class, 'move'])->name('courier-rule.move');
+        Route::delete('/courier-rules/{courierRule}', [CourierRuleController::class, 'destroy'])->name('courier-rule.destroy');
+
+        // Aturan Gudang (kode produk → gudang/nama pengirim saat export — dinamis dari DB)
+        Route::get('/warehouse-rules', [WarehouseRuleController::class, 'index'])->name('warehouse-rule.index');
+        Route::post('/warehouse-rules', [WarehouseRuleController::class, 'store'])->name('warehouse-rule.store');
+        Route::put('/warehouse-rules/{warehouseRule}', [WarehouseRuleController::class, 'update'])->name('warehouse-rule.update');
+        Route::patch('/warehouse-rules/{warehouseRule}/toggle', [WarehouseRuleController::class, 'toggle'])->name('warehouse-rule.toggle');
+        Route::delete('/warehouse-rules/{warehouseRule}', [WarehouseRuleController::class, 'destroy'])->name('warehouse-rule.destroy');
+
+        // Aturan Status Aggregator (raw status dashboard → status sistem — dinamis dari DB)
+        Route::get('/tracking-status-rules', [TrackingStatusRuleController::class, 'index'])->name('tracking-status-rule.index');
+        Route::post('/tracking-status-rules', [TrackingStatusRuleController::class, 'store'])->name('tracking-status-rule.store');
+        Route::put('/tracking-status-rules/{trackingStatusRule}', [TrackingStatusRuleController::class, 'update'])->name('tracking-status-rule.update');
+        Route::patch('/tracking-status-rules/{trackingStatusRule}/toggle', [TrackingStatusRuleController::class, 'toggle'])->name('tracking-status-rule.toggle');
+        Route::post('/tracking-status-rules/{trackingStatusRule}/move/{direction}', [TrackingStatusRuleController::class, 'move'])->name('tracking-status-rule.move');
+        Route::delete('/tracking-status-rules/{trackingStatusRule}', [TrackingStatusRuleController::class, 'destroy'])->name('tracking-status-rule.destroy');
+
+        // Aturan Export (template dinamis: index daftar, create/edit terpisah, hapus permanen)
+        Route::get('/export-mapping', [ExportMappingController::class, 'index'])->name('export-mapping.index');
+        Route::get('/export-mapping/create', [ExportMappingController::class, 'create'])->name('export-mapping.create');
+        Route::post('/export-mapping', [ExportMappingController::class, 'store'])->name('export-mapping.store');
+        Route::get('/export-mapping/{exportTemplate}/edit', [ExportMappingController::class, 'edit'])->name('export-mapping.edit');
+        Route::put('/export-mapping/{exportTemplate}', [ExportMappingController::class, 'update'])->name('export-mapping.update');
+        Route::delete('/export-mapping/{exportTemplate}', [ExportMappingController::class, 'destroy'])->name('export-mapping.destroy');
+        Route::post('/export-mapping/upload', [ExportMappingController::class, 'upload'])->name('export-mapping.upload');
 
         // Whitelist
         Route::resource('whitelist', WhitelistController::class)->names('whitelist');
@@ -117,6 +151,31 @@ Route::middleware('auth')->group(function () {
         Route::post('/inventory/master', [InventoryController::class, 'masterStore'])->name('inventory.master.store');
         Route::delete('/inventory/master/{inventory}', [InventoryController::class, 'masterDestroy'])->name('inventory.master.destroy');
 
+        // Master Produk — halaman produk sendiri (CRUD produk & varian).
+        // Produk dibuat DI SINI; halaman Gudang hanya meng-attach produk yang sudah ada.
+        Route::get('/product', [ProductController::class, 'index'])->name('product.index');
+        Route::post('/product', [ProductController::class, 'store'])->name('product.store');
+        Route::put('/product/{product}', [ProductController::class, 'update'])->name('product.update');
+        Route::delete('/product/{product}', [ProductController::class, 'destroy'])->name('product.destroy');
+        Route::patch('/product/{product}/toggle-status', [ProductController::class, 'toggleStatus'])->name('product.toggle-status');
+        Route::post('/product/{product}/variants', [ProductController::class, 'variantStore'])->name('product.variant.store');
+        Route::put('/product/variants/{variant}', [ProductController::class, 'variantUpdate'])->name('product.variant.update');
+        Route::delete('/product/variants/{variant}', [ProductController::class, 'variantDestroy'])->name('product.variant.destroy');
+        Route::patch('/product/variants/{variant}/toggle-status', [ProductController::class, 'toggleVariantStatus'])->name('product.variant.toggle-status');
+
+        // Gudang (stok per kategori + aturan kemasan dinamis + keanggotaan produk)
+        Route::get('/gudang', [GudangController::class, 'index'])->name('gudang.index');
+        Route::post('/gudang/adjust', [GudangController::class, 'adjust'])->name('gudang.adjust');
+        Route::post('/gudang/packaging-rules', [GudangController::class, 'packagingStore'])->name('gudang.packaging-store');
+        Route::put('/gudang/packaging-rules/{packagingRule}', [GudangController::class, 'packagingUpdate'])->name('gudang.packaging-update');
+        Route::delete('/gudang/packaging-rules/{packagingRule}', [GudangController::class, 'packagingDestroy'])->name('gudang.packaging-destroy');
+
+        // Produk di gudang — attach produk MASTER yang sudah ada (bukan buat baru),
+        // kelola gudang (many-to-many + primary), dan lepas dari gudang.
+        Route::post('/gudang/products', [GudangController::class, 'productAttach'])->name('gudang.product.attach');
+        Route::put('/gudang/products/{product}/warehouses', [GudangController::class, 'productWarehousesUpdate'])->name('gudang.product.warehouses');
+        Route::delete('/gudang/products/{product}', [GudangController::class, 'productDetach'])->name('gudang.product.detach');
+
         // Shipment (Import CSV FLIK/SiCepat/SPX)
         Route::get('/pengiriman', [ShipmentController::class, 'index'])->name('shipment.index');
         Route::post('/pengiriman/preview', [ShipmentController::class, 'preview'])->name('shipment.preview');
@@ -128,6 +187,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/orders/import', [OrderOnlineController::class, 'store'])->name('orders.import');
         Route::post('/orders/tracking-import', [OrderOnlineController::class, 'trackingImport'])->name('orders.tracking-import');
         Route::put('/orders/{shippingOrder}', [OrderOnlineController::class, 'update'])->name('orders.update');
+        Route::get('/orders/{shippingOrder}', [OrderOnlineController::class, 'show'])->name('orders.show');
         Route::get('/orders/{batch}/export/{template}/{courier?}', [OrderOnlineController::class, 'export'])->name('orders.export');
 
         // Purchase (Barang Masuk) & Stock Movement (Jurnal Stok)

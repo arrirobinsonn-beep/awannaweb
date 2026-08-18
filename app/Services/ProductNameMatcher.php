@@ -91,6 +91,11 @@ class ProductNameMatcher
     public function normalize(string $name): string
     {
         $name = mb_strtolower(trim($name));
+
+        // Simbol "&" = "dan" — normalisasi sebelum buang tanda baca
+        // agar "Kacamata & Aksesoris" cocok dengan "Kacamata dan Aksesoris"
+        $name = str_replace('&', 'dan', $name);
+
         $name = preg_replace('/[^\p{L}\p{N}\s]/u', '', $name);
         $name = preg_replace('/\s+/', ' ', $name);
 

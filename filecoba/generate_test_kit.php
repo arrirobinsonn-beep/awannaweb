@@ -151,6 +151,19 @@ function phoneSpx(string $phone): string
     return $phone;
 }
 
+const DEFAULT_SHIPPING = 50000;
+
+function shippingCost(array $o): float
+{
+    return (float) ($o['shipping_cost'] ?? DEFAULT_SHIPPING);
+}
+
+/** Nilai amount (gross_revenue) = product_price + ongkir. */
+function grossRevenue(array $o): float
+{
+    return (float) $o['product_price'] + shippingCost($o);
+}
+
 /** Nama produk yang tersimpan di DB (meta_account dipisah, Dapat N → suffix pcs). */
 function storedProductName(array $o): array
 {
@@ -196,15 +209,18 @@ function displayName(array $o): string
 
 function warehouseFor(array $o): string
 {
+    // Mengikuti gudang UTAMA produk (pivot product_inventory.is_primary)
+    // — lihat OrderTemplateExportService::warehouseFor. Produk kit di-seed
+    // dengan primary: KSP→Aurora, SH→GTM, sisanya → Gudang Pusat.
     $code = strtoupper(trim(explode('+', $o['product_code'])[0]));
     if ($code === 'KSP') {
-        return 'GTM';
-    }
-    if ($code === 'SH') {
         return 'Aurora';
     }
+    if ($code === 'SH') {
+        return 'GTM';
+    }
 
-    return SENDER;
+    return 'Gudang Pusat';
 }
 
 function writeCsv(string $path, array $rows): void
@@ -239,6 +255,7 @@ foreach ($orders as $o) {
         'city' => $o['city'], 'subdistrict' => $o['subdistrict'], 'zip' => $o['zip'],
         'status' => $o['status'], 'payment_status' => $o['payment_status'],
         'payment_method' => $o['payment_method'], 'product_price' => $o['product_price'],
+        'shipping_cost' => shippingCost($o), 'gross_revenue' => grossRevenue($o),
         'quantity' => $o['quantity'], 'product_code' => $o['product_code'],
         'variation' => $o['variation'], 'weight' => 1,
     ];
@@ -257,7 +274,7 @@ $flik = array_merge([[
 ]], array_map(fn ($o) => [
     warehouseFor($o), $o['name'], normalizePhone($o['phone']), $o['address'],
     $o['province'], $o['city'], $o['subdistrict'], '', $o['zip'], DEFAULT_NOTE,
-    number_format((float) $o['product_price'], 2, '.', ''), 10, 8, 6, 1, displayName($o),
+    number_format(grossRevenue($o), 2, '.', ''), 10, 8, 6, 1, displayName($o),
 ], array_values(array_filter($orders, fn ($o) => in_array($o['id'], ['CBC-101', 'CBC-102', 'CBC-103', 'CBC-104', 'CBC-105'], true)))));
 
 $sicepat = array_merge([[
@@ -270,8 +287,8 @@ $sicepat = array_merge([[
 ]], array_map(fn ($o) => [
     $o['name'], normalizePhone($o['phone']), storedProductName($o)[1], $o['id'],
     $o['address'], $o['subdistrict'], $o['city'], $o['zip'], '', 'Barang',
-    displayName($o), 1, 10, 8, 6, number_format((float) $o['product_price'], 2, '.', ''), '', '',
-    $o['payment_method'] === 'cod' ? number_format((float) $o['product_price'], 2, '.', '') : '', '', DEFAULT_NOTE,
+    displayName($o), 1, 10, 8, 6, number_format(grossRevenue($o), 2, '.', ''), '', '',
+    $o['payment_method'] === 'cod' ? number_format(grossRevenue($o), 2, '.', '') : '', '', DEFAULT_NOTE,
     '', '', '', '', '', '',
 ], array_values(array_filter($orders, fn ($o) => in_array($o['id'], ['CBC-201', 'CBC-202', 'CBC-203'], true)))));
 
@@ -291,10 +308,10 @@ $spx = array_merge([[
 ]], array_map(fn ($o) => [
     $o['id'], $o['name'], phoneSpx(normalizePhone($o['phone'])), $o['address'],
     mb_strtoupper($o['province']), mb_strtoupper($o['city']), mb_strtoupper($o['subdistrict']),
-    $o['zip'], 1, number_format((float) $o['product_price'], 2, '.', ''),
+    $o['zip'], 1, number_format(grossRevenue($o), 2, '.', ''),
     $o['payment_method'] === 'cod' ? 'Y' : 'N',
-    $o['payment_method'] === 'cod' ? number_format((float) $o['product_price'], 2, '.', '') : '', 'N', 10, 8, 6,
-    displayName($o), storedProductName($o)[1], number_format((float) $o['product_price'], 2, '.', ''), $o['id'],
+    $o['payment_method'] === 'cod' ? number_format(grossRevenue($o), 2, '.', '') : '', 'N', 10, 8, 6,
+    displayName($o), storedProductName($o)[1], number_format(grossRevenue($o), 2, '.', ''), $o['id'],
     strtoupper($o['payment_method']), DEFAULT_NOTE,
 ], array_values(array_filter($orders, fn ($o) => in_array($o['id'], ['CBC-301', 'CBC-302'], true)))));
 

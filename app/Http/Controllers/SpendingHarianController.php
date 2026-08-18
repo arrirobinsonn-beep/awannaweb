@@ -886,9 +886,14 @@ class SpendingHarianController extends Controller
         $dateStart = $dates[0] ?? null;
         $dateEnd = $dates[count($dates) - 1] ?? $dateStart;
 
-        // 2) Kode whitelist — prioritaskan segmen yang dipisah "---" (paling presisi),
-        //    fallback ke token angka terpanjang yang cocok (hindari angka tanggal 5/2026 dll).
+        // 2) Kode whitelist — 3 strategi pencarian:
+        //    a) Exact match segmen "---" (paling presisi: OO---23643---...)
+        //    b) Token angka terpanjang (hindari angka tanggal 5/2026 dll)
+        //    c) Substring terpanjang dari nama file tanpa pemisah (ramah format apapun:
+        //       EVPO---gunawan---HKM---5 → cleaned "EVPOgunawanHKM5..." → cocok "HKM5")
         $wlCode = null;
+
+        // a) Exact per segmen ---
         $parts = explode('---', $base);
         foreach ($parts as $part) {
             if ($whitelists->has($part)) {
@@ -896,12 +901,29 @@ class SpendingHarianController extends Controller
                 break;
             }
         }
+
+        // b) Token angka terpanjang
         if (! $wlCode && preg_match_all('/\d+/', $base, $m)) {
             $tokens = $m[0];
             usort($tokens, fn ($a, $b) => strlen($b) <=> strlen($a));
             foreach ($tokens as $token) {
                 if ($whitelists->has($token)) {
                     $wlCode = $token;
+                    break;
+                }
+            }
+        }
+
+        // c) Substring terpanjang — buang semua non-alfanumerik, cari kode WL terpanjang
+        //    yang merupakan substring dari nama file yang sudah dibersihkan.
+        if (! $wlCode) {
+            $cleaned = preg_replace('/[^a-zA-Z0-9]/', '', $base);
+            $sortedCodes = $whitelists->keys()
+                ->sortBy(fn ($k) => strlen($k), SORT_REGULAR, true)
+                ->values();
+            foreach ($sortedCodes as $code) {
+                if (str_contains($cleaned, $code)) {
+                    $wlCode = $code;
                     break;
                 }
             }

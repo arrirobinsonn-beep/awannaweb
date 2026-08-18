@@ -71,8 +71,8 @@
         />
 
         <a href="{{ route('spending.index') }}" class="clay-btn clay-btn-outline">Reset</a>
-        <a href="{{ route('spending.create') }}" class="clay-btn clay-btn-primary"
-           style="margin-left:auto;" data-page-link @if(!$hasWhitelist) data-require-whitelist @endif>＋ Input Spending</a>
+        <button type="button" class="clay-btn clay-btn-primary"
+           style="margin-left:auto;" onclick="openInputMethodModal()" @if(!$hasWhitelist) data-require-whitelist @endif>＋ Input Spending</button>
     </form>
 </div>
 
@@ -412,8 +412,8 @@
                 <td colspan="9" style="text-align:center;padding:48px;">
                     <div style="font-size:2.5rem;margin-bottom:8px;">💸</div>
                     <p style="color:#9ca3af;">Belum ada data spending di periode ini</p>
-                    <a href="{{ route('spending.create') }}" class="clay-btn clay-btn-primary"
-                       style="margin-top:12px;" data-page-link @if(!$hasWhitelist) data-require-whitelist @endif>＋ Input Spending Pertama</a>
+                    <button type="button" class="clay-btn clay-btn-primary"
+                       style="margin-top:12px;" onclick="openInputMethodModal()" @if(!$hasWhitelist) data-require-whitelist @endif>＋ Input Spending Pertama</button>
                 </td>
             </tr>
             @endforelse
@@ -1107,8 +1107,136 @@ function toggle(id) {
 </script>
 @endpush
 
+@push('styles')
+<style>
+    /* ── Upload Modal (_META Ads) ─────────────────────────── */
+    #upload-modal {
+        position: fixed; inset: 0; z-index: 1100;
+        display: none; align-items: center; justify-content: center; padding: 20px;
+    }
+    #upload-modal.open { display: flex; }
+    .up-backdrop {
+        position: absolute; inset: 0;
+        background: rgba(30,27,46,.5); backdrop-filter: blur(3px);
+    }
+    .up-panel {
+        position: relative; width: 100%; max-width: 740px; max-height: 90vh;
+        display: flex; flex-direction: column;
+        background: #fff; border-radius: 20px;
+        box-shadow: 0 24px 60px rgba(0,0,0,.28);
+        overflow: hidden;
+        animation: upIn .22s ease;
+    }
+    @keyframes upIn {
+        from { opacity: 0; transform: translateY(10px) scale(.98); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .up-head {
+        display: flex; align-items: flex-start; gap: 10px;
+        padding: 18px 22px; border-bottom: 1px solid #f3f4f6;
+        background: linear-gradient(135deg, #fff5f5, #fff);
+    }
+    .up-x {
+        margin-left: auto; border: none; background: #f3f4f6; color: #6b7280;
+        width: 30px; height: 30px; border-radius: 10px; cursor: pointer;
+        font-size: .8rem; font-weight: 800; transition: all .15s;
+    }
+    .up-x:hover { background: #fef2f2; color: #ef4444; }
+    .up-body { flex: 1; overflow-y: auto; padding: 18px 22px; }
+    .up-foot {
+        display: flex; justify-content: flex-end; gap: 10px;
+        padding: 14px 22px; border-top: 1px solid #f3f4f6;
+    }
+    .up-format-hint {
+        background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px;
+        padding: 10px 14px; font-size: .74rem; color: #6b7280; margin-bottom: 14px; line-height: 1.6;
+    }
+    .up-format-hint code {
+        background: #fff; border: 1px solid #e5e7eb; border-radius: 6px;
+        padding: 1px 6px; font-size: .68rem; color: #4338ca;
+    }
+    .up-dual {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px; align-items: stretch;
+    }
+    @media (max-width: 640px) { .up-dual { grid-template-columns: 1fr; } }
+    .up-col {
+        display: flex; flex-direction: column; min-width: 0;
+        border: 1px solid #eef0f3; border-radius: 14px;
+        background: #fcfcfd; padding: 12px;
+    }
+    .up-col-head {
+        display: flex; align-items: center; gap: 6px;
+        margin-bottom: 8px; font-size: .78rem; font-weight: 800; color: #1e1b2e;
+    }
+    .up-col-head .tag {
+        background: #1e1b2e; color: #fff;
+        font-size: .6rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
+    }
+    .up-col-head .sub {
+        font-size: .62rem; font-weight: 600; color: #9ca3af;
+        margin-left: auto; white-space: nowrap;
+    }
+    .up-dropzone {
+        border: 2px dashed #e5e7eb; border-radius: 16px; padding: 26px 16px;
+        text-align: center; cursor: pointer; transition: all .15s;
+    }
+    .up-dropzone:hover, .up-dropzone.drag { border-color: #FF6B6B; background: #fff7f7; }
+    .up-file-chip {
+        display: flex; align-items: center; gap: 8px;
+        width: 100%; min-width: 0; box-sizing: border-box;
+        background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px;
+        padding: 8px 12px; font-size: .76rem; margin-top: 8px;
+    }
+    .up-file-chip .x {
+        margin-left: auto; border: none; background: transparent; color: #9ca3af;
+        cursor: pointer; font-size: .8rem; font-weight: 800;
+    }
+    .up-file-chip .x:hover { color: #ef4444; }
+    .up-summary {
+        margin-top: 14px; font-size: .78rem; font-weight: 700; color: #166534;
+        background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 9px 12px;
+    }
+    .up-result {
+        border: 1px solid #e5e7eb; border-radius: 14px; margin-top: 12px; overflow: hidden;
+    }
+    .up-result-head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 11px 14px; background: #fafafa; border-bottom: 1px solid #f3f4f6; flex-wrap: wrap;
+    }
+    .up-result-head .name {
+        font-weight: 700; font-size: .78rem; color: #1e1b2e;
+        min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .up-group { border-top: 1px solid #f3f4f6; padding: 12px 14px; }
+    .up-group-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .up-group-check { display: flex; align-items: center; gap: 6px; font-size: .75rem; font-weight: 700; color: #1e1b2e; cursor: pointer; }
+    .up-prods { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .up-prod-chip {
+        background: #fff7f7; border: 1px solid #fecaca; color: #9a3412;
+        border-radius: 8px; padding: 3px 10px; font-size: .7rem; font-weight: 600;
+    }
+    .up-warn {
+        background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+        font-size: .72rem; border-radius: 8px; padding: 8px 10px;
+    }
+    .up-err-msg { color: #dc2626; font-size: .78rem; padding: 12px 14px; }
+    .spinner-sm {
+        display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent;
+        border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Responsive upload modal ── */
+    @media (max-width: 480px) {
+        #upload-modal { padding: 10px; align-items: flex-end; }
+        #upload-modal .up-panel { border-radius: 16px 16px 0 0; }
+    }
+</style>
+@endpush
+
 @if(!$hasWhitelist)
-{{-- ─── Modal: Belum punya whitelist ─────────────────────────────── --}}
 @push('styles')
 <style>
     .modal-wl {
@@ -1189,10 +1317,11 @@ function toggle(id) {
     document.querySelectorAll('[data-require-whitelist]').forEach(function(el) {
         el.addEventListener('click', function(e) {
             e.preventDefault();
-            e.stopPropagation(); // cegah PageLinkHandler global me-fade-out halaman
+            e.stopPropagation();
+            e.stopImmediatePropagation(); // cegah onclick modal metode/upload terpicu
             var modal = getModal();
             if (modal) modal.classList.add('active');
-        });
+        }, true); // useCapture=true agar jalan sebelum onclick inline
     });
 
     window.tutupModalPerluWhitelist = function() {
@@ -1471,4 +1600,460 @@ function toggle(id) {
 })();
 </script>
 @endpush
+
+@push('scripts')
+<script>
+{{-- ── Modal Pilih Metode Input + Upload Meta Ads (dari halaman Index) ── --}}
+(function() {
+    'use strict';
+
+    var PARSE_URL = '{{ route("spending.parse-upload") }}';
+    var STORE_URL = '{{ route("spending.store") }}';
+    var csrfMeta  = document.querySelector('meta[name="csrf-token"]');
+    var CSRF = csrfMeta ? csrfMeta.getAttribute('content') : '';
+
+    // ─── Method Chooser Modal ───
+    window.openInputMethodModal = function() {
+        var m = document.getElementById('modal-input-method');
+        if (m) m.classList.add('active');
+    };
+    window.closeInputMethodModal = function() {
+        var m = document.getElementById('modal-input-method');
+        if (m) m.classList.remove('active');
+    };
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            var m = document.getElementById('modal-input-method');
+            if (m && m.classList.contains('active')) window.closeInputMethodModal();
+        }
+    });
+
+    // ─── Upload Modal (buka/tutup) ───
+    window.openUploadModal = function() {
+        var m = document.getElementById('upload-modal');
+        if (m) { m.classList.add('open'); document.body.style.overflow = 'hidden'; }
+    };
+    function closeUploadModal() {
+        var m = document.getElementById('upload-modal');
+        if (m) { m.classList.remove('open'); document.body.style.overflow = ''; }
+    }
+
+    // ─── Upload state ───
+    var upFiles = [];
+    var regFiles = [];
+    var upCombined = [];
+    var upRegUnmatched = [];
+    var upRegUnmatchedCount = 0;
+
+    function fmtNum(n) { return Number(n || 0).toLocaleString('id-ID'); }
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function attr(s) { return esc(s); }
+    var BULAN_INDO = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    function fmtTgl(s) {
+        if (!s) return '';
+        var p = s.split('-');
+        return parseInt(p[2], 10) + ' ' + BULAN_INDO[parseInt(p[1], 10) - 1] + ' ' + p[0];
+    }
+    function showFlash(msg) {
+        var t = document.createElement('div');
+        t.className = 'sp-toast';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        requestAnimationFrame(function() { t.classList.add('show'); });
+        setTimeout(function() { t.classList.remove('show'); }, 4200);
+        setTimeout(function() { t.remove(); }, 4600);
+    }
+
+    // ─── Init upload modal ───
+    function initUploadModal() {
+        var modal    = document.getElementById('upload-modal');
+        if (!modal) return;
+        var closeBtn  = document.getElementById('up-close');
+        var cancelBtn = document.getElementById('up-cancel');
+        var backdrop  = document.querySelector('#upload-modal .up-backdrop');
+        var browseBtn = document.getElementById('up-browse');
+        var fileInput = document.getElementById('up-file-input');
+        var dz        = document.getElementById('up-dropzone');
+        var regBrowseBtn = document.getElementById('reg-browse');
+        var regFileInput = document.getElementById('reg-file-input');
+        var regDz        = document.getElementById('reg-dropzone');
+        var parseBtn  = document.getElementById('up-parse');
+        var applyBtn  = document.getElementById('up-apply');
+
+        if (closeBtn) closeBtn.addEventListener('click', closeUploadModal);
+        if (cancelBtn) cancelBtn.addEventListener('click', closeUploadModal);
+        if (backdrop) backdrop.addEventListener('click', closeUploadModal);
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && modal.classList.contains('open')) closeUploadModal();
+        });
+
+        // Ads Manager file handling
+        if (browseBtn) browseBtn.addEventListener('click', function() { fileInput.click(); });
+        if (dz) {
+            dz.addEventListener('click', function(e) { if (!e.target.closest('#up-browse')) fileInput.click(); });
+            ['dragenter','dragover'].forEach(function(ev) {
+                dz.addEventListener(ev, function(e) { e.preventDefault(); dz.classList.add('drag'); });
+            });
+            ['dragleave','drop'].forEach(function(ev) {
+                dz.addEventListener(ev, function(e) { e.preventDefault(); dz.classList.remove('drag'); });
+            });
+            dz.addEventListener('drop', function(e) { addFiles(Array.from(e.dataTransfer.files)); });
+        }
+        if (fileInput) fileInput.addEventListener('change', function() { addFiles(Array.from(this.files)); this.value = ''; });
+
+        // Regional file handling
+        if (regBrowseBtn) regBrowseBtn.addEventListener('click', function() { regFileInput.click(); });
+        if (regDz) {
+            regDz.addEventListener('click', function(e) { if (!e.target.closest('#reg-browse')) regFileInput.click(); });
+            ['dragenter','dragover'].forEach(function(ev) {
+                regDz.addEventListener(ev, function(e) { e.preventDefault(); regDz.classList.add('drag'); });
+            });
+            ['dragleave','drop'].forEach(function(ev) {
+                regDz.addEventListener(ev, function(e) { e.preventDefault(); regDz.classList.remove('drag'); });
+            });
+            regDz.addEventListener('drop', function(e) { addRegFiles(Array.from(e.dataTransfer.files)); });
+        }
+        if (regFileInput) regFileInput.addEventListener('change', function() { addRegFiles(Array.from(this.files)); this.value = ''; });
+
+        if (parseBtn) parseBtn.addEventListener('click', parseFiles);
+        if (applyBtn) applyBtn.addEventListener('click', applyResults);
+    }
+
+    function addFiles(list) {
+        list.forEach(function(f) {
+            if (!/\.(xlsx|xls|csv)$/i.test(f.name)) { showFlash('⚠️ "' + f.name + '" bukan file Excel — dilewati.'); return; }
+            if (f.size > 10*1024*1024) { showFlash('⚠️ "' + f.name + '" > 10MB — dilewati.'); return; }
+            upFiles.push(f);
+        });
+        renderFileList(); upCombined = []; renderResults();
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) applyBtn.disabled = true;
+    }
+    function addRegFiles(list) {
+        list.forEach(function(f) {
+            if (!/\.(xlsx|xls|csv)$/i.test(f.name)) { showFlash('⚠️ "' + f.name + '" bukan file Excel — dilewati.'); return; }
+            if (f.size > 10*1024*1024) { showFlash('⚠️ "' + f.name + '" > 10MB — dilewati.'); return; }
+            regFiles.push(f);
+        });
+        renderRegFileList(); upCombined = []; renderResults();
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) applyBtn.disabled = true;
+    }
+
+    function renderFileList() {
+        var wrap = document.getElementById('up-file-list'); if (!wrap) return;
+        wrap.innerHTML = '';
+        upFiles.forEach(function(f, i) {
+            var chip = document.createElement('div'); chip.className = 'up-file-chip';
+            chip.innerHTML = '<span style="flex-shrink:0;">📄</span><span title="' + attr(f.name) + '" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                + esc(f.name) + '</span><span style="flex-shrink:0;font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size/1024) + ' KB)</span>'
+                + '<button type="button" class="x" title="Hapus">✕</button>';
+            chip.querySelector('.x').addEventListener('click', function() {
+                upFiles.splice(i,1); renderFileList(); upCombined = []; renderResults();
+                var applyBtn = document.getElementById('up-apply');
+                if (applyBtn) applyBtn.disabled = true;
+            });
+            wrap.appendChild(chip);
+        });
+    }
+    function renderRegFileList() {
+        var wrap = document.getElementById('reg-file-list'); if (!wrap) return;
+        wrap.innerHTML = '';
+        regFiles.forEach(function(f, i) {
+            var chip = document.createElement('div'); chip.className = 'up-file-chip';
+            chip.innerHTML = '<span style="flex-shrink:0;">🗺️</span><span title="' + attr(f.name) + '" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                + esc(f.name) + '</span><span style="flex-shrink:0;font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size/1024) + ' KB)</span>'
+                + '<button type="button" class="x" title="Hapus">✕</button>';
+            chip.querySelector('.x').addEventListener('click', function() {
+                regFiles.splice(i,1); renderRegFileList(); upCombined = []; renderResults();
+                var applyBtn = document.getElementById('up-apply');
+                if (applyBtn) applyBtn.disabled = true;
+            });
+            wrap.appendChild(chip);
+        });
+        var actions = document.getElementById('up-actions');
+        if (actions) actions.style.display = (upFiles.length || regFiles.length) ? '' : 'none';
+    }
+
+    function setParseState(loading) {
+        var parseBtn = document.getElementById('up-parse');
+        if (parseBtn) {
+            parseBtn.disabled = loading;
+            parseBtn.innerHTML = loading ? '<span class="spinner-sm"></span> Memproses file…' : '🔍 Proses & Parsing';
+        }
+    }
+
+    function parseFiles() {
+        if (!upFiles.length || !regFiles.length) {
+            showFlash('⚠️ Unggah minimal 1 file Ads Manager DAN 1 file Regional di kedua area.');
+            return;
+        }
+        var fd = new FormData();
+        upFiles.forEach(function(f) { fd.append('files[]', f); });
+        regFiles.forEach(function(f) { fd.append('regional[]', f); });
+        setParseState(true);
+        fetch(PARSE_URL, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': CSRF, 'Accept': 'application/json' },
+            body: fd
+        })
+        .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+        .then(function(res) {
+            setParseState(false);
+            if (!res.ok) { showFlash('❌ Gagal memproses: ' + (res.d.message || 'kesalahan server.')); return; }
+            upCombined = res.d.combined || [];
+            upRegUnmatched = res.d.regional_unmatched || [];
+            upRegUnmatchedCount = res.d.regional_unmatched_count || 0;
+            renderResults();
+        })
+        .catch(function() { setParseState(false); showFlash('❌ Koneksi gagal. Coba lagi.'); });
+    }
+
+    function renderResults() {
+        var wrap = document.getElementById('up-results'); if (!wrap) return;
+        wrap.innerHTML = '';
+        var totalDates = upCombined.length;
+        var totalProducts = 0, totalSpending = 0, totalLead = 0, totalPaid = 0;
+        upCombined.forEach(function(dt) {
+            dt.whitelists.forEach(function(w) {
+                totalProducts += w.products.length;
+                totalSpending += w.total_spending;
+                totalLead += w.total_lead;
+                totalPaid += w.total_paid;
+            });
+        });
+        if (totalDates) {
+            var summary = document.createElement('div'); summary.className = 'up-summary';
+            summary.textContent = totalDates + ' tanggal · ' + totalProducts + ' produk siap disimpan — 💸 Rp ' + fmtNum(totalSpending)
+                + ' · 👤 ' + fmtNum(totalLead) + ' lead · 💳 ' + fmtNum(totalPaid) + ' paid';
+            wrap.appendChild(summary);
+        }
+        if (upRegUnmatchedCount > 0) {
+            var warn = document.createElement('div'); warn.className = 'up-warn'; warn.style.marginTop = '10px';
+            warn.innerHTML = '⚠️ <strong>' + upRegUnmatchedCount + ' baris regional</strong> tidak bisa dipetakan — detail di bawah.';
+            wrap.appendChild(warn);
+        }
+        upCombined.forEach(function(dt, di) {
+            var box = document.createElement('div'); box.className = 'up-result';
+            var head = document.createElement('div'); head.className = 'up-result-head';
+            var dtTotal = 0;
+            dt.whitelists.forEach(function(w) { dtTotal += w.total_spending; });
+            head.innerHTML = '<span style="font-size:1rem;">📅</span>'
+                + '<span class="name">' + fmtTgl(dt.tanggal) + '</span>'
+                + '<span class="clay-badge clay-badge-green" style="margin-left:auto;">Rp ' + fmtNum(dtTotal) + '</span>';
+            box.appendChild(head);
+            dt.whitelists.forEach(function(w, wi) {
+                var wlEl = document.createElement('div'); wlEl.className = 'up-group';
+                wlEl.dataset.di = di; wlEl.dataset.wi = wi;
+                var chips = w.products.map(function(p) {
+                    return '<span class="up-prod-chip" style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;">'
+                        + '<span>📦 ' + esc(p.product_name) + '</span>'
+                        + '<span style="font-weight:800;">💸 Rp ' + fmtNum(p.spending) + '</span>'
+                        + '<span style="font-size:.64rem;color:#6b7280;">👤 ' + fmtNum(p.lead) + ' · 💳 ' + fmtNum(p.paid) + '</span>'
+                        + '</span>';
+                }).join('');
+                wlEl.innerHTML = '<div class="up-group-row">'
+                    + '<label class="up-group-check"><input type="checkbox" checked> Terapkan</label>'
+                    + '<span class="clay-badge clay-badge-purple" style="flex-shrink:0;">WL ' + esc(w.whitelist.kode) + '</span>'
+                    + '<strong style="font-size:.78rem;color:#1e1b2e;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(w.whitelist.nama) + '</strong>'
+                    + '<span style="margin-left:auto;font-size:.7rem;color:#6b7280;white-space:nowrap;">Rp ' + fmtNum(w.total_spending) + ' · 👤 ' + fmtNum(w.total_lead) + ' · 💳 ' + fmtNum(w.total_paid) + '</span>'
+                    + '</div><div class="up-prods">' + chips + '</div>';
+                box.appendChild(wlEl);
+            });
+            wrap.appendChild(box);
+        });
+        if (upRegUnmatched && upRegUnmatched.length) {
+            var um = document.createElement('div'); um.className = 'up-warn'; um.style.marginTop = '10px';
+            um.innerHTML = '⚠️ Baris regional tak dikenal:<ul style="margin:4px 0 0 16px;padding:0;">'
+                + upRegUnmatched.slice(0,8).map(function(u) { return '<li>' + esc(u) + '</li>'; }).join('')
+                + (upRegUnmatched.length > 8 ? '<li>…dan ' + (upRegUnmatched.length-8) + ' lainnya</li>' : '')
+                + '</ul>';
+            wrap.appendChild(um);
+        }
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) {
+            applyBtn.disabled = totalDates === 0;
+            applyBtn.innerHTML = totalDates ? ('💾 Simpan ke Server (' + totalProducts + ' produk)') : '💾 Simpan ke Server';
+        }
+    }
+
+    // ─── Apply: kirim langsung ke server (spending.store) ───
+    function applyResults() {
+        if (!upCombined.length) return;
+        var items = [];
+        upCombined.forEach(function(dt, di) {
+            dt.whitelists.forEach(function(w, wi) {
+                var row = document.querySelector('#up-results .up-group[data-di="' + di + '"][data-wi="' + wi + '"]');
+                if (!row) return;
+                var cb = row.querySelector('.up-group-check input');
+                if (cb && !cb.checked) return;
+                w.products.forEach(function(p) {
+                    items.push({
+                        tanggal: dt.tanggal,
+                        product_id: p.product_id,
+                        whitelist_id: w.whitelist.id,
+                        spending: p.spending,
+                        lead: p.lead,
+                        paid: p.paid
+                    });
+                });
+            });
+        });
+        if (!items.length) { showFlash('⚠️ Tidak ada data yang dipilih. Centang minimal 1 baris.'); return; }
+
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) { applyBtn.disabled = true; applyBtn.innerHTML = '<span class="spinner-sm"></span> Menyimpan…'; }
+
+        // Build form data for POST
+        var fd = new FormData();
+        items.forEach(function(item, idx) {
+            fd.append('items[' + idx + '][tanggal]', item.tanggal);
+            fd.append('items[' + idx + '][product_id]', item.product_id);
+            fd.append('items[' + idx + '][whitelist_id]', item.whitelist_id);
+            fd.append('items[' + idx + '][spending]', item.spending);
+            fd.append('items[' + idx + '][lead]', item.lead);
+            fd.append('items[' + idx + '][paid]', item.paid);
+        });
+
+        fetch(STORE_URL, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': CSRF },
+            body: fd
+        })
+        .then(function(r) {
+            if (r.redirected || r.ok) {
+                closeUploadModal();
+                showFlash('✅ ' + items.length + ' data spending berhasil disimpan!');
+                setTimeout(function() { window.location.reload(); }, 1200);
+            } else {
+                return r.json().then(function(d) {
+                    throw new Error(d.message || 'Gagal menyimpan');
+                });
+            }
+        })
+        .catch(function(err) {
+            if (applyBtn) { applyBtn.disabled = false; applyBtn.innerHTML = '💾 Simpan ke Server'; }
+            showFlash('❌ ' + (err.message || 'Gagal menyimpan data. Coba lagi.'));
+        });
+    }
+
+    // Init on DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initUploadModal);
+    } else {
+        initUploadModal();
+    }
+})();
+</script>
+@endpush
 @endsection
+
+@push('body-end')
+{{-- ═══════════════ MODAL PILIH METODE INPUT ═══════════════ --}}
+<div class="dc-modal" id="modal-input-method" role="dialog" aria-modal="true" aria-labelledby="im-title">
+    <div class="dc-backdrop" onclick="closeInputMethodModal()"></div>
+    <div class="dc-container" style="max-width:420px;">
+        <div class="dc-header">
+            <h2 id="im-title">💸 Input Spending</h2>
+            <button class="dc-close" onclick="closeInputMethodModal()" type="button">✕</button>
+        </div>
+        <div class="dc-body" style="padding:20px;">
+            <p style="font-size:.82rem;color:#4b5563;margin-bottom:16px;text-align:center;">Pilih metode input spending:</p>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <button type="button" onclick="closeInputMethodModal();openUploadModal();"
+                        style="display:flex;align-items:center;gap:14px;padding:16px 18px;border:2px solid #e5e7eb;border-radius:14px;background:#fff;cursor:pointer;text-align:left;transition:all .15s;"
+                        onmouseenter="this.style.borderColor='#22c55e';this.style.background='#f0fdf4'"
+                        onmouseleave="this.style.borderColor='#e5e7eb';this.style.background='#fff'">
+                    <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#16a34a,#22c55e);display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;">📤</span>
+                    <div>
+                        <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;">Input Otomatis dari META</div>
+                        <div style="font-size:.72rem;color:#6b7280;margin-top:2px;">Upload file export Meta Ads Manager — spending, lead & paid terisi otomatis</div>
+                    </div>
+                </button>
+                <button type="button" onclick="closeInputMethodModal();window.location.href='{{ route('spending.create') }}'"
+                        style="display:flex;align-items:center;gap:14px;padding:16px 18px;border:2px solid #e5e7eb;border-radius:14px;background:#fff;cursor:pointer;text-align:left;transition:all .15s;"
+                        onmouseenter="this.style.borderColor='#FF6B6B';this.style.background='#fff7f7'"
+                        onmouseleave="this.style.borderColor='#e5e7eb';this.style.background='#fff'">
+                    <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#FF6B6B,#ff9a9a);display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;">✏️</span>
+                    <div>
+                        <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;">Input Manual</div>
+                        <div style="font-size:.72rem;color:#6b7280;margin-top:2px;">Catat spending, lead & paid secara manual — seret produk & centang whitelist</div>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- ═══════════════ MODAL UPLOAD META ADS (dari halaman Index) ═══════════════ --}}
+<div id="upload-modal" role="dialog" aria-modal="true" aria-labelledby="up-title">
+    <div class="up-backdrop"></div>
+    <div class="up-panel">
+        <div class="up-head">
+            <div>
+                <div id="up-title" style="font-weight:800;font-size:1rem;color:#1e1b2e;">📤 Upload Excel Meta Ads</div>
+                <div style="font-size:.72rem;color:#9ca3af;">Bulk upload — 1 file = 1 akun whitelist untuk satu periode laporan</div>
+            </div>
+            <button type="button" class="up-x" id="up-close" title="Tutup">✕</button>
+        </div>
+        <div class="up-body">
+            <div class="up-format-hint">
+                <strong>2 file wajib unggah:</strong><br>
+                <strong>1 · Excel Ads Manager</strong> → spending. Nama file memuat kode whitelist + rentang tanggal
+                (<code>OO---13722---...---5-Agu-2026---5-Agu-2026.xlsx</code>); nama kampanye diawali kode produk
+                (<code>KSP - tes konten - 7/8/26</code>); spending dari kolom <em>"Jumlah yang dibelanjakan (IDR)"</em>.<br>
+                <strong>2 · Excel Regional</strong> → lead & paid. Kolom <em>"product"</em> berbentuk
+                <code>P.1 - Kacamata ... - 22760</code> (kode teritorial - nama produk - kode whitelist), kolom
+                <em>"payment_status"</em> (baris = lead, "paid" = paid), kolom <em>"created_at"</em> (tanggal).
+            </div>
+            <div class="up-dual">
+                <div class="up-col">
+                    <div class="up-col-head">
+                        <span class="tag">1</span>
+                        <span>Ads Manager</span>
+                        <span class="sub">💸 Spending</span>
+                    </div>
+                    <div id="up-dropzone" class="up-dropzone">
+                        <div style="font-size:1.4rem;">📁</div>
+                        <div style="font-weight:700;color:#1e1b2e;font-size:.82rem;">Seret file export Ads Manager</div>
+                        <div style="font-size:.7rem;color:#9ca3af;">atau</div>
+                        <button type="button" class="clay-btn clay-btn-outline" id="up-browse" style="margin-top:6px;padding:6px 14px;font-size:.75rem;">Pilih File…</button>
+                        <div style="font-size:.62rem;color:#9ca3af;margin-top:6px;">Bisa banyak file (maks 20 · .xlsx/.xls/.csv · 10MB/file)</div>
+                    </div>
+                    <input type="file" id="up-file-input" multiple accept=".xlsx,.xls,.csv" hidden>
+                    <div id="up-file-list" class="up-file-list"></div>
+                </div>
+                <div class="up-col">
+                    <div class="up-col-head">
+                        <span class="tag">2</span>
+                        <span>Regional</span>
+                        <span class="sub">👤 Lead & 💳 Paid</span>
+                    </div>
+                    <div id="reg-dropzone" class="up-dropzone">
+                        <div style="font-size:1.4rem;">🗺️</div>
+                        <div style="font-weight:700;color:#1e1b2e;font-size:.82rem;">Seret file export regional</div>
+                        <div style="font-size:.7rem;color:#9ca3af;">atau</div>
+                        <button type="button" class="clay-btn clay-btn-outline" id="reg-browse" style="margin-top:6px;padding:6px 14px;font-size:.75rem;">Pilih File…</button>
+                        <div style="font-size:.62rem;color:#9ca3af;margin-top:6px;">Kolom product / payment_status / created_at</div>
+                    </div>
+                    <input type="file" id="reg-file-input" multiple accept=".xlsx,.xls,.csv" hidden>
+                    <div id="reg-file-list" class="up-file-list"></div>
+                </div>
+            </div>
+            <div id="up-actions" style="display:none;margin-top:14px;">
+                <button type="button" class="clay-btn clay-btn-primary" id="up-parse" style="width:100%;justify-content:center;">🔍 Proses & Parsing</button>
+            </div>
+            <div id="up-results"></div>
+        </div>
+        <div class="up-foot">
+            <button type="button" class="clay-btn clay-btn-outline" id="up-cancel">Batal</button>
+            <button type="button" class="clay-btn clay-btn-primary" id="up-apply" disabled>💾 Simpan ke Server</button>
+        </div>
+    </div>
+</div>
+@endpush
+

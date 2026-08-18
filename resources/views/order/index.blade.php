@@ -164,23 +164,30 @@
                         <div style="font-size:.72rem;color:#9ca3af;">{{ $selectedBatch->created_at?->format('d/m/Y H:i') }} • Total {{ $selectedBatch->total_rows }} • Sukses {{ $selectedBatch->success_rows }}</div>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                        <details style="position:relative;">
-                            <summary class="clay-btn" style="padding:6px 12px;font-size:.78rem;cursor:pointer;">📗 Export FLIK ▾</summary>
-                            <div style="position:absolute;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid #eee;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.12);min-width:200px;z-index:50;padding:6px;">
+                        @foreach($exportTemplates as $et)
+                            @if($et->key === \App\Services\OrderTemplateExportService::TEMPLATE_FLIK)
+                                <details style="position:relative;">
+                                    <summary class="clay-btn" style="padding:6px 12px;font-size:.78rem;cursor:pointer;">📗 Export {{ $et->name }} ▾</summary>
+                                    <div style="position:absolute;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid #eee;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.12);min-width:200px;z-index:50;padding:6px;">
+                                        @php
+                                            $flikWithData = array_filter(\App\Services\OrderTemplateExportService::FLIK_COURIERS, fn ($fc) => ($courierCounts[$fc] ?? 0) > 0);
+                                        @endphp
+                                        @forelse($flikWithData as $fc)
+                                            <a href="{{ route('orders.export', [$selectedBatch->id, 'flik', $fc]) }}" style="display:block;padding:7px 10px;font-size:.76rem;color:#374151;text-decoration:none;border-radius:6px;">
+                                                {{ $et->name }} — {{ $fc }} <span style="color:#9ca3af;">({{ $courierCounts[$fc] }})</span>
+                                            </a>
+                                        @empty
+                                            <div style="padding:7px 10px;font-size:.74rem;color:#9ca3af;">Belum ada data {{ $et->name }}.</div>
+                                        @endforelse
+                                    </div>
+                                </details>
+                            @else
                                 @php
-                                    $flikWithData = array_filter(\App\Services\OrderTemplateExportService::FLIK_COURIERS, fn ($fc) => ($courierCounts[$fc] ?? 0) > 0);
+                                    $etIcon = $et->key === 'sicepat' ? '📘' : ($et->key === 'spx' ? '📙' : '📦');
                                 @endphp
-                                @forelse($flikWithData as $fc)
-                                    <a href="{{ route('orders.export', [$selectedBatch->id, 'flik', $fc]) }}" style="display:block;padding:7px 10px;font-size:.76rem;color:#374151;text-decoration:none;border-radius:6px;">
-                                        FLIK — {{ $fc }} <span style="color:#9ca3af;">({{ $courierCounts[$fc] }})</span>
-                                    </a>
-                                @empty
-                                    <div style="padding:7px 10px;font-size:.74rem;color:#9ca3af;">Belum ada data FLIK.</div>
-                                @endforelse
-                            </div>
-                        </details>
-                        <a href="{{ route('orders.export', [$selectedBatch->id, 'sicepat']) }}" class="clay-btn" style="padding:6px 12px;font-size:.78rem;">📘 Export SiCepat</a>
-                        <a href="{{ route('orders.export', [$selectedBatch->id, 'spx']) }}" class="clay-btn" style="padding:6px 12px;font-size:.78rem;">📙 Export SPX</a>
+                                <a href="{{ route('orders.export', [$selectedBatch->id, $et->key]) }}" class="clay-btn" style="padding:6px 12px;font-size:.78rem;">{{ $etIcon }} Export {{ $et->name }}</a>
+                            @endif
+                        @endforeach
                     </div>
                 </div>
 
@@ -197,6 +204,12 @@
                         <option value="">Semua Status</option>
                         @foreach(\App\Models\ShippingOrder::STATUSES as $st)
                             <option value="{{ $st }}" @selected(request('status') === $st)>{{ ucfirst($st) }}</option>
+                        @endforeach
+                    </select>
+                    <select name="product_code" class="clay-input">
+                        <option value="">Semua Produk</option>
+                        @foreach($productOptions as $code => $label)
+                            <option value="{{ $code }}" @selected(request('product_code') === $code)>{{ $label }}</option>
                         @endforeach
                     </select>
                     <button class="clay-btn clay-btn-primary" type="submit">🔍 Filter</button>
@@ -222,8 +235,8 @@
                             @forelse($orders as $o)
                                 <tr>
                                     <td class="sel-nowrap" style="font-size:.75rem;">{{ $o->order_id }}</td>
-                                    <td>{{ $o->customer_name }}</td>
-                                    <td class="sel-nowrap" style="font-size:.75rem;">{{ $o->phone }}</td>
+                                    <td><a href="{{ route('orders.show', $o->id) }}" style="color:var(--color-primary,#FF6B6B);font-weight:700;text-decoration:none;">{{ $o->customer_name }}</a></td>
+                                    <td class="sel-nowrap" style="font-size:.75rem;"><a href="{{ route('orders.show', $o->id) }}" style="color:var(--color-primary,#FF6B6B);font-weight:700;text-decoration:none;">{{ $o->phone }}</a></td>
                                     <td style="font-size:.78rem;">{{ $o->province }}</td>
                                     <td>
                                         <div style="font-size:.78rem;">{{ $o->product_name }}</div>
@@ -245,28 +258,37 @@
                                         @endif
                                     </td>
                                     <td>
-                                        <details style="font-size:.78rem;">
-                                            <summary style="cursor:pointer;color:var(--color-primary,#FF6B6B);font-weight:700;">Edit</summary>
-                                            <form method="POST" action="{{ route('orders.update', $o->id) }}" class="courier-edit-form" style="margin-top:6px;flex-wrap:wrap;">
-                                                @csrf @method('PUT')
-                                                <select name="courier">
-                                                    <option value="">— Pilih —</option>
-                                                    @foreach(\App\Services\CourierRuleService::COURIERS as $cc)
-                                                        <option value="{{ $cc }}" @selected($o->courier === $cc)>{{ $cc }}</option>
-                                                    @endforeach
-                                                </select>
-                                                <input type="text" name="courier_note" value="{{ $o->courier_note }}" placeholder="Catatan" style="width:110px;padding:2px 4px;font-size:.72rem;border:1px solid #d1d5db;border-radius:6px;">
-                                                <select name="product_code">
-                                                    <option value="">— Produk —</option>
-                                                    @foreach($products as $p)
-                                                        @foreach($p->variants as $v)
-                                                            <option value="{{ $v->code }}" @selected($o->product_code === $v->code)>{{ $v->code }} — {{ $p->name }}</option>
+                                        @if(!empty($o->awb))
+                                            <div>
+                                                <span class="badge-courier" style="background:#d1fae5;color:#065f46;">✓ {{ $o->awb }}</span>
+                                                @if($o->aggregator_status)
+                                                    <div style="font-size:.65rem;color:#047857;margin-top:2px;">{{ str_replace('_', ' ', $o->aggregator_status) }}</div>
+                                                @endif
+                                            </div>
+                                        @else
+                                            <details style="font-size:.78rem;">
+                                                <summary style="cursor:pointer;color:var(--color-primary,#FF6B6B);font-weight:700;">Edit</summary>
+                                                <form method="POST" action="{{ route('orders.update', $o->id) }}" class="courier-edit-form" style="margin-top:6px;flex-wrap:wrap;">
+                                                    @csrf @method('PUT')
+                                                    <select name="courier">
+                                                        <option value="">— Pilih —</option>
+                                                        @foreach(\App\Services\CourierRuleService::COURIERS as $cc)
+                                                            <option value="{{ $cc }}" @selected($o->courier === $cc)>{{ $cc }}</option>
                                                         @endforeach
-                                                    @endforeach
-                                                </select>
-                                                <button class="clay-btn clay-btn-primary" style="padding:2px 8px;font-size:.72rem;">Simpan</button>
-                                            </form>
-                                        </details>
+                                                    </select>
+                                                    <input type="text" name="courier_note" value="{{ $o->courier_note }}" placeholder="Catatan" style="width:110px;padding:2px 4px;font-size:.72rem;border:1px solid #d1d5db;border-radius:6px;">
+                                                    <select name="product_code">
+                                                        <option value="">— Produk —</option>
+                                                        @foreach($products as $p)
+                                                            @foreach($p->variants as $v)
+                                                                <option value="{{ $v->code }}" @selected($o->product_code === $v->code)>{{ $v->code }} — {{ $p->name }}</option>
+                                                            @endforeach
+                                                        @endforeach
+                                                    </select>
+                                                    <button class="clay-btn clay-btn-primary" style="padding:2px 8px;font-size:.72rem;">Simpan</button>
+                                                </form>
+                                            </details>
+                                        @endif
                                     </td>
                                 </tr>
                             @empty

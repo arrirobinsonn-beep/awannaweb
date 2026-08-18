@@ -11,6 +11,7 @@ class Purchase extends Model
         'date',
         'supplier_id',
         'product_variant_id',
+        'inventory_id',
         'quantity',
         'unit_price',
         'shipping_cost',
@@ -33,6 +34,11 @@ class Purchase extends Model
     public function variant(): BelongsTo
     {
         return $this->belongsTo(ProductVariant::class, 'product_variant_id');
+    }
+
+    public function inventory(): BelongsTo
+    {
+        return $this->belongsTo(Inventory::class);
     }
 
     public function creator(): BelongsTo

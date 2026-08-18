@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\ExportTemplateMapping;
 use App\Models\OrderOnlineImportBatch;
+use App\Models\Product;
 use App\Models\ShippingOrder;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -21,18 +23,25 @@ use ZipArchive;
  *  - undeliverable                               → TIDAK ikut export (label khusus)
  *
  * Hanya order berstatus `real` / `tembakan` yang diekspor; order lain ditandai
- * `stock_note` dan dilewati. Saat export, stok produk dikurangi lewat jurnal
- * `stock_movements` (reference `order_online`, idempotent per order).
- *
- * Order dikelompokkan per gudang (lihat `warehouseFor()`): KSP→GTM, SH→Aurora,
- * selain itu → sender. Satu gudang = 1 file .xlsx langsung; ≥ 2 gudang =
- * 1 ZIP berisi file per gudang (karena alamat pickup tiap gudang berbeda).
+ * `stock_note` dan dilewati. Order yang sudah punya resi (`awb` terisi) TIDAK ikut
+ * diekspor (sudah dikirim = tidak boleh di-reserve/ekspor ulang). Saat export, stok
+ * produk dikurangi lewat jurnal `stock_movements` (reference `order_online`, idempotent
+ * per order).
+ *     * Order dikelompokkan per gudang (lihat `warehouseFor()`): KSP→Aurora, SH→GTM,
+     * selain itu → sender. Satu gudang = 1 file .xlsx langsung; ≥ 2 gudang =
+     * 1 ZIP berisi file per gudang (karena alamat pickup tiap gudang berbeda).
  *
  * Kolom "Kelurahan" (FLIK) dibiarkan kosong karena data mentah tidak menyediakannya.
- * "Total Nilai Barang / Total Nilai COD" diisi product_price.
+ * "Total Nilai Barang / Total Nilai COD" diisi amount (gross_revenue CSV).
  * "Kecamatan" diisi langsung dari kolom subdistrict.
  * Khusus SPX: nomor HP dinormalisasi mulai dari "8" (tanpa 0/62/+62) dan
  * provinsi/kota/kecamatan ditulis CAPSLOCK.
+ *
+ * Sejak 12 Agustus 2026 pemetaan kolom TIDAK lagi hardcoded di sini: header &
+ * sumber isi tiap kolom diambil dari tabel `export_template_mappings` (menu
+ * Aturan Export). Admin meng-upload template CSV lalu mencocokkan tiap header
+ * dengan kolom `shipping_orders`, nilai khusus (computed), teks tetap, atau
+ * kosong. Registry sumber ada di ExportMappingService (COLUMNS/COMPUTED).
  */
 class OrderTemplateExportService
 {
@@ -56,32 +65,38 @@ class OrderTemplateExportService
     /** Dimensi paket default (panjang, lebar, tinggi) dalam cm. */
     public const PACK_DIMENSIONS = [10, 8, 6];
 
-    /** Mapping kode produk → kode gudang. */
+    /** Mapping kode produk → kode gudang. KSP→Aurora, SH→GTM, selain itu → sender. */
     public const WAREHOUSE_BY_PRODUCT = [
-        'KSP' => 'GTM',
-        'SH' => 'Aurora',
+        'KSP' => 'Aurora',
+        'SH' => 'GTM',
     ];
+
+    /** Cache nama gudang utama per kode produk (anti N+1 per instance). */
+    private array $primaryWarehouseByCode = [];
 
     public function __construct(
         private readonly CourierRuleService $couriers = new CourierRuleService,
         private readonly StockService $stock = new StockService,
+        private readonly ExportMappingService $mappings = new ExportMappingService,
+        private readonly WarehouseRuleService $warehouseRules = new WarehouseRuleService,
     ) {}
 
     /**
-     * Couriers yang masuk ke sebuah template export.
+     * Couriers yang masuk ke sebuah template export — dari DB (tabel
+     * `export_templates.couriers`), fallback ke legacy bila row terhapus.
      */
     public function couriersForTemplate(string $template): array
     {
-        return match ($template) {
-            self::TEMPLATE_FLIK => self::FLIK_COURIERS,
-            self::TEMPLATE_SICEPAT => ['sicepat'],
-            self::TEMPLATE_SPX => ['spx'],
-            default => [],
-        };
+        return $this->mappings->couriersForTemplate($template);
     }
 
     /**
-     * Kode gudang untuk sebuah order. KSP→GTM, SH→Aurora, selain itu sender.
+     * Kode gudang untuk sebuah order — prioritas:
+     *  1. Rule dinamis (tabel `warehouse_rules`, menu Aturan Gudang) —
+     *     pengganti konstanta lama, admin bisa ubah tanpa kode.
+     *  2. Gudang UTAMA produk (pivot `product_inventory.is_primary`).
+     *  3. Mapping kode lama (KSP→Aurora, SH→GTM) sebagai jaring pengaman.
+     *  4. sender (nama pengirim batch).
      */
     public function warehouseFor(?string $productCode, ?string $sender): string
     {
@@ -90,7 +105,22 @@ class OrderTemplateExportService
             $code = explode('+', $code)[0];
         }
 
-        return self::WAREHOUSE_BY_PRODUCT[$code] ?? ($sender ?? '');
+        // 1. Rule dinamis dari DB (anti N+1, cache per instance di service)
+        $rule = $code !== '' ? $this->warehouseRules->resolve($code) : null;
+        if ($rule !== null && $rule !== '') {
+            return $rule;
+        }
+
+        // 2. Gudang utama produk
+        if ($code !== '' && ! array_key_exists($code, $this->primaryWarehouseByCode)) {
+            $this->primaryWarehouseByCode[$code] = Product::where('code', $code)
+                ->first()?->primaryInventory?->first()?->name;
+        }
+
+        $name = $this->primaryWarehouseByCode[$code] ?? null;
+
+        // 3–4. Mapping kode lama, lalu sender
+        return $name ?: (self::WAREHOUSE_BY_PRODUCT[$code] ?? ($sender ?? ''));
     }
 
     /**
@@ -104,6 +134,7 @@ class OrderTemplateExportService
     {
         $orders = ShippingOrder::where('order_online_import_batch_id', $batch->id)
             ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
+            ->where(fn ($q) => $q->whereNull('awb')->orWhere('awb', ''))
             ->when($courier, fn ($q) => $q->where('courier', $courier), fn ($q) => $q->whereIn('courier', $this->couriersForTemplate($template)))
             ->with('variant')
             ->orderBy('order_id')
@@ -222,14 +253,13 @@ class OrderTemplateExportService
         ]);
     }
 
+    /**
+     * Tulis baris (header + data) berdasarkan mapping dinamis dari tabel
+     * `export_template_mappings` — bukan array hardcoded.
+     */
     protected function writeRows($sheet, string $template, $orders, ?string $sender = null): void
     {
-        $rows = match ($template) {
-            self::TEMPLATE_FLIK => $this->flikRows($orders, $sender),
-            self::TEMPLATE_SICEPAT => $this->sicepatRows($orders),
-            self::TEMPLATE_SPX => $this->spxRows($orders),
-            default => throw new \InvalidArgumentException("Template tidak dikenal: {$template}"),
-        };
+        $rows = $this->buildRows($template, $orders, $sender);
 
         foreach ($rows as $r => $row) {
             foreach ($row as $c => $value) {
@@ -238,180 +268,90 @@ class OrderTemplateExportService
         }
     }
 
-    // ─── FLIK ─────────────────────────────────────────────────
-
-    protected function flikRows($orders, ?string $sender = null): array
+    /**
+     * Bangun baris export (header + data) dari mapping dinamis.
+     *
+     * @return array<int, array<int, mixed>>
+     *
+     * @throws \RuntimeException bila mapping template belum diatur di menu Aturan Export
+     */
+    protected function buildRows(string $template, $orders, ?string $sender = null): array
     {
-        $rows = [[
-            'Kode Warehouse',
-            'Nama Pelanggan',
-            'No HP Pelanggan (mulai dengan "62")',
-            'Alamat: Lengkap',
-            'Alamat: Provinsi',
-            'Alamat: Kota',
-            'Alamat: Kecamatan',
-            'Alamat: Kelurahan',
-            'Alamat: Kode Pos',
-            'Alamat: Catatan Kurir',
-            'Total Nilai Barang / Total Nilai COD',
-            'Panjang Barang (cm)',
-            'Lebar Barang (cm)',
-            'Tinggi Barang (cm)',
-            'Berat (kg)',
-            'Nama Produk',
-        ]];
+        $mapping = $this->mappings->mappingFor($template);
+        if ($mapping->isEmpty()) {
+            throw new \RuntimeException(
+                "Mapping export untuk template '{$template}' belum diatur. Buka menu Aturan Export lalu upload template CSV."
+            );
+        }
+
+        $rows = [$mapping->map(fn ($m) => $m->header)->all()];
 
         foreach ($orders as $o) {
-            $rows[] = [
-                $this->warehouseFor($o->product_code, $sender),
-                $o->customer_name,
-                $o->phone_normalized,
-                $o->address,
-                $o->province,
-                $o->city,
-                $o->subdistrict,
-                '',
-                $o->postal_code,
-                $o->courier_note ?: self::DEFAULT_COURIER_NOTE,
-                $o->product_price,
-                self::PACK_DIMENSIONS[0],
-                self::PACK_DIMENSIONS[1],
-                self::PACK_DIMENSIONS[2],
-                1,
-                $this->productDisplayName($o),
-            ];
+            $row = [];
+            foreach ($mapping as $m) {
+                $row[] = $this->resolveCell($m, $o, $sender);
+            }
+            $rows[] = $row;
         }
 
         return $rows;
     }
 
-    // ─── SiCepat ──────────────────────────────────────────────
-
-    protected function sicepatRows($orders): array
+    /**
+     * Isi satu sel dari aturan mapping (sumber: kolom / nilai khusus / teks tetap / kosong).
+     */
+    protected function resolveCell(ExportTemplateMapping $m, ShippingOrder $o, ?string $sender)
     {
-        $rows = [[
-            'Penerima',
-            'No.HP Penerima',
-            'Jumlah Paket',
-            'No.Referensi (Maksimal 50 Karakter)',
-            'Alamat Penerima',
-            'Kecamatan',
-            'Kota/Kabupaten',
-            'Kode Pos',
-            'Layanan',
-            'Jenis Paket',
-            'Isi Paket',
-            'Berat Paket (Kg)',
-            'Panjang Paket',
-            'Lebar Paket',
-            'Tinggi Paket',
-            'Harga Paket',
-            'Packing Kayu',
-            'Proteksi Paket?',
-            'Total COD',
-            'COD Ongkir?',
-            'Catatan Pengiriman',
-            'Tipe DO Balik',
-            'Tipe Alamat DO Balik',
-            'Alamat DO Balik',
-            'Kecamatan DO Balik',
-            'Kota/Kabupaten DO Balik',
-            'Kode Pos DO Balik',
-        ]];
-
-        foreach ($orders as $o) {
-            $rows[] = [
-                $o->customer_name,
-                $o->phone_normalized,
-                $o->quantity,
-                mb_substr($o->order_id, 0, 50),
-                $o->address,
-                $o->subdistrict,
-                $o->city,
-                $o->postal_code,
-                '',
-                'Barang',
-                $this->productDisplayName($o),
-                1,
-                self::PACK_DIMENSIONS[0],
-                self::PACK_DIMENSIONS[1],
-                self::PACK_DIMENSIONS[2],
-                $o->product_price,
-                '',
-                '',
-                $o->is_cod ? $o->product_price : '',
-                '',
-                $o->courier_note ?: self::DEFAULT_COURIER_NOTE,
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-            ];
-        }
-
-        return $rows;
+        return match ($m->source_type) {
+            'column' => $this->columnValue($o, $m->source_value),
+            'computed' => $this->computedValue((string) $m->source_value, $o, $sender),
+            'static' => $m->source_value,
+            default => '',
+        };
     }
 
-    // ─── SPX ──────────────────────────────────────────────────
-
-    protected function spxRows($orders): array
+    /**
+     * Nilai kolom shipping_orders (hanya dari registry COLUMNS agar aman).
+     * Tanggal diformat string; selain itu dikembalikan apa adanya.
+     */
+    protected function columnValue(ShippingOrder $o, ?string $column)
     {
-        $rows = [[
-            '*Nomor Pesanan',
-            '*Nama Penerima // *Recipient Name',
-            '*Nomor Telepon Penerima // *Recipient Phone',
-            '*Alamat Lengkap // *Detail Address',
-            '*Provinsi // *Province',
-            '*Kota // *City',
-            '*Kecamatan // *District',
-            '*Kode Pos // *Postal Code',
-            '*Berat Paket (KG) // *Parcel Weight (KG)',
-            '*Harga Barang // *Parcel Value',
-            '*COD? (Paket COD/Bukan Paket COD) // *COD? (COD Parcel//Non-COD Parcel)',
-            '*Nominal COD yang harus ditagihkan ke Penerima // * COD Amount',
-            '*Asuransi (Y/N) / *Insurance (Y/N)',
-            'Panjang Paket (CM) // Parcel Length (CM)',
-            'Lebar Paket (CM) // Parcel Width (CM)',
-            'Tinggi Paket (CM) // Parcel Height (CM)',
-            '*Nama Barang // *Item Name',
-            'Jumlah Barang // Item Quantity',
-            'Harga Barang // Item Price',
-            'Nomer Referensi Pembeli // Customer Reference Number',
-            '*Metode Pembayaran // *Payment Method',
-            'Instruksi Pengiriman // Delivery Instruction',
-        ]];
-
-        foreach ($orders as $o) {
-            $rows[] = [
-                $o->order_id,
-                $o->customer_name,
-                $this->phoneSpx($o->phone_normalized),
-                $o->address,
-                mb_strtoupper((string) $o->province),
-                mb_strtoupper((string) $o->city),
-                mb_strtoupper((string) $o->subdistrict),
-                $o->postal_code,
-                1,
-                $o->product_price,
-                $o->is_cod ? 'Y' : 'N',
-                $o->is_cod ? $o->product_price : '',
-                'N',
-                self::PACK_DIMENSIONS[0],
-                self::PACK_DIMENSIONS[1],
-                self::PACK_DIMENSIONS[2],
-                $this->productDisplayName($o),
-                $o->quantity,
-                $o->product_price,
-                $o->order_id,
-                strtoupper($o->payment_method ?? ''),
-                $o->courier_note ?: self::DEFAULT_COURIER_NOTE,
-            ];
+        if ($column === null || ! in_array($column, array_keys(ExportMappingService::COLUMNS), true)) {
+            return '';
         }
 
-        return $rows;
+        $value = $o->{$column};
+        if ($value instanceof \Carbon\CarbonInterface) {
+            return $value->format('Y-m-d H:i');
+        }
+
+        return $value;
+    }
+
+    /**
+     * Nilai khusus (computed) — transform yang tidak bisa dinyatakan sebagai
+     * kolom langsung. Key harus ada di ExportMappingService::COMPUTED.
+     */
+    protected function computedValue(string $key, ShippingOrder $o, ?string $sender)
+    {
+        return match ($key) {
+            'warehouse' => $this->warehouseFor($o->product_code, $sender),
+            'product_name_display' => $this->productDisplayName($o),
+            'phone_spx' => $this->phoneSpx($o->phone_normalized),
+            'weight_1' => 1,
+            'pack_length' => self::PACK_DIMENSIONS[0],
+            'pack_width' => self::PACK_DIMENSIONS[1],
+            'pack_height' => self::PACK_DIMENSIONS[2],
+            'default_courier_note' => $o->courier_note ?: self::DEFAULT_COURIER_NOTE,
+            'cod_flag' => $o->is_cod ? 'Y' : 'N',
+            'cod_amount' => $o->is_cod ? $o->amount : '',
+            'payment_method_upper' => strtoupper((string) $o->payment_method),
+            'province_upper' => mb_strtoupper((string) $o->province),
+            'city_upper' => mb_strtoupper((string) $o->city),
+            'district_upper' => mb_strtoupper((string) $o->subdistrict),
+            'order_id_50' => mb_substr((string) $o->order_id, 0, 50),
+            default => '',
+        };
     }
 
     /**

@@ -190,7 +190,7 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 - Nilai `status` & `payment_status` mentah CSV tetap tersimpan di `raw_payload`.
 
 ### Kode Warehouse & split per gudang (export)
-- **Kode Warehouse** = `OrderTemplateExportService::warehouseFor(product_code, sender)` → `KSP`→**GTM**, `SH`→**Aurora**, produk lain→**sender**. Kolom "Kode Warehouse" FLIK diisi per-baris dari sini. `warehouseFor()` memakai kode dasar (`explode('+', $code)[0]`) agar tahan `product_code` berformat kode varian (`KSP+1.50`→GTM).
+- **Kode Warehouse** = `OrderTemplateExportService::warehouseFor(product_code, sender)` → `KSP`→**Aurora**, `SH`→**GTM**, produk lain→**sender**. Kolom "Kode Warehouse" FLIK diisi per-baris dari sini. `warehouseFor()` memakai kode dasar (`explode('+', $code)[0]`) agar tahan `product_code` berformat kode varian (`KSP+1.50`→Aurora).
 - Export dikelompokkan per gudang (`warehouseFor`): **1 gudang → .xlsx langsung**; **≥2 gudang → 1 ZIP** berisi file per gudang (alamat pickup tiap gudang berbeda, berlaku semua template).
 - Nama file per gudang: `Ymd_<template>[_<courier>]_<warehouse>_<batch>.xlsx` (contoh `20260808_spx_eresgestore_74.xlsx`, `20260808_flik_flixtf_GTM_74.xlsx`); ZIP: `Ymd_<template>[_<courier>]_<batch>.zip`.
 - **Khusus SPX biasa**: nomor HP dinormalisasi `phoneSpx()` → mulai `8` (hapus `0`/`62`/`+62`); provinsi/kota/kecamatan **CAPSLOCK**.
@@ -203,20 +203,24 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 - **`Dapat N` dari `variation`** (regex `/Dapat\s*(\d+)/i`, contoh `"PROMO Beli 1 Dapat 2"`): qty override (menang atas kolom CSV `quantity`) dan `product_name` jadi `"{nama} {N} pcs"` (mis. `A.3 Kacamata Multifokus Photocromic 2 pcs`). Tanpa Dapat → qty dari kolom CSV (default 1), nama polos.
 - **`product_code` = KODE VARIAN** (`product_variants.code`, mis. `KMP+1.50`), bukan kode produk master — di-set di `import()` setelah `resolveVariant()` (via `$variantIndex[product_id]->firstWhere('id', variant_id)`). Deteksi duplikat `orderSignature()` menormalkan `explode('+', product_code)[0]` agar tetap memakai kode master (data lama & baru konsisten).
 
-### Deteksi duplikat (hanya untuk `belum_diproses`)
+### Deteksi duplikat (12 Agustus; disesuaikan 13 Agustus — pemisah utama `order_id`)
 - Signature duplikat = `phone_normalized|product_code|alamat` (normalized: lowercase/trim/kolaps spasi) → `OrderOnlineImportService::orderSignature()`; kode produk dipakai versi master (`explode('+')[0]`).
-- Pencocokan terhadap seluruh DB dengan `created_at >= now() - 14 hari` (`DUP_WINDOW_DAYS=14`, 1 batch query `whereIn` phone via `loadDuplicateSignatures()`).
-- ≤14 hari cocok → **`duplikat`** (courier=null, tidak ikut export); >14 hari → **repeat order** (diproses normal sebagai `belum_diproses`).
-- Duplikat dalam 1 file yang sama juga tertangkap (signature ditambahkan ke set saat loop).
-- `real`/`tembakan` TIDAK pernah ditandai duplikat (promosi) dan TIDAK menambah signature ke set.
+- Pencocokan terhadap seluruh DB dengan `created_at >= now() - 14 hari` (`DUP_WINDOW_DAYS=14`, 1 batch query `whereIn` phone via `loadDuplicateSignatures()`, kini mengembalikan `[signature => [order_id => true]]` dari SEMUA status).
+- Berlaku untuk **SEMUA status** (termasuk `real`/`tembakan`), bukan hanya `belum_diproses`. Pembeda utamanya `order_id`:
+  - **`order_id` BERBEDA** + signature sama → **`duplikat`** (courier=null, tidak ikut export; dua-duanya real COD di file sama kini tertangkap).
+  - **`order_id` SAMA** (re-import) → **BUKAN duplikat**, masuk rule perbarui status / drop (`double_real`).
+  - >14 hari cocok → **repeat order** (diproses normal).
+- **Pengecualian `payment_method=bank_transfer`**: tidak pernah jadi `duplikat` (uang sudah diterima → repeat order), TAPI tetap menambah signature ke set → baris `cod`/lainnya dengan signature sama & order_id beda tetap bisa ditandai duplikat.
+- Duplikat dalam 1 file yang sama juga tertangkap (signature ditambahkan ke set saat loop; butuh `phone_normalized` valid).
 
-### Re-import data yang sama (by `order_id`, 9 Agustus)
-- Baris `real`/`tembakan` **menghapus permanen** baris lama dengan `order_id` sama yang berstatus `belum_diproses`/`duplikat` (di batch mana pun, dalam `DB::transaction` yang sama; `ShippingOrder` tanpa SoftDeletes). `cancel` dan `real` lama TIDAK dihapus/ditimpa.
+### Re-import data yang sama (by `order_id`, 9 Agustus; disesuaikan 12 Agustus)
+- Baris `real`/`tembakan` **menghapus permanen** baris lama dengan `order_id` sama yang berstatus `belum_diproses` (di batch mana pun, dalam `DB::transaction` yang sama; `ShippingOrder` tanpa SoftDeletes). `cancel` dan `real` lama TIDAK dihapus/ditimpa. **Baris `duplikat` TIDAK ikut dihapus** — `duplikat` (by signature `phone+produk+alamat`) adalah order yang *berbeda* (order_id-nya sendiri), jadi tidak dianggap "baris lama dari order yang sama" saat order aslinya naik status. Sejak 12 Agustus `stale` hanya `where('status','belum_diproses')`.
 - **Anti double-export**: jika `real`/`tembakan` dengan `order_id` sama SUDAH ada di batch lain → baris TIDAK di-insert (dihitung ke `double_real`); statistik batch `success_rows = inserted + updated + duplicates`, `failed_rows = double_real`. Pencocokan memakai 1 query batch `whereIn` `order_id` → `groupBy` (`$byOrderId`, anti N+1).
-- Hasil import bertambah key `deleted` (baris lama yang dihapus) & `double_real`; pesan flash controller: `Baris belum diproses lama dihapus: N` dan `Real di-skip (sudah ada): N`.
+- Hasil import bertambah key `deleted` (baris `belum_diproses` lama yang dihapus) & `double_real`; pesan flash controller: `Baris belum diproses lama dihapus: N` dan `Real di-skip (sudah ada): N`.
+- Konsekuensi keputusan 12 Agustus: jika order_id yang tadinya `duplikat` naik jadi `real`, baris `duplikat` lama tetap ada berdampingan dengan `real` baru (2 baris, aman — `duplikat` tidak exportable).
 
 ### Stok via product_code
-- Import: `product_code` (CSV) di-resolve exact-match ke `products.kode_produk` → `product_id` (1 batch query `whereIn`); tak cocok → `product_id=null`.
+- Import: `product_code` (CSV) di-resolve exact-match ke `products.code` → `product_id` (1 batch query `whereIn`); tak cocok → `product_id=null`.
 - **Saat export**, `OrderTemplateExportService::reserveStock()` memanggil `StockService::recordOut(... 'order_online', order->id ...)` → jurnal `out` + kurangi stok.
 - Stok kurang / produk belum di-link → order **dilewati** dari file + `stock_note` diisi (admin bisa edit `product_code` lalu re-export).
 - Idempotent: UNIQUE `(reference, reference_id, type)` → re-export tidak menggandakan jurnal/stok.
@@ -235,12 +239,12 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 | `app/Models/AggregatorSyncBatch.php`, `CourierRule.php` | model sederhana |
 | `app/Services/CourierRuleService.php` | `resolve(payment_method, province)`, cache per request, constants `COURIERS` |
 | `app/Services/OrderOnlineImportService.php` | `parse/preview/import`; calibrate province (config regional), mapping status (completed skip), deteksi duplikat 14 hari, resolve `product_id` via `whereIn`, resolve CS batch via `users.nama/panggilan`, isi `order_online_contacts`, simpan `raw_payload` |
-| `app/Services/OrderTemplateExportService.php` | `download(batch, template, courier?)` → .xlsx atau ZIP per gudang (PhpSpreadsheet); `WAREHOUSE_BY_PRODUCT` (KSP→GTM, SH→Aurora) + `warehouseFor()` (tahan kode varian via `explode('+')`); `PACK_DIMENSIONS=[10,8,6]` + `DEFAULT_COURIER_NOTE`; `phoneSpx()` (mulai 8) + CAPSLOCK utk SPX; filter `EXPORTABLE_STATUSES`; `reserveStock()` (recordOut + stock_note); Kelurahan kosong; nilai=product_price |
+| `app/Services/OrderTemplateExportService.php` | `download(batch, template, courier?)` → .xlsx atau ZIP per gudang (PhpSpreadsheet); `WAREHOUSE_BY_PRODUCT` (KSP→Aurora, SH→GTM) + `warehouseFor()` (tahan kode varian via `explode('+')`); `PACK_DIMENSIONS=[10,8,6]` + `DEFAULT_COURIER_NOTE`; `phoneSpx()` (mulai 8) + CAPSLOCK utk SPX; filter `EXPORTABLE_STATUSES`; `reserveStock()` (recordOut + stock_note); Kelurahan kosong; nilai=amount (gross_revenue CSV) |
 | `app/Http/Controllers/OrderOnlineController.php` | `index` (batch + orders + `$products` utk select), `preview`, `store` (sender required, tampilkan jumlah duplikat), `update` (edit courier/product_code; varian HANYA di-re-resolve bila product_code berubah via `ProductVariant::where('code')`, reverseReference dulu bila ada jurnal), `export` |
 | `resources/views/order/index.blade.php` | Upload (sender wajib) + preview modal + daftar batch + tabel orders (badge status incl. duplikat/cancel/belum_diproses, kolom produk+stock_note) + edit courier & product_code (dropdown per varian) inline + dropdown export FLIK per courier |
 | `database/migrations/2026_08_09_000000_add_meta_account_to_shipping_orders_table.php` | kolom `shipping_orders.meta_account` (string nullable) |
 | `resources/views/layouts/app.blade.php` | Sidebar section Iklan → "Data Mentah" |
-| `tests/Feature/OrderOnlineTest.php` | 38 test: courier resolve (incl. sicepat), status mapping (incl. completed skip, courier null), resolve product_id, render, duplikat (window/same file/repeat order/promosi), FLIK separated by courier+status, stok idempotent, skip stok kurang, undeliverable balikin stok, undeliverable→courier normal tidak dobel, undeliverable varian non-default balikin stok & varian tetap, edit courier product_code sama → varian tetap, ganti product_code dgn jurnal ada → stok varian lama balik, reimport real hapus belum_diproses lama, reimport real tidak dobel (double_real), warehouse mapping, ZIP split SH/KSP/sender, phoneSpx 8 + CAPSLOCK, filename sender, tembakan→spx, product meta_account split, dapat qty override + product_name, product_code = kode varian, warehouseFor varian, dimensi & catatan kurir per template, FLIK 1 kolom HP 62, nama kacamata +power, nama non-kacamata tetap |
+| `tests/Feature/OrderOnlineTest.php` | 45 test: courier resolve (incl. sicepat), status mapping (incl. completed skip, courier null), resolve product_id, render, duplikat (window/same file/repeat order/bedorder_id real COD/bank_transfer repeat & source/re-import order_id sama bukan duplikat), FLIK separated by courier+status, stok idempotent, skip stok kurang, undeliverable balikin stok, undeliverable→courier normal tidak dobel, undeliverable varian non-default balikin stok & varian tetap, edit courier product_code sama → varian tetap, ganti product_code dgn jurnal ada → stok varian lama balik, reimport real hapus belum_diproses lama, reimport real tidak dobel (double_real), warehouse mapping, ZIP split SH/KSP/sender, phoneSpx 8 + CAPSLOCK, filename sender, tembakan→spx, product meta_account split, dapat qty override + product_name, product_code = kode varian, warehouseFor varian, dimensi & catatan kurir per template, FLIK 1 kolom HP 62, nama kacamata +power, nama non-kacamata tetap |
 
 ### Endpoint
 - `GET /orders` — daftar batch + orders (filter search/courier/status per batch)
@@ -321,27 +325,32 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 ## F. ✅ Produk BOX/LAP/KDF + Pengurangan Stok Otomatis (Kemasan & Split KBJ) (9 Agustus 2026)
 
 ### Deskripsi
-Saat stok kacamata (KMP/KSP/KBJ) berkurang lewat pengiriman, stok kemasan ikut berkurang otomatis: **BOX + LAP = floor(qty/2)**. Khusus **KBJ selalu di-split**: KBJ = ceil(qty/2) + KDF = floor(qty/2) (KDF varian ber-power sama dengan varian KBJ, fallback power terkecil). Berlaku di **dua alur**: export order-online (`reserveStock`) DAN import shipment ber-resi (`ShipmentImportService`). Split & kemasan HANYA memengaruhi stok/jurnal — isi template export tetap 1 baris qty asli.
+Saat stok kacamata (KMP/KSP/KBJ) berkurang lewat pengiriman, stok kemasan ikut berkurang otomatis: **BOX + LAP = floor(qty/2)** (rasio diambil dari tabel `packaging_rules` — admin bisa ubah di halaman Gudang). **Aturan kemasan punya 2 JENIS (`rule_type`): `additional` dan `split`** — keduanya data-driven dari `packaging_rules`:
+- **`additional`** (BOX/LAP): tiap `qty_per` unit barang inti → 1 unit pendamping keluar (target pakai varian DEFAULT).
+- **`split`** (promo "Beli 1 Dapat 2"): barang inti dipecah — **main keluar `ceil(qty/qty_per)`, target keluar `floor(qty/qty_per)`** dengan varian target **POWER SAMA** (fallback power terkecil). Contoh `KMP → KDF qty_per=2`: order qty 2 → 1 KMP + 1 KDF keluar; qty 4 → 2 KMP + 2 KDF.
+Berlaku di **dua alur**: export order-online (`reserveStock`) DAN import shipment ber-resi (`ShipmentImportService`). Split & kemasan HANYA memengaruhi stok/jurnal — isi template export tetap 1 baris qty asli.
 
-> **Produk baru (seeder):** BOX 'Box Kacamata' & LAP 'Lap Pembersih' (aksesoris, non-sized, 1 varian default, stok 1000), KDF 'Kacamata Double Fokus' (kacamata pendamping KBJ, sized → 9 power, stok 1000 dibagi rata). KDF tidak memicu pengurangan saat terjual sendiri.
+> **Produk baru (seeder):** BOX 'Box Kacamata' & LAP 'Lap Pembersih' (aksesoris, non-sized, 1 varian default, stok 1000), KDF 'Kacamata Double Fokus' (kacamata pendamping, sized → 9 power, stok 1000 dibagi rata). KDF tidak memicu pengurangan saat terjual sendiri.
 
-### Aturan
+### Aturan (seed default, 13 Agustus)
 | Produk | Pengurangan saat kirim qty |
 |---|---|
-| KMP, KSP | produk −qty; BOX −floor(qty/2); LAP −floor(qty/2) |
-| KBJ | KBJ −ceil(qty/2); KDF −floor(qty/2); BOX −floor(qty/2); LAP −floor(qty/2) |
+| KMP | **KMP −ceil(qty/2); KDF −floor(qty/2)** (split promo); BOX −floor(qty/2); LAP −floor(qty/2) |
+| KSP | produk −qty; BOX −floor(qty/2); LAP −floor(qty/2) |
+| KBJ | **KBJ −ceil(qty/2); KDF −floor(qty/2)** (split promo); BOX −floor(qty/2); LAP −floor(qty/2) |
 | lainnya | produk −qty (tanpa kemasan/split) |
 
-Contoh: KBJ qty 2 → 1 KBJ + 1 KDF + 1 BOX + 1 LAP; qty 1 → 1 KBJ (0 KDF/BOX/LAP).
+Contoh: KMP qty 2 → 1 KMP + 1 KDF + 1 BOX + 1 LAP; KMP qty 1 → 1 KMP (0 KDF/BOX/LAP); KBJ qty 2 → 1 KBJ + 1 KDF + 1 BOX + 1 LAP.
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
-| `database/migrations/2026_08_09_100000_extend_stock_movements_unique_for_packaging.php` | unique `stock_movements_ref_unique` → `(reference, reference_id, type, product_variant_id)` — 1 order/shipment boleh punya banyak baris `out` (kacamata + BOX + LAP [+KDF]) |
-| `app/Services/StockService.php` | konstanta `KACAMATA_CODES`/`PACK_*_CODE`/`PACK_QTY_PER=2`; **`recordOutWithPackaging()`** (1 transaksi: main + KDF(bila KBJ) + BOX + LAP; produk pendamping belum ada/stok kurang → `RuntimeException` → rollback atomik); `packagingVariants()` cache per instance (anti N+1); key `updateOrCreate` `recordIn`/`recordOut` kini SERTA `product_variant_id`; anti silent-reassign di-scope per produk (`whereHas variant.product_id`) |
+| `database/migrations/2026_08_09_100000_extend_stock_movements_unique_for_packaging.php` | unique `stock_movements_ref_unique` → `(reference, reference_id, type, product_variant_id)` — 1 order/shipment boleh punya banyak baris `out` (kacamata + KDF + BOX + LAP) |
+| `database/migrations/2026_08_13_100004_add_rule_type_to_packaging_rules_table.php` | + `packaging_rules.rule_type` string default `additional` + index; nilai `additional` (1 pendamping per qty_per) & `split` (pecah inti+bonus, power sama) |
+| `app/Services/StockService.php` | konstanta `KACAMATA_CODES` (label export) & `PACK_KDF_CODE`; **`recordOutWithPackaging()`** (1 transaksi: main + target split (ceil/floor, power sama via `variantForPower()`) + target additional (varian default); produk pendamping belum ada/stok kurang → `RuntimeException` → rollback atomik); `packagingRulesFor()` (DB-driven, cache per instance, anti N+1) + `defaultVariantOf()` + `variantForPower()`; key `updateOrCreate` `recordIn`/`recordOut` kini SERTA `product_variant_id`; anti silent-reassign di-scope per produk (`whereHas variant.product_id`) |
 | `app/Services/OrderTemplateExportService.php` | `reserveStock` → `recordOutWithPackaging` (alur order-online) |
 | `app/Services/ShipmentImportService.php` | 2 call site `import()` → `recordOutWithPackaging` (alur resi aggregator) |
-| `database/seeders/ProductSeeder.php` | `SIZED_PRODUCTS` + `KDF`; tambah produk BOX/LAP/KDF + opening stock |
+| `database/seeders/ProductSeeder.php` | `SIZED_PRODUCTS` + `KDF`; tambah produk BOX/LAP/KDF + opening stock; `seedPackagingRules()` (6 rule additional KMP/KSP/KBJ→BOX/LAP qty_per=2 **+ 2 rule split KMP/KBJ→KDF qty_per=2**, idempotent) — dipanggil SETELAH produk dibuat (fix DB fresh) |
 | `tests/Feature/OrderOnlineTest.php` | +6 test packaging/split (total 38) |
 
 ### Penting
@@ -351,6 +360,32 @@ Contoh: KBJ qty 2 → 1 KBJ + 1 KDF + 1 BOX + 1 LAP; qty 1 → 1 KBJ (0 KDF/BOX/
 - Produk pendamping belum terdaftar/stok kurang → export: order dilewati + `stock_note` berisi pesan; import shipment: batch gagal (perilaku konsisten dgn stok produk utama kurang).
 
 ---
+
+## F1. ✅ Rename Kolom Harga Order Online — `amount` & `shipping_cost` (13 Agustus 2026)
+
+### Deskripsi
+Kolom `shipping_orders.product_price` & `cod_amount` (diisi dari `product_price` CSV) dipindah makna & di-rename dalam satu migrasi (data lama sudah dihapus; idempotent untuk DB berisi draft):
+
+| Lama (CSV `product_price`) | Baru | Sumber CSV |
+|---|---|---|
+| `product_price` (harga produk saja) | `amount` (nilai kotor = harga + ongkir) | `gross_revenue` (fallback `product_price` bila kolom kosong) |
+| `cod_amount` (harga produk saat COD, 0 non-COD) | `shipping_cost` (ongkir terpisah) | `shipping_cost` |
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_000000_rename_shipping_order_price_columns.php` | rename `product_price→amount`, `cod_amount→shipping_cost` (decimal 14,2) + backfill dari `raw_payload` JSON (`gross_revenue`→amount, `shipping_cost`→shipping_cost; tanpa gross_revenue → amount tetap nilai lama; tanpa shipping_cost → 0) |
+| `app/Services/OrderOnlineImportService.php` | `$amount = gross_revenue ?: product_price`; `$shippingCost = shipping_cost`; row pakai `amount`/`shipping_cost` (tanpa `product_price`/`cod_amount`) |
+| `app/Models/ShippingOrder.php` | fillable & casts `amount` (`decimal:2`) + `shipping_cost` (`decimal:2`) |
+| `app/Services/OrderTemplateExportService.php` | semua `$o->product_price` → `$o->amount` (nilai barang & nominal COD di FLIK/SiCepat/SPX = gross_revenue, termasuk ongkir) |
+| `tests/Feature/OrderOnlineTest.php`, `AggregatorTrackingImportTest.php` | `createOrder`/seed pakai `amount => 10000` |
+| `filecoba/generate_test_kit.php` + 7 file | CSV mentah memuat `shipping_cost=50000` + `gross_revenue=product_price+ongkir` (119000→169000); referensi export pakai `grossRevenue()` |
+
+### Penting
+- `raw_payload` tetap menyimpan semua kolom mentah CSV (termasuk `product_price` lama) — tidak hilang.
+- `shipments.cod_amount` (tabel shipment aggregator) TIDAK berubah — hanya `shipping_orders`.
+- Migrasi bisa dijalankan tanpa re-import: backfill membaca `raw_payload` per baris.
+- `is_cod` tetap dipertahankan (penanda COD untuk template export).
 
 ## G. ✅ Upload Status Aggregator → awb/aggregator_status/delivered_at + Stok Return (10 Agustus 2026)
 
@@ -406,7 +441,7 @@ Folder `filecoba/` berisi kit uji end-to-end pipeline order-online (import menta
 | `filecoba/actual_export_*.csv` | Hasil export nyata dari service (artefak tiap run verify) |
 
 ### Skenario 10 order
-- **CBC-101..105** (bank_transfer semua provinsi) → `flix-tf` → template FLIK: KMP+1.50, KMP+1 (qty2), KSP+2 (**GTM**), KBJ+1.25 (qty2 → split), KCHP. FLIK jadi **2 gudang** (GTM + GUDANG-PUSAT) → ZIP (rule F).
+- **CBC-101..105** (bank_transfer semua provinsi) → `flix-tf` → template FLIK: KMP+1.50, KMP+1 (qty2), KSP+2 (**Aurora**), KBJ+1.25 (qty2 → split), KCHP. FLIK jadi **2 gudang** (Aurora + GUDANG-PUSAT) → ZIP (rule F).
 - **CBC-201..203** (cod Jawa/Bali) → `sicepat` → template SiCepat: KMP+1.75, KMP+2.25 (qty3), KCHP.
 - **CBC-301/302** (pending+paid → `tembakan`) → selalu `spx` → template SPX: KBJ+1.50 qty2 (variation "Dapat 2"), KMP+1.25.
 - Status tracking tersebar di 3 file mencakup **semua 6 nilai**: `waiting_pickup` (CBC-104), `in_transit` (CBC-102, CBC-202), `delivered` (CBC-101, CBC-201, CBC-301), `returning` (CBC-203), `returned` (CBC-103 FLIK, CBC-302 SPX — uji balik stok), `problem` (CBC-105 FLIK, 3PL "Problem...").
@@ -423,7 +458,29 @@ php filecoba/verify_pipeline.php          # jalankan pipeline & cek PASS/FAIL
 ```
 - Skrip memakai DB aktif (`.env`, `awannacoba`) dan **TIDAK** menjalankan seeder (precheck hanya memastikan `courier_rules` + produk/varian ter-seed; `CourierRuleSeeder` bersifat truncate). Bila kosong, seed manual dulu.
 - Re-runnable: di awal verify, order CBC-* lama dihapus + jurnal `order_online` dibalik (`reverseReference`) sehingga stok kembali baseline.
-- `product_price` DB decimal → sel export "119000.00" (bukan "119000"); compare `delivered_at` sebagai string (kolom ber-cast datetime → Carbon).
+- `product_price` DB → `amount` (gross_revenue CSV) → sel export "169000.00" (bukan "169000"); compare `delivered_at` sebagai string (kolom ber-cast datetime → Carbon).
+- Step 6 (re-export setelah tracking): semua order yang sudah terisi `awb` TIDAK ikut di-export lagi (hanya header xlsx per template). Query di step ini wajib menyertakan filter `awb` kosong yang SAMA dengan `download()`.
+
+---
+
+## I. ✅ Order Ber-AWB: Non-exportable & Non-editable (11 Agustus 2026)
+
+### Deskripsi
+Order yang sudah punya resi (`shipping_orders.awb` terisi dari upload status aggregator) dianggap sudah dikirim → **TIDAK ikut diekspor** ke template aggregator (cegah reserve stok ganda / ekspor ulang barang yang sudah berangkat) dan **TIDAK bisa diedit** (courier/product_code dikunci; tombol Edit di UI diganti badge hijau AWB + status).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Services/OrderTemplateExportService.php` | `download()` menambah filter `->where(fn ($q) => $q->whereNull('awb')->orWhere('awb', ''))` sebelum `with('variant')` — order ber-AWB dilewati dari export & reserve stok; docblock diupdate |
+| `app/Http/Controllers/OrderOnlineController.php` | `index()`: `courierCounts` pakai filter awb kosong SAMA (angka dropdown export konsisten); `update()`: guard `if (! empty($shippingOrder->awb)) return back()->withErrors(['order' => 'Order sudah memiliki resi (AWB), tidak bisa diedit.'])` |
+| `resources/views/order/index.blade.php` | Kolom Aksi: `@if(!empty($o->awb))` → badge hijau `✓ {awb}` (`#d1fae5`/`#065f46`) + `aggregator_status` kecil; `@else` → `<details>` Edit lama; `@endif` |
+| `tests/Feature/OrderOnlineTest.php` | +2 test: `test_export_excludes_orders_with_awb` (export hanya memuat order tanpa AWB; order ber-AWB TIDAK punya jurnal `out` — cek via `StockMovement` per `reference_id`, bukan stok varian bersama), `test_update_rejected_when_order_has_awb` (PUT → `assertSessionHasErrors('order')`, courier tetap) |
+| `filecoba/verify_pipeline.php` | Step 6 baru: setelah tracking semua 10 order ber-AWB → re-export tiap template hanya menghasilkan baris header (0 order), query wajib memakai filter awb kosong yang sama |
+
+### Penting
+- `awb` bisa `null` atau `''` → filter pakai `whereNull('awb')->orWhere('awb','')`.
+- **Jangan memakai stok varian bersama untuk cek "tidak di-reserve"** saat order ber-AWB & tanpa-AWB memakai varian sama (baris tanpa-AWB ikut mengurangi stok varian itu). Cek jurnal per `reference_id`.
+- Re-export setelah tracking (order sudah ber-AWB) → `StockService` tidak lagi memanggil `recordOut` untuk order itu (sudah tidak lolos filter query), jadi `reserveStock` tetap idempotent.
 
 ---
 
@@ -527,14 +584,27 @@ Semua elemen halaman spending advertiser (`index-advertiser`) kini fleksibel di 
 
 ---
 
+<<<<<<< HEAD
 ## M. ✅ Batas Tinggi Tabel Performa Team — ±7 baris (11 Agustus 2026)
 
 ### Deskripsi
 Tabel performa team (`team/performance.blade.php`, sisi advertiser & CS) dibatasi tingginya agar hanya menampilkan **±7 baris data CS**, sisanya bisa di-scroll vertikal di dalam container (pola sama dengan batas 5 baris tabel spending).
+=======
+## M. ✅ Halaman Admin Kelola Aturan Courier (Dinamis dari DB) (12 Agustus 2026)
+
+### Deskripsi
+Aturan auto-mapping kurir (tabel `courier_rules`) kini bisa dikelola langsung dari aplikasi lewat halaman **Aturan Courier** (`/courier-rules`) — tanpa ubah kode/seeder. Aturan tersimpan di DB sejak fitur D; halaman ini menutup celah "cara mengubahnya" (sebelumnya hanya via seeder yang truncate, atau akses DB manual).
+
+### Cara kerja (tetap + perluasan fitur P)
+- Evaluasi 2 fase (sejak 13 Agustus, fitur P): **fase 1 = rule khusus produk** (`product_code` terisi, selalu menang) → **fase 2 = rule umum** (`product_code` null, perilaku lama). Dalam tiap fase dievaluasi berurutan dari `sort_order` terkecil; rule pertama yang cocok (`payment_method` + `province`) menang. `payment_method`/`province` null = berlaku semua.
+- Fallback bila tidak ada rule cocok: `spx` (konstanta `FALLBACK_COURIER`, belum dinamis).
+- `CourierRuleService::resolve(paymentMethod, province, productCode?)` membaca DB per-request (cache per instance) → perubahan langsung berlaku untuk import order berikutnya.
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
+<<<<<<< HEAD
 | `resources/views/team/performance.blade.php` | Kedua wrapper tabel (`<div style="overflow-x:auto;">`) diberi class `.perf-scroll-limit` (overflow-y:auto + scrollbar tipis); script baru: hitung `maxHeight = tinggi header + 7 baris data + tinggi baris GRAND TOTAL` (baris total sticky-bottom dihitung agar tidak menutupi baris ke-7), pass-2 setelah scrollbar muncul + re-measure saat resize; gaya JS `const`/arrow (konsisten dgn script donut di file yang sama) |
 
 ### Penting
@@ -548,10 +618,39 @@ Tabel performa team (`team/performance.blade.php`, sisi advertiser & CS) dibatas
 
 ### Deskripsi
 Halaman spending sisi advertiser kini punya 4 kartu summary (Total Spending, Total Lead/Paid, CPA Lead/Paid, Paid Ratio) di antara area filter rentang periodik dan tabel utama. Seluruh kartu terpengaruh rentang periodik yang sedang aktif. Warna paid ratio: <50% merah, 50–75% kuning, >75% hijau.
+=======
+| `app/Http/Controllers/CourierRuleController.php` | `index/store/update/destroy/toggle/move`; normalisasi `payment_method` lowercase & `province` uppercase; validasi courier `in:COURIERS`; cek duplikat kombinasi (payment+province) |
+| `routes/web.php` | `GET/POST /courier-rules`, `PUT /courier-rules/{rule}`, `PATCH …/toggle`, `POST …/move/{up|down}`, `DELETE …/courier-rules/{rule}` (nama `courier-rule.*`) |
+| `resources/views/courier_rule/index.blade.php` | Form tambah (sort_order, payment_method+datalist, province+datalist master, courier select, aktif) + tabel rules (badge metode/provinsi/courier, toggle status, tombol ↑/↓ reorder, edit via modal, hapus) + info box cara kerja |
+| `resources/views/layouts/app.blade.php` | Sidebar Data Master → "Aturan Courier" (owner/super_admin/mentor/admin) |
+| `tests/Feature/CourierRuleTest.php` | 11 test: render, store+resolve dinamis, normalisasi, duplikat ditolak, validasi courier, update+resolve, toggle (nonaktif → fallback), destroy, move swap, sort_order kecil menang |
+
+### Penting
+- Test memakai DB aktif tanpa refresh (pola project) → setiap rule test memakai provinsi unik prefix `TEST PROVINCE` dan di-delete di akhir test agar tak mengganggu rules asli.
+- Pindah prioritas (↑/↓) menukar `sort_order` dengan rule tetangga dalam 1 transaksi; baris pertama/last tombol di-disable.
+- Rule dengan kombinasi (payment_method, province) sama ditolak (redundan — yang `sort_order` kecil selalu menang).
+- Halaman hanya mengelola tabel `courier_rules`; daftar courier valid (`COURIERS`) & fallback (`FALLBACK_COURIER`) masih konstanta PHP (scope berikutnya bila ingin 100% dinamis).
+
+---
+
+## N. ✅ Aturan Export Dinamis — Upload Template CSV + Mapping Kolom (12 Agustus 2026)
+
+### Deskripsi
+Pemetaan kolom saat export `shipping_orders` → template courier (FLIK/SiCepat/SPX) **tidak lagi hardcoded** di `OrderTemplateExportService`. Admin meng-upload **template CSV** (baris pertama = header kolom) lewat menu **Aturan Export** (`/export-mapping`), lalu mencocokkan tiap header dengan **sumber isi**; mapping disimpan di DB (`export_template_mappings`) dan export mengikutinya.
+
+### Sumber isi per kolom (dropdown di UI)
+| source_type | Makna | Contoh |
+|---|---|---|
+| `column` | Kolom `shipping_orders` (registry `ExportMappingService::COLUMNS`, 25 kolom) | `customer_name`, `phone_normalized`, `amount` |
+| `computed` | Nilai khusus hasil perhitungan (registry `COMPUTED`, 15 key) | `warehouse` (KSP→Aurora/SH→GTM), `product_name_display` (+power), `phone_spx` (mulai 8), `weight_1`, `pack_length/width/height` (10/8/6), `default_courier_note`, `cod_flag`, `cod_amount`, `payment_method_upper`, `province/city/district_upper` (CAPSLOCK), `order_id_50` |
+| `static` | Teks tetap yang diketik admin | `'Barang'` (Jenis Paket SiCepat), `'N'` (Asuransi SPX) |
+| `empty` | Dikosongkan | Kelurahan FLIK, kolom DO Balik SiCepat |
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
+<<<<<<< HEAD
 | `app/Http/Controllers/SpendingHarianController.php` | `indexGeneral()` hitung summary batch per rentang (1 query aggregate, bukan per baris) |
 | `resources/views/spending/index.blade.php` | 4 kartu summary + logic warna ratio |
 
@@ -568,16 +667,358 @@ Halaman `topup/create` kini punya **dua area berdampingan** (grid 1fr 1fr, colla
 - Baris tidak dicentang → `syncRowState()` men-disable **input nominal DAN hidden `items[id][whitelist_id]`** sekaligus. Kalau hidden whitelist_id tidak ikut di-disable, baris tak dicentang tetap terkirim `items[id]` tanpa `nominal` → validasi `items.*.nominal required` gagal membingungkan.
 - `sisa_saldo` adalah **accessor** (`total_topup − total_spending`), bukan kolom DB.
 - Query spending kemarin memakai `whereDate('tanggal', now()->subDay())` + `whereIn` whitelist milik advertiser (aman saat whitelists kosong — Laravel `0=1`).
+=======
+| `database/migrations/2026_08_12_100000_create_export_template_mappings_table.php` | `template` (flik/sicepat/spx), `column_index`, `header`, `source_type`, `source_value`, `is_active`; UNIQUE `(template, column_index)` |
+| `app/Models/ExportTemplateMapping.php` | model sederhana |
+| `app/Services/ExportMappingService.php` | registry `COLUMNS`/`COMPUTED`/`SOURCE_TYPES`; `mappingFor()` (cache per request, order by column_index); `parseTemplateFile()` (baca header CSV + BOM + buang trailing empty); `matchHeaders()` (bawa mapping lama by nama header saat upload ulang); `saveMapping()` (replace per template dlm 1 transaksi) |
+| `database/seeders/ExportTemplateMappingSeeder.php` | seed 3 template bawaan (65 row: FLIK 16, SiCepat 27, SPX 22) — **meniru persis layout hardcoded lama** → export identik sebelum diedit |
+| `app/Http/Controllers/ExportMappingController.php` | `index` (3 tab + mapping), `upload` (parse header, JSON), `save` (validasi sumber: kolom/computed harus ada di registry, static tidak boleh kosong) |
+| `app/Services/OrderTemplateExportService.php` | `writeRows()` → `buildRows()` dari mapping DB; `resolveCell()`/`columnValue()`/`computedValue()` (transform lama dipindah ke sini); `flikRows/sicepatRows/spxRows` DIHAPUS |
+| `resources/views/export_mapping/index.blade.php` | tabs FLIK/SiCepat/SPX, tombol upload CSV (fetch → draft), tabel header + dropdown sumber isi (optgroup kolom/nilai khusus/teks tetap), simpan per template |
+| `resources/views/layouts/app.blade.php` | Sidebar Data Master → "Aturan Export" |
+| `tests/Feature/ExportMappingTest.php` | 10 test: index, upload parse, upload bawa mapping lama, save, tolak kolom tak dikenal/static kosong, export custom mapping, **regresi layout seeded vs lama**, export tanpa mapping → RuntimeException, SPX transform (phone 8/CAPSLOCK/COD) |
+| `tests/Feature/OrderOnlineTest.php` | +`setUp()` seed `ExportTemplateMappingSeeder` (export test butuh mapping DB) |
+| `filecoba/verify_pipeline.php` | precheck `export_template_mappings`; panggil `buildRows()` (bukan `flikRows` dll); hasil **103/103 PASS** |
+
+### Penting
+- `buildRows(template, orders, sender)` mengembalikan `[header, ...data]` — dipakai `writeRows()` & pipeline (via reflection). `resolveCell` memakai `$sender` utk computed `warehouse` (Kode Warehouse FLIK).
+- Kolom tanggal (`delivered_at`) diformat `Y-m-d H:i` saat ditulis.
+- Export **gagal dengan pesan jelas** bila mapping template belum diatur (mis. user hapus semua baris mapping).
+- Upload ulang template tidak menghilangkan mapping lama — `matchHeaders()` mencocokkan by nama header (normalized).
+- Registry `COLUMNS`/`COMPUTED` adalah satu-satunya sumber kebenaran (dropdown UI = resolver service) — tambah key di dua tempat tsb bila perlu sumber baru.
+
+---
+
+## N1. ✅ Template Export BEBAS (Custom) + Halaman Kelola Terpisah (12 Agustus 2026)
+
+### Deskripsi
+Template export tidak lagi terbatas 3 bawaan: tabel **`export_templates`** (key/name/couriers/is_active) jadi master; `export_template_mappings.template` menyimpan `key` (relasi string, tanpa alter tabel mapping). Admin bisa **buat template baru** (mis. JNE) yang langsung muncul sebagai tombol export di Data Mentah. Tampilan dipecah: **index = daftar** (kartu per template + tombol **Edit**/**Hapus**) dan **create = halaman terpisah** (`/export-mapping/create`); edit juga halaman terpisah (`/export-mapping/{tpl}/edit`). **Hapus = permanen** (mapping ikut hapus; SPX tetap jadi safety net bila template hilang).
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
+<<<<<<< HEAD
 | `app/Http/Controllers/TopUpController.php` | `create()`: import `SpendingHarian`, query batch spending kemarin → `$sisaSaldoWhitelists` (properti dinamis `spending_kemarin`/`lead_kemarin`/`paid_kemarin`); `store()`: pesan error custom + atribut `items.{id}.nominal` → nama whitelist |
 | `resources/views/topup/create.blade.php` | `.topup-split` grid dua card, checkbox `.wl-select`, JS `syncRowState()`/`hitungTotal()` (hitung baris tercentang saja); tinggi card disamakan via `align-items:stretch` + `height:100%` + `flex:1` pada daftar item |
 
 > **Validasi submit top-up (fix 11 Agustus):** whitelist dicentang tapi nominal kosong → dulu error membingungkan `The items.8.nominal field is required.`. Kini: form pakai **`novalidate`** (native browser dimatikan agar guard JS yang jalan), guard submit mengecek `.wl-select:checked` dengan nominal kosong/negatif → `preventDefault` + alert nama whitelist (`WL_NAMES` dari `@json`) + highlight merah + scroll ke baris. `store()` punya pesan custom `Nominal top up untuk :attribute wajib diisi` dgn atribut dinamis `items.{id}.nominal` → nama whitelist. Saat validasi gagal, `old('items.{id}.nominal')` memulihkan centang + nilai input (`data-was-filled` + `restoreRowState()`), jadi user tidak mengetik ulang. |
 
 > ⚠️ **Reserved word MySQL — kolom `lead` WAJIB backtick di raw SQL** (fix 11 Agustus): `spending_harians.lead` adalah **reserved word** di MySQL 8.4 → `SUM(lead)` tanpa backtick memicu `SQLSTATE[42000] 1064`. SELALU tulis `SUM(\`lead\`)` di `selectRaw` (contoh kanonik: `DashboardController`, `SpendingHarianController`, `RegionalController`). Kolom `spending` & `paid` aman tanpa backtick.
+=======
+| `database/migrations/2026_08_12_120000_create_export_templates_table.php` | `key` unique, `name`, `couriers` (JSON), `is_active`; seed 3 bawaan (flik→4 flix-*, sicepat→[sicepat], spx→[spx]) |
+| `app/Models/ExportTemplate.php` | fillable+casts `couriers` array; relasi `mappings()` (hasMany via `template`=key) |
+| `app/Services/ExportMappingService.php` | + `templates()`, `template(key)` (cache), `couriersForTemplate(key)` (**DB-driven** + fallback `LEGACY_COURIERS` bila row terhapus), `createTemplate(name, couriers, items)` (key auto-slug `Str::slug`, couriers kosong → `[key]`), `updateTemplate`, `deleteTemplate` (transaksi hapus mapping+row) |
+| `app/Http/Controllers/ExportMappingController.php` | `index` (list + `withCount` kolom), `create`, `store`, `edit`, `update`, `destroy` (permanen), `upload` (template **opsional** — create tanpa key → semua empty; edit dengan key → mapping lama terbawa) |
+| `routes/web.php` | 7 route: index, create, store (POST), edit, update (PUT), destroy (DELETE), upload |
+| `resources/views/export_mapping/index.blade.php` | Daftar kartu template: ikon, nama, key, jumlah kolom, badge courier, status mapping, tombol **✏️ Edit** & **🗑 Hapus** (confirm) + tombol **➕ Template Baru** |
+| `resources/views/export_mapping/form.blade.php` | Editor bersama create/edit: Nama Template, Courier (koma; kosong→key), Upload CSV (fetch draft + carry-over), tabel mapping + `items[]` via JS submit |
+| `app/Http/Controllers/OrderOnlineController.php` | `index` pass `$exportTemplates`; `export()` cek template via `ExportTemplate::where('key')` (custom OK), FLIK tetap butuh courier valid |
+| `resources/views/order/index.blade.php` | Tombol export di-loop dari `$exportTemplates`: key `flik` → dropdown per courier (tetap), lainnya → tombol `📦 Export {name}` |
+| `tests/Feature/ExportMappingTest.php` | 14 test: index list + aksi, create/edit render, upload parse + carry-over, store custom (slug key, couriers default), tolak dobel index/kolom tak dikenal, update, destroy permanen, **export template custom** (courier lain tidak ikut), regresi seeded layout, export tanpa mapping → RuntimeException, SPX transform |
+
+### Penting
+- `couriersForTemplate()` kini baca `export_templates.couriers` (fallback legacy utk 3 key bila row terhapus) — `OrderTemplateExportService` mendelegasikan ke `ExportMappingService`.
+- Template custom: couriers kosong → `[key]` (nama template dipakai sebagai courier). Export memfilter order by courier tsb.
+- `upload` endpoint: `template` opsional (create tidak punya key dulu).
+- Test `OrderOnlineTest::test_order_page_renders` tetap lolos (`FLIK — flix-tf` masih dirender dari dropdown dinamis).
+- Pipeline `filecoba/verify_pipeline.php` tetap **103/103 PASS** (precheck `export_template_mappings` + `buildRows` via reflection).
+
+---
+
+## O. ✅ Halaman Gudang — 3 Kategori Barang + Aturan Kemasan Dinamis + Acuan Restock (13 Agustus 2026)
+
+### Deskripsi
+Barang gudang dikelompokkan jadi **3 tipe** (kolom `products.goods_type`): **Barang Pasti** (`consumable`), **Barang Inti** (`core`), dan **Barang Additional** (`additional`). Halaman `/gudang` = **1 GUDANG 1 HALAMAN**: user memilih gudang (kartu picker, query `inventory_id`), lalu halaman hanya menampilkan isi gudang itu — Barang Pasti (semua produk consumable, stok per gudang ini, form +/− manual), Barang Inti (produk yang gudang induknya = gudang ini, mis. **SH → GTM**, **KSP → Aurora**), Barang Additional, dan **aturan kemasan** (global + khusus gudang ini). **CRUD PRODUK & VARIAN dipindahkan ke halaman Gudang** (halaman `/product` dihapus total) — saat tambah produk dari halaman gudang, `inventory_id` otomatis = gudang yang dibuka (tidak perlu pilih lagi, tidak ada risiko semua barang mengacu ke Gudang Pusat) dan **varian default dibuat otomatis** (kode = kode produk, power 0; stok awal opsional). Bersamaan dengan ini, mapping gudang di-*swap*: **KSP→Aurora, SH→GTM** (sebelumnya terbalik) dan `products.inventory_id` diselaraskan (seeder + data dev).
+
+### Karakteristik tiap tipe
+| Tipe | `goods_type` | Perilaku stok | Contoh |
+|---|---|---|---|
+| Barang Pasti | `consumable` | **Ada di tiap gudang**; stok **manual oleh admin PER GUDANG** (jurnal `manual` + `inventory_id` via halaman Gudang) — hitungan tidak menentu | Kertas Thermal (`KTH`), Lakban (`LAK`), Bubble Wrap (`BUB`) |
+| Barang Inti | `core` | Berkurang **otomatis** saat export order-online / import shipment | KMP, KSP, KBJ, KDF, KCHP, SH, KNGH, KP |
+| Barang Additional | `additional` | Berkurang **otomatis** mengikuti barang inti sesuai `packaging_rules` | BOX, LAP |
+
+### Aturan kemasan dinamis (`packaging_rules`) — PER GUDANG
+- Tabel `packaging_rules (source_product_id, target_product_id, inventory_id, qty_per, rule_type, is_active)` — `rule_type` = **`additional`** (setiap `qty_per` unit barang inti → 1 unit pendamping keluar, target varian default) atau **`split`** (barang inti dipecah: main = `ceil(qty/qty_per)`, target = `floor(qty/qty_per)`, varian target POWER SAMA fallback power terkecil). UNIQUE `(source, target, inventory_id)` (`inventory_id` NULL = berlaku semua gudang; MySQL membolehkan banyak NULL di unique).
+- **Rule khusus gudang menimpa rule global** untuk kombinasi source→target yang sama (`packagingRulesFor(productId, inventoryId)` = rule spesifik `union` rule global, cache per instance).
+- `StockService::recordOutWithPackaging()` membaca aturan **dari DB** (bukan hardcode): split rules menentukan qty utama (`ceil`) + target bonus (`floor`, power sama); additional rules menentukan target pendamping (varian default); rule nonaktif di-skip; target tanpa varian aktif → `RuntimeException` ("Produk BOX belum terdaftar") → rollback atomik. Semua movement (main/split/additional) tercatat dengan `inventory_id` = gudang induk produk inti (untuk stok per gudang yang benar).
+- Seed default (idempotent di `ProductSeeder::seedPackagingRules()`, dipanggil SETELAH produk dibuat): 6 rule **additional** KMP/KSP/KBJ → BOX/LAP `qty_per=2` global + 2 rule **split** KMP/KBJ → KDF `qty_per=2` global (promo "Beli 1 Dapat 2"; KSP TIDAK dapat KDF). Admin bisa ubah rasio/jenis, nonaktifkan, tambah rule (global atau per gudang), atau hapus di halaman Gudang.
+- **Split KBJ→KDF & KMP→KDF kini data-driven** (`rule_type=split`) — tidak ada lagi special-case hardcode di StockService (kecuali guard "KDF tidak dikirim sendiri").
+
+### Stok per gudang & acuan re-stock (`products.min_stock`)
+- Stok per gudang dihitung dari jurnal (`stock_movements.inventory_id`): Barang Pasti menampilkan tabel per inventory dengan form +/− manual **per gudang**; Barang Inti/Additional menampilkan kolom "Stok per Gudang" (chip per inventory). `StockService::stockOf(variantId, ?inventoryId)` memfilter per gudang.
+- `recordIn`/`recordOut` menerima parameter baru `inventoryId` (paling akhir, backward-compatible); pembelian (`PurchaseController`) & reserve export/shipment ikut mencatat `inventory_id` gudang induk produk.
+- `min_stock` di-set **per produk** di form Produk (satu acuan total). Halaman Gudang menampilkan badge **⚠ Perlu Restock** (merah) saat `total stok produk ≤ min_stock`; selain itu **Stok Aman** (hijau).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_100000_add_goods_type_and_min_stock.php` | `products.goods_type` enum (consumable/core/additional, default core) + index; `products.min_stock` unsigned int default 0 |
+| `database/migrations/2026_08_13_100001_create_packaging_rules_table.php` | tabel `packaging_rules` + UNIQUE `(source_product_id, target_product_id)` |
+| `database/migrations/2026_08_13_100003_add_inventory_to_packaging_rules.php` | + `inventory_id` nullable (FK inventories, nullOnDelete) + UNIQUE `packaging_rules_combo_unique (source, target, inventory)` — idempotent, nama index eksplisit pendek (default-nya > 64 char MySQL) |
+| `database/migrations/2026_08_13_100002_add_manual_to_stock_movements_reference.php` | enum `stock_movements.reference` + `'manual'` |
+| `app/Models/PackagingRule.php` | model + relasi sourceProduct/targetProduct |
+| `app/Models/Product.php` | `goods_type`/`min_stock` fillable + constants `GOODS_TYPES`/`GOODS_TYPE_LABELS` + relasi `packagingRulesAsSource()` |
+| `app/Services/StockService.php` | `recordOutWithPackaging` DB-driven per gudang (`packagingRulesFor(productId, inventoryId)` rule spesifik menimpa global, cache per instance, `defaultVariantOf`, `kdfVariants`); `recordIn`/`recordOut`/`stockOf` + parameter `inventoryId`; semua movement reserve tercatat dgn gudang induk produk |
+| `app/Http/Controllers/GudangController.php` | `index(Request)` — tanpa `inventory_id` → hanya picker; dengan `inventory_id` → scope per gudang (consumable semua, core/additional `where inventory_id`), rules global + khusus gudang, `perVariant` map stok gudang itu (1 query aggregate); `adjust` (manual in/out PER GUDANG, reference `manual` + `reference_id` acak + `inventory_id`); **`productStore/Update/Destroy`** (inventory dari form hidden = gudang dibuka, `productStore` auto buat varian default + stok awal via recordIn ke gudang itu), **`variantStore/Update/Destroy`**, **`toggleStatus/toggleVariantStatus`** (semua logika ProductController lama pindah ke sini); `packagingStore` (opsional inventory_id; duplikat cek per (source,target,inventory)), `packagingUpdate/Destroy` |
+| `resources/views/gudang/index.blade.php` | Kartu **Pilih Gudang** (aktif state) di atas; tanpa pilihan → prompt pilih; dengan pilihan → header gudang + 3 section scoped + **CRUD produk** (tombol ＋ Tambah Produk per section, modal create/edit produk, baris expand varian + modal varian + toggle status) + kartu Aturan Kemasan (rule global + gudang ini, form tambah default gudang aktif). Modal produk menyertakan info "Gudang otomatis: {nama}" |
+| `app/Http/Controllers/ProductController.php` + `resources/views/product/*` | **DIHAPUS** — route `product.*` & `product.variant.*` lama dihapus; diganti `gudang.product.*`/`gudang.variant.*` |
+| `resources/views/layouts/app.blade.php` | link sidebar **Produk dihapus** (digantikan halaman Gudang) |
+| `app/Http/Controllers/ProductController.php` + `resources/views/product/form.blade.php` | validasi & input `goods_type` (select) + `min_stock` (number) |
+| `database/seeders/ProductSeeder.php` | `goods_type` di semua produk (update idempotent saat re-seed, min_stock admin tidak ditimpa); **gudang induk per produk** (SH→GTM, KSP→Aurora, sisanya → Gudang Pusat — selaras `WAREHOUSE_BY_PRODUCT`, di-update saat re-seed); produk baru KTH/LAK/BUB (consumable, 1 varian, stok 1000); opening stock consumable **dibagi rata per inventory** (reference_id unik `variant_id*100+inventory_id`), produk lain tercatat ke gudang induk; `seedPackagingRules()` (6 rule global) |
+| `resources/views/layouts/app.blade.php` | sidebar Gudang & Kiriman → link **Gudang** (🏬) |
+| `routes/web.php` | `/gudang`, `/gudang/adjust`, `/gudang/packaging-rules` (+PUT/DELETE) |
+| `app/Services/OrderTemplateExportService.php` | `WAREHOUSE_BY_PRODUCT` di-swap: **KSP→Aurora, SH→GTM** |
+| `tests/Feature/OrderOnlineTest.php` | +8 test: qty_per dinamis, rule nonaktif, render gudang + adjust, **adjust per gudang**, CRUD rule (global + per gudang), **rule per gudang menimpa global**, badge restock, **scoping per gudang** (GTM = SH, Aurora = KSP, tanpa pilihan = picker saja); 3 test warehouse disesuaikan swap |
+| `filecoba/generate_test_kit.php` + `02_export_flik.csv` | `warehouseFor` KSP→Aurora/SH→GTM + referensi statis di-update |
+
+### Penting
+- **Enum `stock_movements.reference`** — penyesuaian manual memakai nilai `'manual'` dengan `reference_id` acak (`random_int`) agar tidak menimpa jurnal opening stock (`adjustment` + `reference_id=variant_id`) dan tidak saling menimpa.
+- **Nama index MySQL ≤ 64 char** — default unique `packaging_rules_source_product_id_target_product_id_inventory_id_unique` melebihi batas → pakai nama eksplisit `packaging_rules_combo_unique`. Migrasi 100003 idempotent (guard `hasColumn` + cek nama index) karena versi awal sempat ter-apply sebagian.
+- **`recordOutWithPackaging` tanpa hardcode** — penambahan produk inti baru cukup tambahkan rule di halaman Gudang; stok produk yang tidak punya rule hanya berkurang qty-nya sendiri.
+- Re-seed `ProductSeeder` **tidak menimpa `min_stock`** admin (hanya `goods_type` yang dipastikan konsisten).
+- Test packaging lama tetap hijau: rule default qty_per=2 + `ensureCatalog()` me-reseed rule tiap test (updateOrCreate).
+- Pipeline `filecoba/verify_pipeline.php` tetap **103/103 PASS**; `actual_export_*.csv` artefak regenerasi memakai gudang baru (Aurora utk KSP).
+- Penyesuaian manual per gudang: stok total varian = jumlah semua gudang (kolom `product_variants.stock` tetap total; detail per gudang dihitung dari jurnal via `stockOf(variantId, inventoryId)`).
+- Halaman Gudang tidak menampilkan SEMUA gudang sekaligus — pilih dulu gudangnya (1 gudang = 1 halaman). Produk inti/additional milik satu gudang; Barang Pasti muncul di semua gudang dengan stok per gudang masing-masing.
+- **Produk baru di halaman Gudang** → gudang yang dibuka jadi gudang UTAMA (pivot `is_primary`) + **varian default otomatis** (agar stok bisa langsung dicatat). Edit `goods_type` di modal produk bisa memindahkan produk antar section (gudang tetap).
+
+---
+
+## P. ✅ Relasi Many-to-Many Produk ↔ Gudang + Stok per Gudang (13 Agustus 2026)
+
+### Deskripsi
+Relasi `products → inventories` diubah dari 1-ke-banyak (`products.inventory_id`) menjadi **many-to-many** — 1 produk bisa terdaftar di banyak gudang, dengan penanda gudang **UTAMA** (`is_primary`) yang dipakai export/fulfillment & pencatatan stok otomatis. Stok kini disimpan **per varian × gudang** di tabel tersendiri. `products.inventory_id` DIHAPUS.
+
+### Skema baru
+- `product_inventory` (pivot): `(product_id, inventory_id, is_primary)` UNIQUE `(product_id, inventory_id)`. `is_primary` = gudang utama (0/1 baris per produk — dijaga di titik tulis).
+- `product_variant_inventory`: `(product_variant_id, inventory_id, stock)` UNIQUE `(product_variant_id, inventory_id)` — **cache stok per varian per gudang**, disinkronkan `StockService` dari jurnal (`stock_movements` TETAP sumber kebenaran).
+- `products.inventory_id` di-drop (migrasi `2026_08_13_110001`). Backfill (migrasi `110000`): tiap produk → pivot dari `inventory_id` lama (`is_primary=1`); Barang Pasti (consumable) di-attach ke SEMUA inventory (mempertahankan perilaku lama); stok per (varian, gudang) diagregasi dari jurnal (movement `inventory_id` NULL dianggap gudang utama produk).
+
+### Perilaku
+- **Export (`warehouseFor`)** — nama gudang per order kini dari **gudang utama produk** (`Product::where(code)->first()->primaryInventory->first()->name`), cache per instance (anti N+1); fallback `WAREHOUSE_BY_PRODUCT` (KSP→Aurora, SH→GTM) → sender. Konsekuensi: produk non-spesial (KMP/KBJ/KCHP dll.) yang tadinya sender kini tampil `Gudang Pusat` (nama inventory). ZIP split per gudang tetap bekerja.
+- **`recordOutWithPackaging`** memakai `product->primaryInventoryId()` sebagai gudang pencatatan movement (bukan `inventory_id`).
+- **`recordIn`/`recordOut`** — bila `inventoryId` null, di-resolve ke gudang utama produk; setelah recalc total, `syncVariantInventoryStocks()` meng-upsert cache per (varian, gudang). `reverseReference` & `recalculateAll` ikut menyinkronkan cache.
+- **Halaman Gudang** — scoping per gudang via `whereHas('inventories')` (bukan `where inventory_id`); `perInventoryStockByVariant` membaca tabel cache (1 query ringan). Modal edit produk punya seksi **Gudang Produk**: checkbox gudang + radio gudang utama, dikirim ke `gudang.product.update` (`inventory_ids[]` + `primary_inventory_id`). Detach gudang → hapus baris pivot + cache stok gudang tsb (jurnal tidak diubah).
+- **Pembelian (`PurchaseController`)** mencatat stok ke `primaryInventoryId()`.
+- **Seeder** — `syncInventoryMembership()`: inti/additional → gudang induk (primary), consumable → semua gudang (primary = pertama); re-seed memaksa primary ke bawaan tapi TIDAK menghapus keanggotaan tambahan admin; opening stock consumable tetap dibagi rata per gudang.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_110000_create_product_inventory_tables.php` | tabel pivot + cache stok + backfill dari `products.inventory_id` & jurnal |
+| `database/migrations/2026_08_13_110001_drop_inventory_id_from_products.php` | drop `products.inventory_id` |
+| `app/Models/ProductInventory.php`, `ProductVariantInventory.php` | model pivot & cache stok |
+| `app/Models/Product.php` | `inventories()`/`primaryInventory()`/`primaryInventoryId()`/`stockAt()`; `inventory_id` dikeluarkan dari fillable; relasi `inventory()` dihapus |
+| `app/Models/Inventory.php` | `products()` → BelongsToMany |
+| `app/Models/ProductVariant.php` | `inventoryStocks()` + `stockAt()` |
+| `app/Services/StockService.php` | `syncVariantInventoryStocks()`; resolve `inventoryId` null → gudang utama; `recordOutWithPackaging` pakai `primaryInventoryId()` |
+| `app/Http/Controllers/GudangController.php` | scoping `whereHas('inventories')`, `perVariant` dari cache, `productStore` attach pivot (primary), `productUpdate` terima `inventory_ids`/`primary_inventory_id`, `productDestroy` redirect pakai primary |
+| `app/Http/Controllers/PurchaseController.php` | `primaryInventoryId()` |
+| `app/Services/OrderTemplateExportService.php` | `warehouseFor` DB-driven (gudang utama produk), cache per instance |
+| `database/seeders/ProductSeeder.php` | `syncInventoryMembership()` + opening stock via gudang utama |
+| `resources/views/gudang/index.blade.php` | seksi Gudang Produk di modal edit (checkbox + radio primary) + `data-wh`/`data-primary-wh` |
+| `tests/Feature/OrderOnlineTest.php` | +`test_warehouse_export_uses_primary_inventory`, `test_product_belongs_to_multiple_warehouses_with_per_warehouse_stock`; update test warehouse (KMP→Gudang Pusat), rule per gudang (pivot), gudang page (attach KTH) |
+| `filecoba/generate_test_kit.php` | `warehouseFor` kit → `Gudang Pusat` untuk non-KSP/SH; referensi statis diregenerasi |
+
+### Penting
+- **Jurnal tetap sumber kebenaran** — `product_variant_inventory.stock` & `product_variants.stock` keduanya cache; jangan edit manual langsung.
+- **`primaryInventory()` dipanggil sebagai PROPERTY** (koleksi) di service/view, bukan method (relasi) — `->primaryInventory?->first()?->name`, bukan `->primaryInventory()->name` (BelongsToMany tidak punya atribut `name`).
+- Test M2M yang mengubah primary produk WAJIB mengembalikan primary asli di `finally` (kalau tidak, test berikutnya yang bergantung gudang utama ikut gagal).
+- Test pakai DB `awannacoba` tanpa refresh → migrasi 110000/110001 otomatis ter-apply sebelum test (tabel sudah ada).
+- `products.inventory_id` tidak boleh dipakai lagi di kode baru — ganti dengan `primaryInventoryId()` (gudang utama) atau membership `inventories()`.
+
+---
+
+## Q. ✅ Master Produk Terpusat — Halaman Produk Sendiri; Gudang Hanya Attach (13 Agustus 2026)
+
+### Deskripsi
+Membuat/mengubah produk & varian kini **hanya** di halaman master **Produk** (`/product`, sidebar Data Master). Halaman **Gudang** TIDAK lagi membuat produk — tombol "＋ Tambah Produk ke Gudang" hanya **mendaftarkan produk yang SUDAH ADA** (beserta variannya dari `product_variants`) ke gudang yang dibuka. Ini membalik keputusan fitur O (yang sempat memindahkan CRUD produk ke halaman Gudang) — semua produk di gudang kini teratur karena master data terpusat.
+
+### Perilaku
+- **Master Produk (`/product`)**: daftar + filter (search/tipe/status), kolom Kode, Nama, Tipe, Gudang utama + jumlah gudang, Stok total, Min. Stok (badge Restock), HPP, Harga Jual, Status (toggle), Aksi (Varian/Edit/Hapus). Modal buat/edit produk (tanpa gudang & tanpa stok awal — produk belum terdaftar di gudang mana pun saat dibuat; **varian default otomatis** agar stok bisa dicatat). Kelola varian (add/edit/delete/toggle) di baris expand. Stok per gudang tetap dikelola di Gudang/Barang Masuk — varian master dibuat dengan `stock=0`.
+- **Halaman Gudang**: tombol per section "＋ Tambah Produk ke Gudang" → modal pilih produk master yang **belum terdaftar** di gudang ini (difilter per section via JS, `data-goods-type`), `stock_awal` opsional (varian default, jurnal `adjustment`), checkbox "Jadikan gudang utama". Produk pertama terdaftar otomatis jadi gudang utama. Tombol `🏷` per baris → modal **Kelola Gudang Produk** (centang gudang + radio utama). Tombol `🗑` → **Lepas dari gudang ini** (bukan hapus produk). Baris expand varian **read-only** (stok per gudang). Status produk/varian & edit field produk TIDAK ada di halaman Gudang lagi.
+- **Controller**: `ProductController` baru (index/store/update/destroy/toggle + variant CRUD); `GudangController` hanya `productAttach`/`productWarehousesUpdate`/`productDetach` (method lama `productStore`/`productUpdate`/`productDestroy`/`variant*`/`toggle*` DIHAPUS).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Http/Controllers/ProductController.php` | (baru) master produk + varian; varian default otomatis saat create |
+| `app/Http/Controllers/GudangController.php` | `productAttach` (attach produk master + stok awal opsional + auto-primary pertama), `productWarehousesUpdate`, `productDetach`; index kirim `$availableProducts` |
+| `routes/web.php` | `product.*` + `product.variant.*` (baru); `gudang.product.attach/warehouses/detach` (ganti store/update/destroy/toggle & variant lama) |
+| `resources/views/product/index.blade.php` | (baru) master produk + modal + varian |
+| `resources/views/gudang/index.blade.php` | modal attach & kelola gudang (form biasa), varian read-only, tombol detach |
+| `resources/views/layouts/app.blade.php` | sidebar Data Master → link **Produk** (📦) |
+| `tests/Feature/OrderOnlineTest.php` | +`test_gudang_attach_existing_product_to_warehouse`, `test_gudang_product_warehouses_update_and_detach`, `test_product_master_variant_crud`, `test_product_master_page_create_update_toggle_destroy`; test scoping pakai hitungan per section (nama produk lintas-gudang tampil di dropdown attach) |
+
+### Penting
+- Produk di halaman Gudang yang diklik `🗑` = **lepas dari gudang** (`gudang.product.detach`, kirim `inventory_id`), BUKAN hapus — hapus produk hanya di halaman Produk (`product.destroy`, soft delete).
+- Dropdown attach memuat SEMUA produk aktif yang belum terdaftar di gudang itu (semua tipe) → test `assertDontSee` berbasis nama produk antar-gudang TIDAK valid; gunakan hitungan section (header "Barang Inti: N").
+- `stock_awal` attach memakai `reference='adjustment'` + `reference_id` acak (`random_int`) agar tidak menimpa jurnal opening stock seeder (pola sama dengan penyesuaian manual).
+- Ini membalik bagian fitur O yang memindahkan CRUD produk ke halaman Gudang; halaman `/product` dihidupkan kembali dengan skema M2M (fitur P): tanpa `inventory_id`, tanpa stok awal.
+
+### Penting: gudang UTAMA (`is_primary`) HANYA untuk Barang Inti (core)
+- Label "gudang utama" **hanya berlaku produk `core`** — Barang Pasti (consumable, ada di semua gudang) & Barang Additional (mengikuti barang inti) **tidak pernah** punya gudang utama (is_primary selalu false). Migrasi `2026_08_13_120000_primary_only_for_core` membersihkan data lama; seeder/`productAttach`/`productWarehousesUpdate` menjaganya (non-core: `is_primary=false`, radio/checkbox utama disembunyikan di UI, `Product::primaryInventoryId()` return null untuk non-core).
+- **`Product::primaryInventoryId()`** guard memakai `goods_type !== null && goods_type !== 'core'` — instance baru dari `create()` punya `goods_type` null di memori (DB default 'core' tidak di-refresh ke model) sehingga TIDAK boleh salah terblokir.
+
+---
+
+## R. ✅ Barang Masuk (Purchase) — Opsi Gudang Tujuan (13 Agustus 2026)
+
+### Deskripsi
+Halaman **Barang Masuk** kini punya pilihan **Gudang Tujuan** — stok pembelian dicatat ke gudang yang dipilih (stok per gudang), bukan lagi selalu ke gudang utama produk (yang hanya ada untuk Barang Inti).
+
+### Perubahan
+- Migrasi `2026_08_13_130000_add_inventory_id_to_purchases`: `purchases.inventory_id` nullable FK (nullOnDelete) + index — data lama tetap valid.
+- `Purchase` model: `inventory_id` fillable + relasi `inventory()`.
+- `PurchaseController::store` validasi `inventory_id` **required** + `recordIn(..., $purchase->inventory_id)`; catatan jurnal menyertakan nama gudang. `index` eager-load `inventory` + filter `inventory_id` + pass `$inventories`.
+- View `purchase/index.blade.php`: select **GUDANG TUJUAN** (required) di form + JS autofill gudang utama produk saat varian dipilih (`data-primary-wh` di `<optgroup>`; Barang Pasti/Additional tidak punya primary → tetap pilih manual), kolom **Gudang** di tabel (badge 🏭), filter gudang di bilah filter.
+- Test `test_purchase_records_stock_to_selected_warehouse`: pembelian ke gudang B (bukan gudang utama A) → `purchases.inventory_id` = B, stok B bertambah, gudang utama A tetap 0, index menampilkan/filter gudang.
+
+### Penting
+- `inventory_id` WAJIB di form (produk tanpa gudang utama — Barang Pasti/Additional — harus dipilih manual; autofill hanya untuk Barang Inti).
+- HPP tetap per produk (rata-rata tertimbang semua jurnal masuk) — tidak berubah.
+- `purchase.destroy` tetap `reverseReference('purchase', id)` (jurnal dihapus apa adanya, `inventory_id` ikut terhapus).
+
+## P. ✅ Aturan Gudang Dinamis (produk → gudang) + Rule Courier Khusus Produk (13 Agustus 2026)
+
+### Deskripsi
+Dua aturan "data mentah" yang tadinya hardcoded kini dinamis dari DB:
+1. **Aturan Gudang** (`warehouse_rules`, halaman `/warehouse-rules`): mapping kode produk → nama gudang (kolom "Kode Warehouse" export) — pengganti konstanta `WAREHOUSE_BY_PRODUCT` (SH→GTM, KSP→Aurora).
+2. **Rule courier khusus produk** (`courier_rules.product_code`): mis. produk **SH → SELALU `flix-tf`**, dievaluasi di fase terpisah sehingga **tidak terpengaruh aturan provinsi** (aturan provinsi Jawa → sicepat, Sumatera → flix-idx, dst. tidak berlaku untuk SH).
+
+### Cara kerja courier 2 fase (`CourierRuleService::resolve`)
+- **Fase 1 — rule khusus produk**: rule dengan `product_code` terisi & cocok dengan kode produk order (normalisasi uppercase + buang sufiks `+varian`). Rule pertama yang cocok menang — SELALU didahulukan dari fase 2.
+- **Fase 2 — rule umum**: `product_code` null (perilaku lama: `payment_method` + `province`, `sort_order` terkecil menang).
+- Tanpa rule cocok → fallback `spx`.
+- `OrderOnlineImportService` meneruskan `product_code` (master dari CSV) ke `resolve()`; `tembakan` tetap SELALU `spx` (tidak masuk fase manapun).
+
+### Cara kerja warehouse (`OrderTemplateExportService::warehouseFor`)
+Prioritas: **rule dinamis** (`warehouse_rules` aktif, product_code cocok) → **gudang utama produk** (pivot `is_primary`) → mapping kode lama (`WAREHOUSE_BY_PRODUCT`) → **sender**. Admin menonaktifkan rule agar produk jatuh ke gudang utama/sender.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_140000_create_warehouse_rules_table.php` | `warehouse_rules`: `product_code` (unique), `warehouse`, `is_active` |
+| `database/migrations/2026_08_13_140001_add_product_code_to_courier_rules.php` | `courier_rules.product_code` nullable + index |
+| `app/Models/WarehouseRule.php` | model sederhana |
+| `app/Services/WarehouseRuleService.php` | `resolve(productCode)` + `rules()` index by product_code (cache per instance, anti N+1); normalisasi uppercase/`explode('+')` |
+| `app/Services/CourierRuleService.php` | `resolve(paymentMethod, province, productCode)` 2 fase (produk → umum); `matches()` helper |
+| `app/Services/OrderOnlineImportService.php` | `resolve(..., $row['product_code'])` |
+| `app/Services/OrderTemplateExportService.php` | `warehouseFor()` cek `warehouse_rules` lebih dulu (via `WarehouseRuleService`, cache per instance) |
+| `app/Http/Controllers/CourierRuleController.php` | validasi + normalisasi `product_code` (uppercase, buang `+varian`); cek duplikat kombinasi (payment+province+product_code) |
+| `app/Http/Controllers/WarehouseRuleController.php` (baru) | `index/store/update/destroy/toggle`; duplikat per `product_code`; normalisasi uppercase/`explode('+')` |
+| `resources/views/courier_rule/index.blade.php` | Field **Kode Produk** (datalist produk) di form & modal edit, kolom badge produk di tabel, info box cara kerja 2 fase |
+| `resources/views/warehouse_rule/index.blade.php` (baru) | Form tambah (kode produk + gudang + aktif) + tabel (badge, toggle, edit modal, hapus) + info box prioritas |
+| `routes/web.php` | `/warehouse-rules` (GET/POST/PUT/PATCH toggle/DELETE, nama `warehouse-rule.*`) |
+| `resources/views/layouts/app.blade.php` | Sidebar Data Master → **Aturan Gudang** (di bawah Aturan Courier) |
+| `database/seeders/WarehouseRuleSeeder.php` (baru) | 2 rule bawaan idempotent: SH→GTM, KSP→Aurora (updateOrCreate, tidak menimpa tambahan admin) |
+| `database/seeders/CourierRuleSeeder.php` | + rule `product_code='SH'` → `flix-tf` (payment/province null = semua) di sort_order 1 |
+| `tests/Feature/CourierRuleTest.php` | +3 test: rule produk menang atas provinsi (termasuk nonaktif → jatuh provinsi), store normalisasi product_code, duplikat kombinasi produk |
+| `tests/Feature/WarehouseRuleTest.php` (baru) | 7 test: index, store+resolve dinamis, normalisasi, duplikat, update, toggle, destroy |
+| `tests/Feature/OrderOnlineTest.php` | +2 test: import SH (cod Jawa Barat) → flix-tf & KMP → sicepat; warehouse rule menimpa gudang utama (termasuk nonaktif → Gudang Pusat) |
+
+### Penting
+- **Evaluasi 2 fase** — rule produk tidak bergantung posisi `sort_order` vs rule umum; selalu menang. Ini kunci "tidak terpengaruh aturan courier provinsi".
+- `product_code` di-normalisasi saat simpan (uppercase, `explode('+')[0]`) DAN saat evaluasi — kode varian `SH+1.25` tetap cocok rule `SH`.
+- `CourierRuleSeeder` tetap truncate (defaults menang); `WarehouseRuleSeeder` idempotent `updateOrCreate` (tambahan admin dipertahankan).
+- Test courier produk memakai kode unik (bukan `SH` — DB dev sudah punya rule seed SH→flix-tf).
+- Test import SH memakai **phone unik per run** — phone tetap + produk `SH` + alamat tetap akan kena deteksi duplikat signature dari run sebelumnya (order_id beda) → courier null.
+- Suite: **122 pass** (hanya `ExampleTest` 302 pre-existing) · pipeline `verify_pipeline.php` **103/103 PASS**.
+
+---
+
+## S. ✅ Aturan Status Aggregator Dinamis — Mapping Status Dashboard → Status Sistem (13 Agustus 2026)
+
+### Deskripsi
+Mapping raw status file dashboard aggregator (FLIK / SiCepat / SPX) → `shipping_orders.aggregator_status` tidak lagi hardcoded di `AggregatorTrackingImportService::mapStatus`. Aturan tersimpan di tabel **`tracking_status_rules`** dan dikelola admin lewat halaman **Aturan Status** (`/tracking-status-rules`, sidebar Data Master) — pola sama dengan Aturan Courier / Aturan Gudang.
+
+### Cara kerja (`TrackingStatusRuleService::resolve`)
+- Evaluasi per sumber, urut dari `sort_order` terkecil; **rule pertama yang cocok menang**.
+- `raw_status` di-normalisasi lowercase saat simpan & saat cocok; `match_type` **exact** (sama persis) atau **contains** (status memuat teks).
+- **Aturan bermasalah** memakai `problem_mode=required`: rule hanya cocok bila kolom masalah file terpenuhi — `problem_keyword` **null** = kolom cukup TIDAK kosong (SPX `Delivery OnHold Reason`); **terisi** = kolom harus MENGANDUNG keyword case-insensitive (FLIK `Status Terakhir dari 3PL` berisi `problem`). Bila tidak terpenuhi, rule dilewati → jatuh ke rule normal utk status yang sama. Karena itu rule problem diberi `sort_order` kecil (dievaluasi duluan).
+- Tidak ada rule cocok → `null` (raw tak dikenal, `aggregator_status` tidak diisi).
+- Rule dikelompokkan per `source` + cache per instance (anti N+1, pola AGENTS.md).
+
+### Nilai `aggregator_status` (6 nilai INGGRIS, `ShippingOrder::TRACKING_STATUSES`)
+`waiting_pickup` · `in_transit` · `delivered` · `returning` · `returned` · `problem` — dropdown Status Sistem di UI dibatasi ke daftar ini.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_150000_create_tracking_status_rules_table.php` | `source`, `raw_status`, `match_type` (exact/contains), `status`, `problem_mode` (none/required), `problem_keyword` nullable, `sort_order`, `is_active`; UNIQUE `(source, raw_status, match_type, problem_mode, status)` |
+| `app/Models/TrackingStatusRule.php` | konstanta `SOURCES`/`MATCH_TYPES`/`PROBLEM_MODES` + casts |
+| `app/Services/TrackingStatusRuleService.php` (baru) | `resolve(source, rawStatus, ?problemColumn)` — evaluasi sort_order, `problemColumnMatches()` (keyword null → non-kosong; terisi → contains) |
+| `app/Services/AggregatorTrackingImportService.php` | `mapStatus(source, rawStatus, problemColumn)` → delegasi ke service (argumen `true` lama tetap diterima = paksa `problem`); `isProblem()` dihapus; `normalizeRow` kirim teks kolom masalah langsung |
+| `app/Http/Controllers/TrackingStatusRuleController.php` (baru) | `index/store/update/destroy/toggle/move`; validasi source/match/status/problem_mode `in:...`; duplikat per kombinasi; normalisasi lowercase |
+| `resources/views/tracking_status_rule/index.blade.php` (baru) | Form tambah (sumber, status mentah, cara cocok, status sistem, kolom masalah + kata kunci yang tampil kondisional, urutan, aktif) + tabel (badge sumber/status mentah/status sistem/masalah, toggle, ↑↓, edit modal, hapus) + info box |
+| `routes/web.php` | `/tracking-status-rules` GET/POST/PUT/PATCH toggle/POST move/DELETE (nama `tracking-status-rule.*`) |
+| `resources/views/layouts/app.blade.php` | Sidebar Data Master → **Aturan Status** (di bawah Aturan Gudang) |
+| `database/seeders/TrackingStatusRuleSeeder.php` (baru) | 23 rule bawaan idempotent (updateOrCreate by kombinasi): FLIK 8 (incl. 2 problem `dikonfirmasi`/`sedang diantar` + 3PL berisi `problem`, sort 1), SICEPAT 6, SPX 9 (incl. 3 problem `pending pickup`/`in transit`/`delivering` + OnHold terisi, sort 1) |
+| `tests/Feature/TrackingStatusRuleTest.php` (baru) | 10 test: index, store+resolve dinamis, problem required (keyword null & terisi), prioritas problem atas normal, contains, toggle, destroy, duplikat, move swap, update; + import ikut rules DB |
+| `tests/Feature/AggregatorTrackingImportTest.php` | `test_map_status_english_values` disesuaikan — argumen `true` diganti string kolom masalah (`'Problem: alamat tidak lengkap'` → problem, `'OK'` → waiting_pickup, `''` → in_transit) |
+| `filecoba/verify_pipeline.php` | + precheck `tracking_status_rules` |
+
+### Penting
+- **Batas key MySQL (3072 bytes utf8mb4)**: kolom unik 5 string() default (255 char) melebihi batas → `source`/`match_type`/`status`/`problem_mode` dibatasi `string(20)`, `raw_status`/`problem_keyword` `string(191)`; UNIQUE `tracking_status_rules_combo_unique` (`source, raw_status, match_type, problem_mode, status`) tetap 5 kolom (dipakai `updateOrCreate` seeder).
+- **Migrasi gagal di tengah**: bila `alter table ... add unique` error, tabel sudah terbuat tapi migrasi tidak tercatat → `Schema::dropIfExists('tracking_status_rules')` dulu, baru `php artisan migrate`.
+- **Perubahan perilaku kecil**: FLIK problem dulu `stripos(..., 'problem') === 0` (prefix), kini `contains` (MENGANDUNG) via `problem_keyword='problem'` — lebih longgar, dan bisa diubah admin.
+- `AggregatorTrackingImportService::mapStatus` menerima argumen ketiga string (kolom masalah) ATAU `true` (kompatibilitas lama: paksa `problem`).
+- Aturan bermasalah harus `sort_order` KECIL dari rule normal utk status yang sama (kalau tidak, rule normal menang duluan). Seeder meletakkan problem di sort 1.
+- Status tak dikenal → `aggregator_status=null` (tetap dihitung `unmatched` di laporan import). `delivered_at` tetap hanya diisi saat status `delivered`.
+- Test memakai DB aktif tanpa refresh → rule test memakai `raw_status` unik prefix `teststatus` dan di-delete di akhir test; service resolver di-test dengan instance BARU (cache per instance).
+- Suite: **133 pass** (hanya `ExampleTest` 302 pre-existing) · pipeline `verify_pipeline.php` **104/104 PASS**.
+
+---
+
+## T. ✅ Laporan Operasional — Dashboard Hari Ini + Detail per Pengirim (13 Agustus 2026)
+
+### Deskripsi
+Dashboard admin (general) kini menampilkan 4 kartu operasional **hari ini** yang bisa diklik: **Barang Keluar**, **Barang Masuk**, **Resi**, dan **Metode Pembayaran (COD · Bank Transfer)**. Klik kartu → halaman **Laporan Operasional** (`/laporan-operasional`) yang merinci **per nama pengirim** (`order_online_import_batches.sender`) pada rentang tanggal (date-range picker, default hari ini): total pengeluaran (nilai order / gross revenue), jumlah resi, jumlah COD & bank_transfer — plus di baris paling bawah **TOTAL KESELURUHAN**: uang masuk vs HPP (margin) berdampingan.
+
+### Keputusan performa (jawaban atas pertanyaan "berat tidak?")
+- **Semua angka pakai QUERY AGREGAT (GROUP BY/SUM di SQL)** — total hanya **3 query** utk seluruh halaman (stok hari ini 1, order hari ini 1, laporan per sender 1) + total keseluruhan dihitung dari collection hasil GROUP BY (**tanpa query tambahan**, pola batch AGENTS.md). Tidak ada query per baris/per pengirim dalam loop.
+- **TIDAK pakai `whereDate()`** — Laravel menerjemahkannya ke `DATE(col)=?` yang mematikan index → pakai range `>=`/`<` (created_at `>= today 00:00` & `< tomorrow`).
+- **Index baru**: `shipping_orders.created_at` (migration `2026_08_13_160000`) — sebelumnya hanya `last_synced_at` yang ber-index; filter "hari ini"/rentang butuh index ini (aturan AGENTS.md #1).
+- **Tabel ringkasan TIDAK dibuat** — skala data masih kecil (ratusan order/hari); aggregate langsung dari jurnal/sumber kebenaran selalu konsisten. Baru buat summary table kalau data sudah jutaan baris DAN dashboard terasa lambat (cek slow query > 500ms di `storage/logs/laravel.log`).
+- EXPLAIN: query filter+join memakai full scan pada tabel kecil (210 baris, 6ms) — normal; index `created_at` siap dipakai optimizer saat tabel membesar.
+
+### Definisi angka
+- **Barang keluar/masuk hari ini** = `stock_movements` (`type` in/out, `date` = hari ini) → SUM quantity.
+- **Resi** = order yang sudah punya `awb` terisi (non-kosong).
+- **Metode pembayaran** = `shipping_orders.payment_method` (`cod` / `bank_transfer`, disimpan lowercase).
+- **Total pengeluaran / uang masuk** = `SUM(shipping_orders.amount)` (gross revenue).
+- **HPP** = `SUM(quantity × products.purchase_price)` (HPP per PRODUK, bukan per varian).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_13_160000_add_created_at_index_to_shipping_orders.php` | index `shipping_orders.created_at` (dipakai filter hari ini/rentang) |
+| `app/Http/Controllers/OperationalReportController.php` (baru) | `index(Request)` — parse & balik `dari/sampai`, 2 aggregate hari ini + 1 aggregate laporan per sender (JOIN batches + LEFT JOIN products utk HPP), total dihitung dari collection; `parseDate()` validasi Y-m-d dgn fallback hari ini |
+| `app/Http/Controllers/DashboardController.php` | `dashboardGeneral()` + `opsHariIni` (keluar/masuk/resi/cod/bank_transfer) dari 2 aggregate (`StockMovement` by date, `ShippingOrder` by created_at range) |
+| `resources/views/dashboard/general.blade.php` | 4 kartu stat operasional (klik → laporan dgn dari/sampai=hari ini) di atas kartu Spending |
+| `resources/views/laporan/operasional.blade.php` (baru) | Kartu ringkasan PERIODE TERPILIH + date-range picker + tabel per pengirim (pengeluaran, resi `N / total`, COD, TF, uang masuk, HPP) + tfoot TOTAL KESELURUHAN & baris Margin (uang masuk − HPP, % ) |
+| `resources/views/laporan/batch.blade.php` (baru, 14 Agustus) | **Detail per batch/pengirim** — kartu ringkasan (order/resi, qty terjual, uang masuk, margin) + tabel **Barang Terjual & Rincian Varian**: grup per produk master, baris per varian (badge power) + nama terjual + qty/order + jumlah order + qty terjual + uang masuk + HPP |
+| `resources/views/layouts/app.blade.php` | Sidebar Gudang & Kiriman → **Laporan Operasional** (owner/super_admin/admin) |
+| `routes/web.php` | `GET /laporan-operasional` (`operational-report.index`); `GET /laporan-operasional/{batch}` (`operational-report.batch`) |
+| `tests/Feature/OperationalReportTest.php` (baru) | 5 test: kartu dashboard render, laporan per sender + totals, rentang tanggal, empty state, total per sender = sum |
+| `tests/Feature/OperationalReportTest.php` (+4, 14 Agustus) | link baris → detail batch, detail memisahkan pcs (2 vs 4), detail hormati rentang tanggal |
+
+### Penting
+- **Kartu di halaman laporan MENGIKUTI periode terpilih** (`dari`/`sampai`), bukan hardcoded hari ini — saat user ganti range, kartu barang keluar/masuk/resi ikut menyesuaikan; label otomatis jadi "Hari Ini" (default) atau "Periode Terpilih" (range lain). Dashboard tetap menampilkan kartu "hari ini".
+- **Fix 14 Agustus — kartu tampil 0 terus padahal query benar**: kartu stat memakai `data-counter` (JS animasi angka dari 0), tapi di lingkungan tanpa build Vite (`public/build/manifest.json` tidak ada) `@vite` tidak me-render `app.js`/`animations.js` → angka visible tetap `0` apa pun hasil query. Solusi: **teks awal kartu diisi nilai asli** (`data-counter="{{ $nilai }}">{{ $nilai }}`): tanpa JS langsung tampil benar, dengan JS animasi counter tetap berjalan (override textContent). Diterapkan ke semua kartu `data-counter` di `dashboard/general`, `dashboard/keuangan`, `laporan/operasional`, `regional/index`, `team/performance`.
+- `stock_movements.date` bertipe datetime → range stok memakai eksklusif `< besok` (sama seperti created_at) agar movement di hari `sampai` tidak terlewat.
+- `payment_method` disimpan **lowercase** (`cod`/`bank_transfer`) — CASE SUM memakai literal lowercase.
+- Kolom "Resi" menampilkan `N ber-resi / total order` (rese = ber-awb).
+- **Detail per batch (14 Agustus)**: nama pengirim & kolom Total Pengeluaran di tabel laporan adalah link → `operational-report.batch` dgn `dari/sampai` diteruskan. Kunci pemisah varian: kacamata promo "Dapat N" disimpan sbg `product_name = "... N pcs"` + `quantity = N`, jadi GROUP BY menyertakan `product_name` + `quantity` (qty per order) — varian sama (mis. KMP+1.50) dgn isi 2 pcs dan 4 pcs tampil **baris terpisah**. JOIN `products` (LEFT) utk nama/kode master + `product_variants` (LEFT) utk power/badge.
+- **HANYA order yang DIPROSES (14 Agustus)**: scope `ShippingOrder::processed()` = status `real`/`tembakan` DAN courier ≠ `undeliverable` (paket tak terkirim/tak ter-cover aggregator). Order `cancel`/`belum_diproses`/`duplikat` TIDAK pernah diproses → dikecualikan dari SEMUA angka operasional: kartu dashboard (`orderHariIni`), laporan per sender (`$orderPeriode` + `$rows`), detail batch (`$rows` + `resi`). Kolom `status`/`courier` dikualifikasi `shipping_orders.*` karena scope dipakai pada query ber-JOIN (products/batches juga punya `status`).
+- **`created_at` di query detail batch WAJIB dikualifikasi** `shipping_orders.created_at` — setelah LEFT JOIN `products`/`product_variants` (keduanya punya `created_at`) kolom jadi ambigu (SQLSTATE 1052).
+- Test memakai DB bersama tanpa refresh → data di-isolasi dgn tanggal unik prefix `2026-01-XX` + `uniqid()` di sender/order_id, batch di-delete di `finally`; empty-state memakai rentang `2019-01-01..31`.
+- Sidebar hanya utk role yang punya akses Gudang & Kiriman (owner/super_admin/admin); route tetap bisa dibuka role lain yg login (profil lengkap).
+- Suite: **144 pass** (hanya `ExampleTest` 302 pre-existing) · pipeline `verify_pipeline.php` **104/104 PASS**.
+
+---
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
 
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 

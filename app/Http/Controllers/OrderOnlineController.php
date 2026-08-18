@@ -51,6 +51,7 @@ class OrderOnlineController extends Controller
                     }))
                     ->when($request->filled('courier'), fn ($q) => $q->where('courier', $request->courier))
                     ->when($request->filled('status'), fn ($q) => $q->where('status', 'like', '%'.$request->status.'%'))
+                    ->when($request->filled('product_code'), fn ($q) => $q->where('product_code', $request->product_code))
                     ->orderByDesc('id')
                     ->paginate(25)
                     ->withQueryString();
@@ -61,17 +62,47 @@ class OrderOnlineController extends Controller
 
         $products = Product::query()->orderBy('code')->with('variants')->get(['id', 'code', 'name']);
 
+        // Dropdown filter kode produk: varian dari master + kode yang masih dipakai di order.
+        $productOptions = collect();
+        foreach ($products as $p) {
+            foreach ($p->variants as $v) {
+                $productOptions->put($v->code, $v->code.' — '.$p->name);
+            }
+        }
+        ShippingOrder::query()->whereNotNull('product_code')->distinct()->pluck('product_code')
+            ->each(function ($code) use ($productOptions) {
+                if (! $productOptions->has($code)) {
+                    $productOptions->put($code, $code);
+                }
+            });
+        $productOptions = $productOptions->sortKeys();
+
+        $exportTemplates = \App\Models\ExportTemplate::query()->where('is_active', true)->orderBy('id')->get();
+
         $courierCounts = collect();
         if ($selectedBatch) {
             $courierCounts = ShippingOrder::where('order_online_import_batch_id', $selectedBatch->id)
                 ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
                 ->whereNotNull('courier')
+                ->where(fn ($q) => $q->whereNull('awb')->orWhere('awb', ''))
                 ->selectRaw('courier, COUNT(*) as total')
                 ->groupBy('courier')
                 ->pluck('total', 'courier');
         }
 
-        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products'));
+        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions'));
+    }
+
+    public function show(ShippingOrder $shippingOrder): View
+    {
+        $shippingOrder->load([
+            'importBatch',
+            'product',
+            'variant.product',
+            'handledByUser',
+        ]);
+
+        return view('order.show', compact('shippingOrder'));
     }
 
     public function preview(Request $request): JsonResponse
@@ -147,6 +178,10 @@ class OrderOnlineController extends Controller
 
     public function update(Request $request, ShippingOrder $shippingOrder)
     {
+        if (! empty($shippingOrder->awb)) {
+            return back()->withErrors(['order' => 'Order sudah memiliki resi (AWB), tidak bisa diedit.']);
+        }
+
         $request->validate([
             'courier' => ['nullable', 'in:'.implode(',', CourierRuleService::COURIERS)],
             'courier_note' => ['nullable', 'string', 'max:255'],
@@ -227,7 +262,8 @@ class OrderOnlineController extends Controller
 
     public function export(OrderOnlineImportBatch $batch, string $template, ?string $courier = null): StreamedResponse
     {
-        if (! in_array($template, OrderTemplateExportService::TEMPLATES)) {
+        // Template export bisa custom (tabel export_templates) — bukan hanya 3 bawaan.
+        if (! \App\Models\ExportTemplate::where('key', $template)->exists()) {
             abort(404);
         }
 

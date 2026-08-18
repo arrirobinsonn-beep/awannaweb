@@ -363,7 +363,7 @@
             </a>
             @endif
 
-            @if($u->hasRole(['owner','super_admin','mentor','cs']))
+            @if($u->hasRole(['owner','super_admin','mentor','admin','cs']))
             <a href="{{ route('orders.index') }}"
                class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
                data-page-link data-tip="Upload Data Mentah & Export Template">
@@ -430,9 +430,37 @@
 
             <a href="{{ route('product.index') }}"
                class="nav-item {{ request()->routeIs('product.*') ? 'active' : '' }}"
-               data-page-link data-tip="Produk">
+               data-page-link data-tip="Master produk & varian">
                 <span class="nav-icon">📦</span>
                 <span class="sidebar-label">Produk</span>
+            </a>
+
+            <a href="{{ route('courier-rule.index') }}"
+               class="nav-item {{ request()->routeIs('courier-rule.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Courier (auto-mapping kurir)">
+                <span class="nav-icon">🚚</span>
+                <span class="sidebar-label">Aturan Courier</span>
+            </a>
+
+            <a href="{{ route('warehouse-rule.index') }}"
+               class="nav-item {{ request()->routeIs('warehouse-rule.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Gudang (kode produk → gudang saat export)">
+                <span class="nav-icon">🏬</span>
+                <span class="sidebar-label">Aturan Gudang</span>
+            </a>
+
+            <a href="{{ route('tracking-status-rule.index') }}"
+               class="nav-item {{ request()->routeIs('tracking-status-rule.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Status Aggregator (status dashboard → status sistem)">
+                <span class="nav-icon">📡</span>
+                <span class="sidebar-label">Aturan Status</span>
+            </a>
+
+            <a href="{{ route('export-mapping.index') }}"
+               class="nav-item {{ request()->routeIs('export-mapping.*') ? 'active' : '' }}"
+               data-page-link data-tip="Aturan Export (mapping template CSV)">
+                <span class="nav-icon">📋</span>
+                <span class="sidebar-label">Aturan Export</span>
             </a>
             @endif
 
@@ -441,6 +469,13 @@
             <div class="sidebar-label nav-divider" style="padding:14px 10px 4px;">
                 <span style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;">Gudang & Kiriman</span>
             </div>
+
+            <a href="{{ route('gudang.index') }}"
+               class="nav-item {{ request()->routeIs('gudang.*') ? 'active' : '' }}"
+               data-page-link data-tip="Stok per kategori & aturan kemasan">
+                <span class="nav-icon">🏬</span>
+                <span class="sidebar-label">Gudang</span>
+            </a>
 
             <a href="{{ route('purchase.index') }}"
                class="nav-item {{ request()->routeIs('purchase.*') ? 'active' : '' }}"
@@ -456,12 +491,20 @@
                 <span class="sidebar-label">Jurnal Stok</span>
             </a>
 
-            <a href="{{ route('shipment.index') }}"
-               class="nav-item {{ request()->routeIs('shipment.*') ? 'active' : '' }}"
-               data-page-link data-tip="Data Pengiriman (FLIK/SiCepat/SPX)">
+            <a href="{{ route('orders.index') }}"
+               class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
+               data-page-link data-tip="Upload Data Mentah & Export Template">
                 <span class="nav-icon">🚚</span>
-                <span class="sidebar-label">Data Pengiriman</span>
+                <span class="sidebar-label">Data Mentah</span>
             </a>
+
+            <a href="{{ route('operational-report.index') }}"
+               class="nav-item {{ request()->routeIs('operational-report.*') ? 'active' : '' }}"
+               data-page-link data-tip="Laporan Operasional (stok keluar/masuk, resi, metode bayar per pengirim)">
+                <span class="nav-icon">📋</span>
+                <span class="sidebar-label">Laporan Operasional</span>
+            </a>
+
             @endif
 
             {{-- ── Keuangan ──────────────────────────────────────── --}}

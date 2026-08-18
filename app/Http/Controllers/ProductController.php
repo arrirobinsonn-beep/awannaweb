@@ -2,119 +2,96 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Inventory;
 use App\Models\Product;
 use App\Models\ProductVariant;
-use App\Services\StockService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
+/**
+ * Halaman master Produk — satu-satunya tempat membuat/mengubah produk & varian.
+ * Stok TIDAK dikelola di sini (stok per gudang dikelola di halaman Gudang /
+ * Barang Masuk). Saat produk dibuat, varian default otomatis dibuat agar stok
+ * bisa dicatat; produk belum terdaftar di gudang mana pun sampai admin
+ * meng-attach-nya dari halaman Gudang.
+ */
 class ProductController extends Controller
 {
-    public function __construct(
-        private readonly StockService $stock = new StockService,
-    ) {}
-
     public function index(Request $request): View
     {
-        // variants ikut di-eager load agar accessor stok induk (gabungan varian) tidak memicu N+1.
-        $query = Product::with('variants', 'inventory')->latest();
+        $query = Product::with(['variants', 'inventories', 'primaryInventory'])->latest('id');
 
-        if ($request->filled('search')) {
-            $query->where(function ($q) use ($request) {
-                $q->where('name', 'like', '%'.$request->search.'%')
-                    ->orWhere('code', 'like', '%'.$request->search.'%')
-                    ->orWhere('category', 'like', '%'.$request->search.'%');
-            });
-        }
+        $query->when($request->filled('search'), fn (Builder $q) => $q->where(function (Builder $w) use ($request) {
+            $w->where('name', 'like', '%'.$request->search.'%')
+                ->orWhere('code', 'like', '%'.$request->search.'%')
+                ->orWhere('category', 'like', '%'.$request->search.'%');
+        }))
+            ->when($request->filled('goods_type'), fn (Builder $q) => $q->where('goods_type', $request->goods_type))
+            ->when($request->filled('status'), fn (Builder $q) => $q->where('status', $request->status));
 
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
+        $products = $query->paginate(15)->withQueryString();
 
-        if ($request->filled('kategori')) {
-            $query->where('category', $request->kategori);
-        }
-
-        $products = $query->paginate(10)->withQueryString();
-        $kategoris = Product::distinct()->pluck('category')->filter()->sort()->values();
-
-        // Data modal varian (hpp & url store per produk) — dihitung di sini agar @json di view
-        // tidak perlu expression ber-koma (directive @json memecah argumen berdasarkan koma).
-        $pvProducts = $products->map(fn ($p) => [
-            'id' => $p->id,
-            'hpp' => (float) $p->purchase_price,
-            'store_url' => route('product.variant.store', $p),
-        ])->keyBy('id');
-
-        return view('product.index', compact('products', 'kategoris', 'pvProducts'));
-    }
-
-    public function create(): View
-    {
-        $inventories = Inventory::orderBy('name')->get();
-
-        return view('product.form', ['product' => new Product, 'inventories' => $inventories, 'mode' => 'create']);
+        return view('product.index', compact('products'));
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $data = $request->validate([
-            'code' => ['required', 'string', 'max:20', 'unique:products'],
-            'name' => ['required', 'string', 'max:150'],
-            'category' => ['nullable', 'string', 'max:80'],
-            'description' => ['nullable', 'string'],
-            'inventory_id' => ['nullable', 'exists:inventories,id'],
-            'purchase_price' => ['nullable', 'numeric', 'min:0'],
-            'selling_price' => ['required', 'numeric', 'min:0'],
-            'unit' => ['required', 'string', 'max:30'],
-            'status' => ['required', 'in:active,inactive'],
-        ]);
+        $data = $this->validateProduct($request);
 
-        Product::create($data);
+        $product = DB::transaction(function () use ($data) {
+            $product = Product::create($data);
+
+            // Varian default otomatis (kode = kode produk, power 0) agar stok
+            // bisa langsung dicatat per gudang nantinya.
+            ProductVariant::create([
+                'product_id' => $product->id,
+                'code' => $product->code,
+                'name' => $product->name,
+                'jenis' => null,
+                'power' => 0,
+                'stock' => 0,
+                'status' => 'active',
+            ]);
+
+            return $product;
+        });
 
         return redirect()->route('product.index')
-            ->with('success', 'Produk berhasil ditambahkan.');
-    }
-
-    public function edit(Product $product): View
-    {
-        $inventories = Inventory::orderBy('name')->get();
-
-        return view('product.form', ['product' => $product, 'inventories' => $inventories, 'mode' => 'edit']);
+            ->with('success', 'Produk '.$product->name.' berhasil ditambahkan (varian default dibuat).');
     }
 
     public function update(Request $request, Product $product): RedirectResponse
     {
-        $data = $request->validate([
-            'code' => ['required', 'string', 'max:20', 'unique:products,code,'.$product->id],
-            'name' => ['required', 'string', 'max:150'],
-            'category' => ['nullable', 'string', 'max:80'],
-            'description' => ['nullable', 'string'],
-            'inventory_id' => ['nullable', 'exists:inventories,id'],
-            'purchase_price' => ['nullable', 'numeric', 'min:0'],
-            'selling_price' => ['required', 'numeric', 'min:0'],
-            'unit' => ['required', 'string', 'max:30'],
-            'status' => ['required', 'in:active,inactive'],
-        ]);
+        $data = $this->validateProduct($request, $product);
 
         $product->update($data);
 
         return redirect()->route('product.index')
-            ->with('success', 'Produk berhasil diperbarui.');
+            ->with('success', 'Produk '.$product->name.' berhasil diperbarui.');
     }
 
     public function destroy(Product $product): RedirectResponse
     {
+        $name = $product->name;
         $product->delete();
 
         return redirect()->route('product.index')
-            ->with('success', 'Produk berhasil dihapus.');
+            ->with('success', 'Produk '.$name.' berhasil dihapus.');
     }
 
-    // ─── Varian Produk (ukuran / power) ─────────────────────────
+    public function toggleStatus(Product $product): JsonResponse
+    {
+        $product->update([
+            'status' => $product->status === 'active' ? 'inactive' : 'active',
+        ]);
+
+        return response()->json(['success' => true, 'status' => $product->status]);
+    }
+
+    // ─── Varian Produk ─────────────────────────────────────────────────────
 
     public function variantStore(Request $request, Product $product): JsonResponse
     {
@@ -124,31 +101,11 @@ class ProductController extends Controller
             'jenis' => ['nullable', 'string', 'max:80'],
             'power' => ['nullable', 'numeric', 'min:0'],
             'status' => ['required', 'in:active,inactive'],
-            'stock_awal' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        $data['product_id'] = $product->id;
-        $data['stock'] = 0;
+        ProductVariant::create($data + ['product_id' => $product->id, 'stock' => 0]);
 
-        $variant = ProductVariant::create($data);
-
-        if (($data['stock_awal'] ?? 0) > 0) {
-            $this->stock->recordIn(
-                $variant->id,
-                now()->format('Y-m-d'),
-                (int) $data['stock_awal'],
-                (float) $product->purchase_price ?: null,
-                'adjustment',
-                $variant->id,
-                'Stok awal varian',
-                auth()->id(),
-            );
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Varian produk berhasil ditambahkan.',
-        ]);
+        return response()->json(['success' => true, 'message' => 'Varian produk berhasil ditambahkan.']);
     }
 
     public function variantUpdate(Request $request, ProductVariant $variant): JsonResponse
@@ -163,32 +120,14 @@ class ProductController extends Controller
 
         $variant->update($data);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Varian produk berhasil diperbarui.',
-        ]);
+        return response()->json(['success' => true, 'message' => 'Varian produk berhasil diperbarui.']);
     }
 
     public function variantDestroy(ProductVariant $variant): JsonResponse
     {
         $variant->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Varian berhasil dihapus.',
-        ]);
-    }
-
-    public function toggleStatus(Product $product): JsonResponse
-    {
-        $product->update([
-            'status' => $product->status === 'active' ? 'inactive' : 'active',
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'status' => $product->status,
-        ]);
+        return response()->json(['success' => true, 'message' => 'Varian berhasil dihapus.']);
     }
 
     public function toggleVariantStatus(ProductVariant $variant): JsonResponse
@@ -197,9 +136,32 @@ class ProductController extends Controller
             'status' => $variant->status === 'active' ? 'inactive' : 'active',
         ]);
 
-        return response()->json([
-            'success' => true,
-            'status' => $variant->status,
+        return response()->json(['success' => true, 'status' => $variant->status]);
+    }
+
+    // ─── Helper ────────────────────────────────────────────────────────────
+
+    protected function validateProduct(Request $request, ?Product $product = null): array
+    {
+        $uniqueCode = $product
+            ? 'unique:products,code,'.$product->id
+            : 'unique:products';
+
+        $data = $request->validate([
+            'code' => ['required', 'string', 'max:20', $uniqueCode],
+            'name' => ['required', 'string', 'max:150'],
+            'category' => ['nullable', 'string', 'max:80'],
+            'goods_type' => ['required', 'in:'.implode(',', Product::GOODS_TYPES)],
+            'min_stock' => ['nullable', 'integer', 'min:0'],
+            'description' => ['nullable', 'string'],
+            'purchase_price' => ['nullable', 'numeric', 'min:0'],
+            'selling_price' => ['required', 'numeric', 'min:0'],
+            'unit' => ['required', 'string', 'max:30'],
+            'status' => ['required', 'in:active,inactive'],
         ]);
+
+        $data['min_stock'] = (int) ($data['min_stock'] ?? 0);
+
+        return $data;
     }
 }
