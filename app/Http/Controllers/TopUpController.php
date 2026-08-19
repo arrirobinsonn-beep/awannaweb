@@ -62,7 +62,13 @@ class TopUpController extends Controller
                 }
             }
 
-            return view('topup.index', compact('proposals', 'advertisers', 'activeTab', 'summaryPerAdv'));
+            // Data untuk modal pengajuan (kosong — admin tidak membuat pengajuan)
+            $whitelists = collect();
+            $sisaSaldoWhitelists = collect();
+            $previousTopupTotal = 0;
+            $wlDataJson = json_encode([]);
+
+            return view('topup.index', compact('proposals', 'advertisers', 'activeTab', 'summaryPerAdv', 'whitelists', 'sisaSaldoWhitelists', 'previousTopupTotal', 'wlDataJson'));
         } else {
             // Advertiser: hanya lihat pengajuan sendiri
             $proposals = TopUpProposal::with('approver', 'items.whitelist')
@@ -70,7 +76,46 @@ class TopUpController extends Controller
                 ->latest()
                 ->paginate(15);
 
-            return view('topup.index', compact('proposals'));
+            // ── Data untuk modal pengajuan 3-step ──
+            $whitelists = Whitelist::where('user_id', $user->id)
+                ->aktif()
+                ->get(['id', 'nama', 'kode', 'platform', 'total_topup', 'total_spending']);
+
+            // Spending kemarin per whitelist (untuk sisa saldo)
+            $kemarin = now()->subDay()->format('Y-m-d');
+            $spendingKemarin = SpendingHarian::whereDate('tanggal', $kemarin)
+                ->whereIn('whitelist_id', $whitelists->pluck('id'))
+                ->selectRaw('whitelist_id, SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
+                ->groupBy('whitelist_id')
+                ->get()
+                ->keyBy('whitelist_id');
+
+            $sisaSaldoWhitelists = $whitelists
+                ->filter(fn ($wl) => $spendingKemarin->has($wl->id))
+                ->map(function ($wl) use ($spendingKemarin) {
+                    $s = $spendingKemarin->get($wl->id);
+                    $wl->spending_kemarin = (float) $s->total_spending;
+                    $wl->lead_kemarin = (int) $s->total_lead;
+                    $wl->paid_kemarin = (int) $s->total_paid;
+                    return $wl;
+                })
+                ->values();
+
+            // Top up sebelumnya
+            $lastProposal = TopUpProposal::where('user_id', $user->id)
+                ->whereIn('status', ['approved', 'completed'])
+                ->latest()->first();
+            $previousTopupTotal = $lastProposal?->total_nominal ?? 0;
+
+            // Data JSON untuk JS modal — encode di controller, hindari @json di Blade
+            $wlDataJson = json_encode($whitelists->map(fn ($wl) => [
+                'id' => $wl->id, 'nama' => $wl->nama, 'kode' => $wl->kode,
+                'platform' => $wl->platform, 'sisa_saldo' => $wl->sisa_saldo ?? 0,
+            ])->all(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+
+            return view('topup.index', compact(
+                'proposals', 'whitelists', 'sisaSaldoWhitelists', 'previousTopupTotal', 'wlDataJson'
+            ));
         }
     }
 

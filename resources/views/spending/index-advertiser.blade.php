@@ -56,27 +56,9 @@
 </div>
 @endif
 
-{{-- Filter --}}
-<div class="clay-card" style="padding:16px;margin-bottom:16px;" data-reveal>
-    {{-- .filter-bar: di layar kecil rentang periodik + Reset + Input Spending tetap 1 jajar (CSS di bawah) --}}
-    <form method="GET" action="{{ route('spending.index') }}" id="filter-form-adv" class="filter-bar"
-          style="display:flex;gap:10px;align-items:flex-end;">
 
-        <x-date-range-picker
-            :dari="$dari"
-            :sampai="$sampai"
-            form-id="filter-form-adv"
-            input-dari="dari"
-            input-sampai="sampai"
-        />
 
-        <a href="{{ route('spending.index') }}" class="clay-btn clay-btn-outline">Reset</a>
-        <button type="button" class="clay-btn clay-btn-primary"
-           style="margin-left:auto;" onclick="openInputMethodModal()" @if(!$hasWhitelist) data-require-whitelist @endif>＋ Input Spending</button>
-    </form>
-</div>
-
-{{-- ═══════════════ RINGKASAN PERIODE (4 kartu) ═══════════════ --}}
+{{-- ═══════════════ RINGKASAN PERIODE: CHART + 4 KARTU ═══════════════ --}}
 @php
     $pr = (float) ($summary['paid_ratio'] ?? 0);
     $prFill = $pr >= 75 ? 'linear-gradient(90deg,#22c55e,#16a34a)'
@@ -85,55 +67,74 @@
     $periodeLabel = $dari === $sampai
         ? \Carbon\Carbon::parse($dari)->translatedFormat('d M Y')
         : \Carbon\Carbon::parse($dari)->translatedFormat('d M Y').' – '.\Carbon\Carbon::parse($sampai)->translatedFormat('d M Y');
+
+    // Data chart: lead & paid per tanggal (diurutkan asc)
+    $chartDates = $summaries->keys()->sort()->values();
+    $chartLead = $chartDates->map(fn($d) => $summaries[$d]['lead'] ?? 0);
+    $chartPaid = $chartDates->map(fn($d) => $summaries[$d]['paid'] ?? 0);
 @endphp
-<div class="summary-grid" data-reveal>
+<div class="summary-overview" data-reveal>
 
-    {{-- 1. Total Spending --}}
-    <div class="summary-card" title="Total pengeluaran iklan · {{ $periodeLabel }}">
-        <div class="summary-icon sc-primary">💰</div>
-        <div class="summary-body">
-            <div class="summary-label">Total Spending</div>
-            <div class="summary-value">Rp {{ number_format($summary['spending'],0,',','.') }}</div>
-            <div class="summary-sub">{{ count($summaries) }} hari berisi data · {{ $periodeLabel }}</div>
+    {{-- KIRI: Chart Line Lead & Paid per Tanggal --}}
+    <div class="chart-card">
+        <div class="chart-header">
+            <span class="chart-title">📊 Tren Lead & Paid</span>
+            <span class="chart-sub">{{ $periodeLabel }}</span>
+        </div>
+        <div class="chart-body">
+            <canvas id="spendingChart"></canvas>
         </div>
     </div>
 
-    {{-- 2. Total Lead / Paid --}}
-    <div class="summary-card" title="Total lead dan pembayaran · {{ $periodeLabel }}">
-        <div class="summary-icon sc-purple">👥</div>
-        <div class="summary-body">
-            <div class="summary-label">Total Lead / Paid</div>
-            <div class="summary-value">
-                <span class="sc-lead">{{ number_format($summary['lead']) }}</span>
-                <span class="sc-sep">/</span>
-                <span class="sc-paid">{{ number_format($summary['paid']) }}</span>
+    {{-- KANAN: 4 Card Summary (2×2) --}}
+    <div class="summary-grid">
+        {{-- 1. Total Spending --}}
+        <div class="summary-card" title="Total pengeluaran iklan · {{ $periodeLabel }}">
+            <div class="summary-icon sc-primary">💰</div>
+            <div class="summary-body">
+                <div class="summary-label">Total Spending</div>
+                <div class="summary-value">Rp {{ number_format($summary['spending'],0,',','.') }}</div>
+                <div class="summary-sub">{{ count($summaries) }} hari berisi data · {{ $periodeLabel }}</div>
             </div>
-            <div class="summary-sub">Konversi {{ $summary['lead'] > 0 ? round($summary['paid'] / $summary['lead'] * 100, 1) : 0 }}% dari lead</div>
         </div>
-    </div>
 
-    {{-- 3. CPA Lead / CPA Paid --}}
-    <div class="summary-card" title="Biaya rata-rata per lead & per paid · {{ $periodeLabel }}">
-        <div class="summary-icon sc-teal">📈</div>
-        <div class="summary-body">
-            <div class="summary-label">CPA Lead / Paid</div>
-            <div class="summary-value">
-                <span class="sc-lead">Rp {{ number_format($summary['cpa_lead'],0,',','.') }}</span>
-                <span class="sc-sep">/</span>
-                <span class="sc-paid">Rp {{ number_format($summary['cpa_paid'],0,',','.') }}</span>
+        {{-- 2. Total Lead / Paid --}}
+        <div class="summary-card" title="Total lead dan pembayaran · {{ $periodeLabel }}">
+            <div class="summary-icon sc-purple">👥</div>
+            <div class="summary-body">
+                <div class="summary-label">Total Lead / Paid</div>
+                <div class="summary-value">
+                    <span class="sc-lead">{{ number_format($summary['lead']) }}</span>
+                    <span class="sc-sep">/</span>
+                    <span class="sc-paid">{{ number_format($summary['paid']) }}</span>
+                </div>
+                <div class="summary-sub">Konversi {{ $summary['lead'] > 0 ? round($summary['paid'] / $summary['lead'] * 100, 1) : 0 }}% dari lead</div>
             </div>
-            <div class="summary-sub">Biaya per lead & per pembayaran</div>
         </div>
-    </div>
 
-    {{-- 4. Paid Ratio --}}
-    <div class="summary-card" title="Persentase lead yang berhasil membayar · {{ $periodeLabel }}">
-        <div class="summary-icon sc-amber">🎯</div>
-        <div class="summary-body">
-            <div class="summary-label">Paid Ratio</div>
-            <div class="summary-value">{{ number_format($pr) }}%</div>
-            <div class="summary-ratio-track">
-                <div class="summary-ratio-fill" style="width:{{ min(100, $pr) }}%;background:{{ $prFill }};"></div>
+        {{-- 3. CPA Lead / CPA Paid --}}
+        <div class="summary-card" title="Biaya rata-rata per lead & per paid · {{ $periodeLabel }}">
+            <div class="summary-icon sc-teal">📈</div>
+            <div class="summary-body">
+                <div class="summary-label">CPA Lead / Paid</div>
+                <div class="summary-value">
+                    <span class="sc-lead">Rp {{ number_format($summary['cpa_lead'],0,',','.') }}</span>
+                    <span class="sc-sep">/</span>
+                    <span class="sc-paid">Rp {{ number_format($summary['cpa_paid'],0,',','.') }}</span>
+                </div>
+                <div class="summary-sub">Biaya per lead & per pembayaran</div>
+            </div>
+        </div>
+
+        {{-- 4. Paid Ratio --}}
+        <div class="summary-card" title="Persentase lead yang berhasil membayar · {{ $periodeLabel }}">
+            <div class="summary-icon sc-amber">🎯</div>
+            <div class="summary-body">
+                <div class="summary-label">Paid Ratio</div>
+                <div class="summary-value">{{ number_format($pr) }}%</div>
+                <div class="summary-ratio-track">
+                    <div class="summary-ratio-fill" style="width:{{ min(100, $pr) }}%;background:{{ $prFill }};"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -520,11 +521,47 @@
     @csrf
     <div id="bulk-ids"></div>
 </form>
-<div class="bulk-bar" id="bulk-bar">
-    <span style="font-size:.8rem;font-weight:700;color:#b91c1c;">🗑 <span id="bulk-count">0</span> data terpilih</span>
-    <button type="button" id="bulk-edit" class="clay-btn clay-btn-secondary" style="padding:6px 14px;font-size:.75rem;">✏️ Edit</button>
-    <button type="button" id="bulk-clear" class="clay-btn clay-btn-outline" style="padding:6px 14px;font-size:.75rem;">Batal</button>
-    <button type="button" id="bulk-confirm" class="clay-btn clay-btn-danger" style="padding:6px 14px;font-size:.75rem;">Hapus Terpilih</button>
+{{-- ═══════════════ FAB Container ═══════════════ --}}
+<div class="fab-container" id="fab-container">
+    {{-- Default: Rentang Tanggal + Input Spending --}}
+    <div id="fab-default" class="fab-group">
+        <button type="button" class="fab fab-primary" id="fab-input"
+                onclick="openInputMethodModal()" @if(!$hasWhitelist) data-require-whitelist @endif
+                title="＋ Input Spending">
+            <span class="fab-icon">＋</span>
+            <span class="fab-label">Input</span>
+        </button>
+        <div class="fab-divider"></div>
+        <div class="fab-drp-wrap">
+            <form method="GET" action="{{ route('spending.index') }}" id="filter-form-adv-fab">
+                <x-date-range-picker
+                    :dari="$dari"
+                    :sampai="$sampai"
+                    form-id="filter-form-adv-fab"
+                    input-dari="dari"
+                    input-sampai="sampai"
+                />
+            </form>
+        </div>
+    </div>
+    {{-- Selection: Edit + Hapus + Batal --}}
+    <div id="fab-selection" class="fab-group" style="display:none;">
+        <div class="fab-count"><span id="bulk-count">0</span> terpilih</div>
+        <div class="fab-divider"></div>
+        <button type="button" id="bulk-edit" class="fab fab-secondary" title="Edit Terpilih">
+            <span class="fab-icon">✏️</span>
+            <span class="fab-label">Edit</span>
+        </button>
+        <div class="fab-divider"></div>
+        <button type="button" id="bulk-clear" class="fab fab-outline" title="Batal Pilih">
+            <span class="fab-icon">✕</span>
+        </button>
+        <div class="fab-divider"></div>
+        <button type="button" id="bulk-confirm" class="fab fab-danger" title="Hapus Terpilih">
+            <span class="fab-icon">🗑</span>
+            <span class="fab-label">Hapus</span>
+        </button>
+    </div>
 </div>
 
 {{-- ═══════════════ MODAL BULK EDIT (spending/lead/paid) ═══════════════ --}}
@@ -551,6 +588,9 @@
 
 @push('styles')
 <style>
+    /* ── Page bottom spacing for FAB ──────────────── */
+    #main-content { padding-bottom: 90px !important; }
+
     /* ── Modal Ubah Tanggal ──────────────────────────── */
     .dc-modal {
         position: fixed; inset: 0; z-index: 9999;
@@ -615,19 +655,64 @@
         text-decoration: line-through;
     }
 
-    /* ── Bulk delete ────────────────────────────────────── */
-    .bulk-bar {
-        position: fixed; bottom: 20px; right: 24px; z-index: 60;
-        display: none; align-items: center; gap: 10px;
-        background: #fff; border: 1px solid #fecaca;
-        border-radius: 16px; padding: 10px 14px;
-        box-shadow: 0 12px 32px rgba(220,38,38,.18);
-        animation: bulkIn .25s ease;
+    /* ── FAB Container (horizontal pill bar, white) ─── */
+    .fab-container {
+        position: fixed; bottom: 28px; right: 28px; z-index: 60;
+        margin-bottom: 20px; /* extra clearance below table */
     }
-    @keyframes bulkIn {
-        from { opacity: 0; transform: translateY(10px); }
+    .fab-group {
+        display: flex; flex-direction: row; align-items: center; gap: 6px;
+        background: #fff;
+        border-radius: 999px; padding: 5px 6px;
+        box-shadow: 0 4px 24px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.05);
+        animation: fabIn .28s cubic-bezier(.4,0,.2,1);
+    }
+    @keyframes fabIn {
+        from { opacity: 0; transform: translateY(12px) scale(.92); }
         to   { opacity: 1; transform: none; }
     }
+    .fab-divider {
+        width: 1px; height: 22px; background: rgba(0,0,0,.1); flex-shrink: 0;
+    }
+    .fab {
+        display: inline-flex; align-items: center; gap: 6px;
+        border: none; border-radius: 999px; padding: 10px 16px;
+        font-size: .78rem; font-weight: 700; cursor: pointer;
+        transition: all .2s ease; white-space: nowrap;
+        text-decoration: none; line-height: 1.2;
+        color: #fff; flex-shrink: 0;
+    }
+    .fab:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .fab:active { transform: translateY(0); filter: brightness(1); }
+    .fab-primary { background: linear-gradient(135deg, #FF6B6B, #ff9a9a); box-shadow: 0 2px 8px rgba(255,107,107,.3); }
+    .fab-secondary { background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: 0 2px 8px rgba(139,92,246,.3); }
+    .fab-danger { background: linear-gradient(135deg, #ef4444, #f87171); box-shadow: 0 2px 8px rgba(239,68,68,.3); }
+    .fab-outline { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+    .fab-outline:hover { background: #e5e7eb; border-color: #d1d5db; }
+    .fab-icon { font-size: 1rem; line-height: 1; flex-shrink: 0; }
+    .fab-label { font-size: .72rem; letter-spacing: .02em; }
+    .fab-count {
+        background: #fef2f2; border: 1px solid #fecaca; border-radius: 999px;
+        padding: 8px 14px; font-size: .72rem; font-weight: 700; color: #b91c1c;
+        white-space: nowrap; flex-shrink: 0;
+    }
+    /* DRP trigger inside FAB pill */
+    .fab-drp-wrap { margin: 0; flex-shrink: 0; }
+    .fab-drp-wrap form { margin: 0; padding: 0; }
+    .fab-drp-wrap .drp-trigger {
+        border-radius: 999px !important; padding: 10px 16px !important;
+        background: linear-gradient(135deg, #8b5cf6, #a78bfa) !important;
+        color: #fff !important; border: none !important;
+        box-shadow: 0 2px 8px rgba(139,92,246,.3) !important;
+        gap: 6px !important; min-width: 0 !important;
+        font-size: .78rem !important; font-weight: 700 !important;
+        transition: all .2s ease !important; line-height: 1.2 !important;
+    }
+    .fab-drp-wrap .drp-trigger:hover {
+        filter: brightness(1.1) !important; transform: translateY(-1px);
+    }
+    .fab-drp-wrap .drp-trigger .drp-label { color: #fff !important; font-size: .72rem !important; }
+    .fab-drp-wrap .drp-trigger span:last-child { color: rgba(255,255,255,.55) !important; }
     .bd-check { width: 16px; height: 16px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
     .bd-check-all { width: 15px; height: 15px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
     tr.bd-row-selected { background: #fff0f0 !important; }
@@ -692,15 +777,54 @@
         padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
     }
 
-    /* ── Ringkasan Periode (4 kartu di atas tabel) ──────────── */
+    /* ── Ringkasan Periode: Chart (kiri) + 4 Kartu (kanan 2×2) ── */
+    .summary-overview {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 16px;
+        align-items: stretch;
+    }
+    .chart-card {
+        background: #fff; border-radius: 16px; padding: 18px 20px;
+        border: 1px solid rgba(0,0,0,.06);
+        box-shadow: 0 1px 3px rgba(0,0,0,.04);
+        display: flex; flex-direction: column;
+        height: 100%;
+    }
+    .chart-header {
+        display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px;
+        flex-shrink: 0;
+    }
+    .chart-title {
+        font-weight: 800; font-size: .88rem; color: #1e1b2e;
+    }
+    .chart-sub {
+        font-size: .68rem; color: #9ca3af;
+    }
+    .chart-body {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+    }
+    .chart-body canvas {
+        width: 100% !important;
+        height: 100% !important;
+    }
     .summary-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0,1fr));
+        grid-template-columns: repeat(2, minmax(0,1fr));
+        grid-template-rows: 1fr 1fr;
         gap: 14px;
-        margin-bottom: 16px;
+        height: 100%;
     }
-    @media (max-width: 1100px) { .summary-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
-    @media (max-width: 560px)  { .summary-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 900px) {
+        .summary-overview { grid-template-columns: 1fr; }
+        .chart-card { order: -1; }
+    }
+    @media (max-width: 560px) {
+        .summary-grid { grid-template-columns: 1fr; }
+    }
     .summary-card {
         display: flex; align-items: center; gap: 14px;
         background: #fff; border-radius: 16px; padding: 16px 18px;
@@ -769,13 +893,22 @@
     }
 
     /* ── Responsive: fleksibel di segala ukuran layar ────────────────── */
-    .filter-bar { flex-wrap: wrap; } /* default: boleh wrap di layar lebar */
+
 
     @media (max-width: 640px) {
-        /* Bar filter: rentang periodik + Reset + Input Spending TETAP 1 jajar */
-        .filter-bar { flex-wrap: nowrap; gap: 6px; }
-        .filter-bar .drp-trigger { flex: 1 1 auto; min-width: 0; }
-        .filter-bar .clay-btn { padding: 8px 10px; font-size: .72rem; white-space: nowrap; }
+        /* FAB: responsive pill stays horizontal, just tighter */
+        .fab-container { left: 12px; right: 12px; bottom: 12px; }
+        .fab-group { padding: 4px 5px; gap: 0; justify-content: center; }
+        .fab { padding: 8px 12px; font-size: .72rem; }
+        .fab-icon { font-size: .88rem; }
+        .fab-drp-wrap .drp-trigger { padding: 8px 12px !important; font-size: .72rem !important; }
+        .fab-divider { height: 18px; }
+        .fab-label { display: none; }
+        .fab-count { font-size: .68rem; padding: 6px 10px; }
+
+        /* Chart lebih padat */
+        .chart-card { padding: 14px; }
+        .chart-body { height: 170px; }
 
         /* Kartu summary lebih padat */
         .summary-card { padding: 12px 14px; gap: 10px; }
@@ -799,11 +932,7 @@
         .lvl3 th, .lvl3 td { padding: 6px 8px !important; }
         .lvl3 tbody tr td:first-child { padding: 6px 10px 6px 12px !important; }
 
-        /* FAB bulk delete: melayang penuh di bawah layar */
-        .bulk-bar {
-            left: 12px; right: 12px; bottom: 12px;
-            justify-content: center; flex-wrap: wrap; gap: 8px;
-        }
+
     }
 
     @media (max-width: 480px) {
@@ -1352,7 +1481,11 @@ function toggle(id) {
 
     function updateUI() {
         var n = selected.size;
-        if (bar) bar.style.display = n ? 'flex' : 'none';
+        // Toggle FAB: default vs selection
+        var fabDefault = document.getElementById('fab-default');
+        var fabSelection = document.getElementById('fab-selection');
+        if (fabDefault) fabDefault.style.display = n ? 'none' : 'flex';
+        if (fabSelection) fabSelection.style.display = n ? 'flex' : 'none';
         if (countEl) countEl.textContent = n;
 
         // Update checkbox select-all per produk (tristate)
@@ -1596,6 +1729,92 @@ function toggle(id) {
         resizeTimer = setTimeout(function() {
             scrollEl.style.maxHeight = measure() + 'px';
         }, 150);
+    });
+})();
+</script>
+@endpush
+
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+{{-- ── Chart Line Lead & Paid per Tanggal ── --}}
+(function() {
+    'use strict';
+    var canvas = document.getElementById('spendingChart');
+    if (!canvas) return;
+
+    var labels = @json($chartDates->map(fn($d) => \Carbon\Carbon::parse($d)->translatedFormat('d M')));
+    var leadData = @json($chartLead->toArray());
+    var paidData = @json($chartPaid->toArray());
+
+    var ctx = canvas.getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Lead',
+                    data: leadData,
+                    borderColor: '#8b5cf6',
+                    backgroundColor: 'rgba(139,92,246,0.08)',
+                    borderWidth: 2.5,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#8b5cf6',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: 'Paid',
+                    data: paidData,
+                    borderColor: '#4ECDC4',
+                    backgroundColor: 'rgba(78,205,196,0.08)',
+                    borderWidth: 2.5,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#4ECDC4',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { boxWidth: 12, boxHeight: 12, padding: 16, font: { size: 11, weight: '600' } }
+                },
+                tooltip: {
+                    backgroundColor: '#1e1b2e',
+                    titleFont: { size: 12, weight: '700' },
+                    bodyFont: { size: 11 },
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            return ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString('id-ID');
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 10 }, color: '#9ca3af' }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                    ticks: { font: { size: 10 }, color: '#9ca3af', callback: function(v) { return v.toLocaleString('id-ID'); } }
+                }
+            }
+        }
     });
 })();
 </script>
