@@ -156,10 +156,8 @@
                                     data-min-stock="{{ $p->min_stock }}" data-description="{{ $p->description }}"
                                     data-purchase-price="{{ $p->purchase_price }}" data-selling-price="{{ $p->selling_price }}"
                                     data-unit="{{ $p->unit }}" data-status="{{ $p->status }}">✏️</button>
-                            <form method="POST" action="{{ route('product.destroy', $p) }}" onsubmit="return confirm('Hapus produk {{ $p->name }} beserta variannya?')">
-                                @csrf @method('DELETE')
-                                <button type="submit" class="clay-btn clay-btn-sm clay-btn-danger" style="padding:5px 10px;font-size:.72rem;" title="Hapus produk">🗑</button>
-                            </form>
+                            <button type="button" class="clay-btn clay-btn-sm clay-btn-danger" style="padding:5px 10px;font-size:.72rem;" title="Hapus produk"
+                                    onclick="deleteProduct('{{ route('product.destroy', $p) }}', '{{ addslashes($p->name) }}')">🗑</button>
                         </div>
                     </td>
                 </tr>
@@ -511,6 +509,14 @@ function toggleVarian(id) {
                 .finally(function() { self.disabled = false; });
         });
     });
+
+    // ── HAPUS PRODUK ──────────────────────────────
+    window.deleteProduct = function(url, name) {
+        if (!confirm('Hapus produk ' + name + ' beserta variannya?')) return;
+        post(url, 'DELETE')
+            .then(function(json) { if (json.success) { window.location.reload(); } else { alert('Gagal: ' + json.message); } })
+            .catch(function(err) { alert('Error: ' + err.message); });
+    };
 
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {

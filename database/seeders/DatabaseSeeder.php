@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             CourierRuleSeeder::class,    // 8. Rules pemilihan courier
             WarehouseRuleSeeder::class,  // 8b. Rules kode produk → gudang saat export
             TrackingStatusRuleSeeder::class, // 8c. Rules status aggregator → status sistem
+            TrackingHeaderMappingSeeder::class, // 8d. Mapping header CSV dashboard → kolom DB (dari training/templateTracking)
             ExportTemplateMappingSeeder::class, // 9. Mapping export template (FLIK/SiCepat/SPX)
         ]);
     }

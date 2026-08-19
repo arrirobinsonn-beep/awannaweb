@@ -77,8 +77,12 @@ Route::middleware('auth')->group(function () {
         Route::patch('/warehouse-rules/{warehouseRule}/toggle', [WarehouseRuleController::class, 'toggle'])->name('warehouse-rule.toggle');
         Route::delete('/warehouse-rules/{warehouseRule}', [WarehouseRuleController::class, 'destroy'])->name('warehouse-rule.destroy');
 
-        // Aturan Status Aggregator (raw status dashboard → status sistem — dinamis dari DB)
+        // Aturan Status Aggregator — per dashboard: mapping header CSV → kolom DB + raw status → status sistem
         Route::get('/tracking-status-rules', [TrackingStatusRuleController::class, 'index'])->name('tracking-status-rule.index');
+        Route::get('/tracking-status-rules/{source}/edit', [TrackingStatusRuleController::class, 'edit'])->name('tracking-status-rule.edit');
+        Route::post('/tracking-status-rules/upload', [TrackingStatusRuleController::class, 'upload'])->name('tracking-status-rule.upload');
+        Route::post('/tracking-status-rules/{source}/mapping', [TrackingStatusRuleController::class, 'saveMapping'])->name('tracking-status-rule.mapping');
+        Route::post('/tracking-status-rules/{source}/config', [TrackingStatusRuleController::class, 'saveConfig'])->name('tracking-status-rule.config');
         Route::post('/tracking-status-rules', [TrackingStatusRuleController::class, 'store'])->name('tracking-status-rule.store');
         Route::put('/tracking-status-rules/{trackingStatusRule}', [TrackingStatusRuleController::class, 'update'])->name('tracking-status-rule.update');
         Route::patch('/tracking-status-rules/{trackingStatusRule}/toggle', [TrackingStatusRuleController::class, 'toggle'])->name('tracking-status-rule.toggle');

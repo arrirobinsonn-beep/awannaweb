@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ExportTemplate;
 use App\Models\OrderOnlineImportBatch;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -58,7 +59,11 @@ class OrderOnlineController extends Controller
             }
         }
 
-        $courierList = ShippingOrder::select('courier')->distinct()->whereNotNull('courier')->pluck('courier');
+        // Courier dinamis dari export_templates + undeliverable (special case)
+        $exportTemplates = ExportTemplate::where('is_active', true)->get();
+        $allCouriers = $exportTemplates->flatMap(fn ($t) => $t->couriers ?? [])->unique()->values()->sort()->values();
+        $allCouriers->push('undeliverable');
+        $courierList = $allCouriers;
 
         $products = Product::query()->orderBy('code')->with('variants')->get(['id', 'code', 'name']);
 
@@ -182,8 +187,16 @@ class OrderOnlineController extends Controller
             return back()->withErrors(['order' => 'Order sudah memiliki resi (AWB), tidak bisa diedit.']);
         }
 
+        // Validasi courier dari export_templates + undeliverable
+        $validCouriers = ExportTemplate::where('is_active', true)
+            ->get()
+            ->flatMap(fn ($t) => $t->couriers ?? [])
+            ->unique()
+            ->values()
+            ->push('undeliverable')
+            ->all();
         $request->validate([
-            'courier' => ['nullable', 'in:'.implode(',', CourierRuleService::COURIERS)],
+            'courier' => ['nullable', 'in:'.implode(',', $validCouriers)],
             'courier_note' => ['nullable', 'string', 'max:255'],
             'product_code' => ['nullable', 'string', 'max:191'],
         ]);

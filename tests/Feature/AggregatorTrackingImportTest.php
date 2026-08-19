@@ -256,6 +256,33 @@ class AggregatorTrackingImportTest extends TestCase
         $this->assertSame('2026-07-04 19:47:00', $order->delivered_at?->format('Y-m-d H:i:s'));
     }
 
+    public function test_import_spx_phone_starting_with_8_matches_db_62(): void
+    {
+        // SPX file memakai format 8xxxxx, DB menyimpan 62xxxxx → harus tetap merge
+        $product = $this->makeProduct();
+        $order = $this->makeOrder('6281234567890', $product, 2, 'Jl. Merdeka No. 10');
+
+        $path = $this->spxCsv([
+            [
+                'Tracking No.' => 'SPXID060407040699',
+                'Tracking Status' => 'Delivered',
+                'Delivered Time' => '04-07-2026 19:47',
+                'Recipient Phone Number' => '81234567890',
+                'Recipient Detail Address' => 'Jl. Merdeka No. 10',
+                'Item in Parcel' => 'Produk Tracking 2 pcs',
+                'No. of item in Parcel' => 2,
+            ],
+        ]);
+
+        $result = (new AggregatorTrackingImportService)->import($path);
+
+        $this->assertSame('spx', $result['source']);
+        $this->assertSame(1, $result['matched']);
+        $order->refresh();
+        $this->assertSame('SPXID060407040699', $order->awb);
+        $this->assertSame('delivered', $order->aggregator_status);
+    }
+
     public function test_import_returned_restores_stock(): void
     {
         $product = $this->makeProduct(100);
@@ -339,6 +366,137 @@ class AggregatorTrackingImportTest extends TestCase
         $order->refresh();
         $this->assertSame('999515101688', $order->awb);
         $this->assertSame('delivered', $order->aggregator_status);
+    }
+
+    public function test_import_falls_back_without_product_match(): void
+    {
+        // Dashboard FLIK asli: kolom "Nama Produk" berisi nama PROMO (bukan nama
+        // produk) → matcher gagal. Fallback tetap resolve via phone+qty+nama.
+        $product = $this->makeProduct();
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $order->update(['customer_name' => 'Deny Promo']);
+
+        $path = $this->flikCsv([
+            [
+                'Order ID' => 'uuid-promo-1',
+                'AWB' => 'SPXIDPROMO001',
+                'No Telp' => '0'.substr($phone, 2),
+                'Status' => 'Dikonfirmasi',
+                'Nama Produk' => 'Promo: PROMO Beli 1 Dapat 2 - Rp 129.000, Ukuran: Usia 43-44 Tahun Plus +1.25',
+                'Alamat Lengkap Penerima' => 'Jl. Merdeka No. 10',
+            ],
+        ]);
+
+        $result = (new AggregatorTrackingImportService)->import($path);
+
+        $this->assertSame(1, $result['matched']);
+        $order->refresh();
+        $this->assertSame('SPXIDPROMO001', $order->awb);
+        $this->assertSame('waiting_pickup', $order->aggregator_status);
+    }
+
+    public function test_import_extracts_qty_from_dapat_promo_text(): void
+    {
+        // "Beli 1 Dapat 2" → qty 2 (kolom qty tidak ada di FLIK, diekstrak dari teks)
+        $product = $this->makeProduct();
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+
+        $path = $this->flikCsv([
+            [
+                'Order ID' => 'uuid-dapat-1',
+                'AWB' => 'SPXIDDAPAT001',
+                'No Telp' => '0'.substr($phone, 2),
+                'Status' => 'Terkirim',
+                'Nama Produk' => 'Promo: PROMO Beli 1 Dapat 2 - Rp 129.000',
+                'Alamat Lengkap Penerima' => 'Jl. Merdeka No. 10',
+            ],
+        ]);
+
+        $result = (new AggregatorTrackingImportService)->import($path);
+
+        $this->assertSame(1, $result['matched']);
+        $this->assertSame('SPXIDDAPAT001', $order->refresh()->awb);
+    }
+
+    public function test_import_without_product_match_stays_ambiguous_when_not_unique(): void
+    {
+        // Fallback TIDAK boleh asal-cocok: 2 order phone+qty sama tanpa nama
+        // pembeda → tetap ambiguous (bukan match salah satu).
+        $product = $this->makeProduct();
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+
+        $path = $this->flikCsv([
+            [
+                'Order ID' => 'uuid-ambig-1',
+                'AWB' => 'SPXIDAMBIG001',
+                'No Telp' => '0'.substr($phone, 2),
+                'Status' => 'Dikonfirmasi',
+                'Nama Produk' => 'Promo: PROMO Beli 1 Dapat 2 - Rp 129.000',
+                'Alamat Lengkap Penerima' => 'Jl. Merdeka No. 10',
+            ],
+        ]);
+
+        $result = (new AggregatorTrackingImportService)->import($path);
+
+        $this->assertSame(0, $result['matched']);
+        $this->assertCount(1, $result['ambiguous']);
+    }
+
+    public function test_import_matches_by_customer_name(): void
+    {
+        // Dua order HP+produk+qty sama, alamat & nama BEDA → nama memutuskan
+        $product = $this->makeProduct();
+        $budi = $this->makeOrder('6281234567890', $product, 1, 'Jl. A No. 1');
+        $andi = $this->makeOrder('6281234567890', $product, 1, 'Jl. B No. 2');
+        $budi->update(['customer_name' => 'Budi Santoso']);
+        $andi->update(['customer_name' => 'Andi Wijaya']);
+
+        $path = $this->sicepatCsv([
+            [
+                'Nomor Resi' => '999515101688',
+                'Status' => 'Terkirim',
+                'Nama Penerima' => 'Andi Wijaya',
+                'Isi Paket' => 'Produk Tracking 1 pcs',
+                'Jumlah Isi Paket' => 1,
+                'Alamat Penerima' => 'Jl. B No. 2',
+                'No. HP Penerima' => '081234567890',
+            ],
+        ]);
+
+        $result = (new AggregatorTrackingImportService)->import($path);
+
+        $this->assertSame(1, $result['matched']);
+        $this->assertSame('999515101688', $andi->refresh()->awb);
+        $this->assertNull($budi->refresh()->awb);
+    }
+
+    public function test_import_name_wins_over_address_when_unique(): void
+    {
+        // Nama cocok unik meski alamat file beda dari DB → nama tier 1 menang
+        $product = $this->makeProduct();
+        $order = $this->makeOrder('6281234567890', $product, 1, 'Jl. Asli No. 1');
+        $order->update(['customer_name' => 'Budi Santoso']);
+
+        $path = $this->sicepatCsv([
+            [
+                'Nomor Resi' => '999515101688',
+                'Status' => 'Terkirim',
+                'Nama Penerima' => 'Budi Santoso',
+                'Isi Paket' => 'Produk Tracking 1 pcs',
+                'Jumlah Isi Paket' => 1,
+                'Alamat Penerima' => 'Jl. Berbeda',
+                'No. HP Penerima' => '081234567890',
+            ],
+        ]);
+
+        $result = (new AggregatorTrackingImportService)->import($path);
+
+        $this->assertSame(1, $result['matched']);
+        $this->assertSame('999515101688', $order->refresh()->awb);
     }
 
     public function test_import_ambiguous_is_not_updated(): void

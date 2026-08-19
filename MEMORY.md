@@ -1,4 +1,95 @@
+# MEMORY — 15 Agustus 2026
+
+## Follow-up (hari yang sama): Hapus hardcode detectSource — 100% DB-driven
+
+- **Latar**: user minta "hapus saja detect source, kalau memang hardcode hapus saja — sistem ini dirancang untuk dinamis". `detectSource()` punya fallback hardcoded flik/sicepat/spx yang menimpa deteksi DB.
+- **Fix**: Hapus SEMUA hardcoded di `detectSource()` — sekarang 100% dari `tracking_header_mappings`. Jika tidak ada mapping di DB → RuntimeException "Belum ada mapping header". Jika file tidak match ≥2 header → RuntimeException "Sumber file tidak dikenali".
+- **Chicken-and-egg**: seeder `TrackingHeaderMappingSeeder` panggil `extractDefaultMapping()` yang panggil `detectSource()` → gagal karena belum ada mapping. **Fix**: `extractDefaultMapping()` + `extractHeaders()` + `parse()` + `import()` semua terima param opsional `?string $source = null` — jika source di-pass, skip `detectSource()` (seeder/pipeline passed source eksplisit). View edit.blade.php kirim `source` via FormData saat upload.
+- **Pipeline**: `verify_pipeline.php` cleanup delete tracking_header_mappings → seed ulang via `extractDefaultMapping(path, source)` langsung (bukan lewat Seeder class).
+- **Test**: 3 test upload diperbaiki — kirim `source` param saat upload/parse. Semua 34 tracking tests pass, suite 158 pass, pipeline 104/104 PASS.
+
+## Follow-up (hari yang sama): Fix 3 masalah tracking/export
+
+- **Masalah 1 — FLIX tidak baca template export** di halaman tracking-status-rule: `$templateMap` di controller di-build dengan key courier names (`flix-tf`, `sicepat`, `spx`) tapi view lookup dengan source key (`flik`, `sicepat`, `spx`). **Fix**: `$templateMap = $exportTemplates->keyBy('key')->all()` — key = template key (flik/sicepat/spx/idxe).
+- **Masalah 2 — Upload tracking IDX terdeteksi sebagai SPX**: `detectSource()` hardcoded hanya kenali flik/sicepat/spx → fallback ke `spx`. **Fix**: deteksi DB-driven dari `tracking_header_mappings` — hitung berapa header ter-map per source muncul di file CSV → source terbanyak menang (≥2 match). Fallback ke hardcoded tetap ada untuk backward-compat tanpa mapping DB.
+- **Masalah 3 — 'tidak ada template export'**: error dari `OrderTemplateExportService::buildRows()` saat `mappingFor($template)` kosong. Dikarenakan `mappingFor()` cache per-request dan grouped by `template` key — jika user baru buat template tapi belum upload/save mapping, `$mapping->isEmpty()` = true → RuntimeException. Ini bukan bug kode, tapi UX: admin harus upload mapping dulu setelah buat template. Tidak perlu fix kode.
+- **Verifikasi**: 34 tracking tests pass, suite 158 pass (ExampleTest pre-existing), pipeline 104/104 PASS.
+
+## Follow-up (hari yang sama): Fix ProductController — return JSON untuk AJAX (store/update/destroy)
+
+- **Latar**: user lapor edit produk error "The PUT method is not supported for route product. Supported methods: GET, HEAD, POST." Akar masalah: JS memakai `fetch()` (AJAX) tapi controller `store()`/`update()`/`destroy()` return `redirect()` → fetch mengikuti redirect 302 ke `/product` (GET only) → method PUT tidak ada di sana.
+- **Fix controller**: `ProductController::store/update/destroy` return `response()->json(['success' => true, 'message' => ...])` alih-alih `redirect()->route('product.index')`. Hapus import `RedirectResponse` yang tidak dipakai.
+- **Fix view**: delete button di `product/index.blade.php` diubah dari `<form>` HTML ke button AJAX (`deleteProduct(url, name)`) + JS function `deleteProduct` yang pakai `post(url, 'DELETE')`. 
+- **Fix test**: `OrderOnlineTest::test_product_master_page_create_update_toggle_destroy` — 3 assertion `assertRedirect(route('product.index'))` diganti `assertOk()->assertJson(['success' => true])`.
+- **Verifikasi**: `test_product*` 6/6 pass, pipeline 104/104 PASS. 10 test gagal = packaging/export pre-existing (stok DB dev terkuras, bukan regresi).
+
+## Session: Courier dropdown dinamis dari export_templates + Tracking rules validasi template export
+
+- **Latar**: user baru tambah template export `idxeveropro` (courier `IDEXPRESS`) tapi courier dropdown di halaman Data Mentah masih pakai hardcode `CourierRuleService::COURIERS` (7 value lama, tidak ada IDEXPRESS). Tracking status rules juga `SOURCES` hardcode `[flik,sicepat,spx]`.
+- **Fix courier dropdown**: `OrderOnlineController::index()` kini kumpulkan courier dari `ExportTemplate::where('is_active')` → `flatMap(couriers)` → unique + push `undeliverable` → pass `$courierList`. View `order/index.blade.php` ganti `CourierRuleService::COURIERS` → `$courierList`. `update()` validasi courier juga dinamis dari `ExportTemplate`.
+- **Fix tracking SOURCES**: `TrackingStatusRuleController` tambah `validSources()` — gabungan `TrackingStatusRule::SOURCES` + `ExportTemplate::pluck('key')` (unique). Semua validasi `in_array($source, ...)` diganti pakai `validSources()`. Index view kini render **template export reference** (nama, couriers) + tombol ➕ untuk template baru yang belum punya tracking rules.
+- **Verifikasi**: 34 tracking tests pass, suite 158 pass (ExampleTest 302 pre-existing), pipeline 104/104 PASS. Tidak ada migrasi baru.
+- **Deploy**: `git pull` di VPS (tidak perlu migrate — tidak ada schema change).
+
+## Follow-up (hari yang sama): CourierRuleController juga harus dinamis
+
+- **Latar**: user lapor "halaman courier-rules dropdown courier masih hardcode". Cek `CourierRuleController` — masih pakai `CourierRuleService::COURIERS` di 3 tempat: `index()` (pass ke view), `store()` (validasi), `update()` (validasi).
+- **Fix**: tambah `use App\Models\ExportTemplate;` + method `allCouriers()` (kumpulkan dari `ExportTemplate::where('is_active')` + push `undeliverable` + sort). Ganti 3 titik hardcode → `$this->allCouriers()`. Sekarang saat admin tambah template baru (mis. `idxeveropro` → `IDEXPRESS`), courier itu langsung muncul di dropdown courier-rules.
+- **Test**: `CourierRuleTest` **13/13 pass**. Suite **158 pass** (ExampleTest 302 pre-existing). Pipeline **104/104 PASS**.
+
+## Session: Fallback produk tak dikenal di import tracking + seeder template header (FLIK gagal terus)
+
+- **Latar**: user lapor "FLIK gagal terus". Saya cek `training/flix.xlsx` (dashboard FLIK asli 2.404 baris) & `training/02_flik.csv` (7 baris — BUKAN konversi xlsx, isinya beda: produknya nama PROMO). Import `02_flik.csv` → 0 matched padahal 7 order-nya ADA di DB.
+- **Akar masalah 1 — matcher produk**: kolom "Nama Produk" dashboard FLIK berisi **nama PROMO** (`Promo: PROMO Beli 1 Dapat 2 - Rp 129.000, Ukuran: ...`, `PROMO: PAKET 1 DAPAT 9 PCS`) bukan nama produk → `ProductNameMatcher::match` null → `resolveOrder` langsung `unmatched` (guard `productId === null`).
+- **Akar masalah 2 — quantity**: order DB qty 2, file tak punya kolom qty → `extractQuantity` hanya paham `N pcs`, fallback 1 → mismatch qty (1 ≠ 2).
+- **Fix (opsi 1, disetujui user)**: `resolveOrder` saat `productId === null` → filter hanya `quantity` (tanpa produk), lanjut tier nama → alamat → unik; >1 kandidat tanpa pembeda → tetap ambiguous (tidak asal-cocok). `extractQuantity` + pola `Dapat N` (Beli 1 Dapat 2 → 2, konsisten `OrderOnlineImportService`).
+- **Verifikasi nyata**: `02_flik.csv` 7 baris → **4 matched** (Aan Gorden/Edi fermana/Hendrik/As ac), 2 unmatched sah (Deny belum_diproses, Indrahaji phone tak ada di DB), 1 ambiguous (2 order Ishak identik — benar). `flix.xlsx` 2.404 baris → 6 matched (mayoritas unmatched karena phone tak ada di DB — bukan bug).
+- **Jebakan test**: phone `6281234567890` terkontaminasi 171 order sisa di DB dev (test lama tidak cleanup) → test fallback baru WAJIB phone unik (`62812`.substr(uniqid(),-8)) + nama unik.
+- **Test**: `AggregatorTrackingImportTest` +3 → **15/15** (fallback promo tetap match; qty "Dapat 2"; ambiguous dipertahankan). Suite **158 pass** (ExampleTest 302 pre-existing) · pipeline **104/104 PASS**.
+
+## Session: Seeder template tracking — `TrainingHeaderMappingSeeder` (dari training/templateTracking)
+
+- **Latar**: user simpan template header dashboard di `training/templateTracking/` (header_flix.csv, header_sicepat.csv, header_spx.csv) → jadikan seeder.
+- **`AggregatorTrackingImportService::extractDefaultMapping(filePath)`** (baru, publik): baca file → `detectSource` + `cleanHeaders` + `mapHeaders($headers, $source, [])` (param baru `$dbMap` opsional, `[]` = murni alias tanpa DB) → `[source, mapping: header→db_column]`.
+- **`TrackingHeaderMappingSeeder`** (baru): loop 3 file → `extractDefaultMapping` → `updateOrCreate` per (source, header) (idempotent, mapping admin tidak dihapus). Hasil: FLIK 8 kolom, SiCepat 8, SPX 9. Terdaftar di `DatabaseSeeder` (8d).
+- **Test lama diperbaiki** (kini ada data bawaan di DB dev): `test_upload_parses_csv_headers_with_carry_over` & `test_save_mapping_rejects_duplicate_header` harus delete mapping flik di awal+finally. +`test_seeder_populates_default_header_mappings_from_templates` (cek mapping kunci tiap source + idempotent 2× jalankan). `TrackingStatusRuleTest` **19/19**.
+
 # MEMORY — 14 Agustus 2026
+
+## Fix: test packaging OrderOnlineTest tidak idempotent (order_id tetap → stok terkontaminasi)
+
+- **Gejala**: `test_undeliverable_restores_packaging_stock` gagal konsisten bahkan dijalankan sendiri (stok BOX −2 ekstra: 872 vs 870). Test packaging lama memakai `order_id` TETAP (`PKG-UND-1`, `PKG-KMP-1`, `PKG-KBJ-1`, `PKG-NOBOX`) tanpa cleanup — sisa order dari run sebelumnya yang gagal di tengah ikut ke-export (courier=flix-tf, EXPORTABLE) → `recordOutWithPackaging` memotong stok 2×. DB dev tidak di-refresh, jadi run berikutnya terkontaminasi.
+- **Fix**: semua `order_id` di test packaging (`PKG-*`) diganti `uniqid('PKG-')` (+ pastikan `ensureCatalog`/`makeProduct` dsb tetap jalan) — pola sama dengan test lain yang memakai `uniqid()`.
+- **Verifikasi**: `test_undeliverable_restores_packaging_stock` 1/1, `OrderOnlineTest` **66/66** (356 assertions), suite penuh **154 pass** (hanya ExampleTest 302 pre-existing), pipeline **104/104 PASS**.
+
+## Session: Aturan Status — UI mapping DIBALIK + matching NAMA + kolom masalah data-driven (follow-up)
+
+- **Latar (klarifikasi user)**: konsep tracking = upload CSV dashboard; header file tracking & export template bisa beda walau satu dashboard. Pencocokan ingin pakai **no HP + NAMA** pelanggan. Mapping DIBALIK: **kolom kiri = kolom DATABASE (teks statis, BUKAN form — DB tidak berubah), kolom kanan = header CSV dari file upload**. Konversi status tetap (raw → status unik standar). Kolom masalah HARUS dinamis termasuk keunikan FLIK (status normal di kolom A, masalah di kolom B header beda yang isinya DIAWALI "Problem") → aggregator baru cukup konfigurasi, tanpa ubah kode.
+- **`TrackingHeaderMapping::COLUMNS`** + `customer_name` (Nama Pelanggan) → registry **9 kolom**. `aliasMap` + customer_name (`nama shopper`/`recipient name`/`nama penerima`/`customer name`/`buyer name`/`nama pelanggan` — TIDAK pakai `penerima` sendirian: menangkap "alamat penerima" → salah map ke nama).
+- **`AggregatorTrackingImportService::normalizeRow`** + baca `customer_name`/`name_norm`; **`resolveOrder`** tier baru: **nama (bila file memuat) → alamat → unik** — nama menang walau alamat beda; 2 order nama sama → coba alamat, masih 2 → ambiguous.
+- **`problem_match_type`** (migration `2026_08_14_100001`, default `contains`): cara cocok kolom masalah → `starts_with` = DIAWALI keyword (FLIK 3PL "Problem..."). `TrackingStatusRuleService::problemColumnMatches(column, keyword, matchType)`. Seeder FLIK problem → `starts_with`, sisanya `contains`. Form tambah/modal edit + select Cara Cocok Kolom Masalah (muncul saat problem_mode=required).
+- **UI dibalik**: `extractHeaders` return `{source, headers[] (array string), mapping{db_column=>header}}` (carry-over per kolom DB); `saveHeaderMapping` terima items `{db_column, header}` + **RuntimeException bila 1 header dipakai 2 kolom** (unique `(source,header)`); controller `saveMapping` validasi `db_column required in:COLUMNS`, header nullable + catch RuntimeException → error mapping. View `edit.blade.php`: tabel kiri kolom DB teks statis, kanan select header; upload isi dropdown + pre-select; JS cegah duplikat header (option disabled); submit items per kolom DB.
+- **Test**: `TrackingStatusRuleTest` 14 → **17** (upload carry-over per db_column, save mapping incl. customer_name, duplikat header ditolak, `starts_with` diawali vs mengandung); `AggregatorTrackingImportTest` +2 (matching nama: nama memutuskan 2 order HP+produk+qty sama; nama menang walau alamat file beda). Suite **151 pass** (ExampleTest 302 pre-existing); pipeline **104/104 PASS**.
+- AGENTS.md section S di-update (deskripsi UI dibalik, implementasi, Penting, suite count).
+
+## Session: Halaman Aturan Status → mapping HEADER CSV per DASHBOARD (koreksi arah)
+
+- **Koreksi user**: interpretasi pertama saya (upload file → map STATUS VALUE) SALAH. Maksud sebenarnya: user ingin mencocokkan **header CSV** dengan **kolom yang ingin diisi di database** (persis pola export-mapping), dan tampilan dipisah **per dashboard** (FLIK/SiCepat/SPX) — bukan disatukan.
+- **`tracking_header_mappings`** (migration `2026_08_14_100000`): `source`, `header` (normalized), `db_column`; UNIQUE `(source, header)` nama eksplisit `tracking_header_mappings_combo_unique`. Model `TrackingHeaderMapping` + konstanta **`COLUMNS`** (registry 8 kolom: tracking_number/phone/address/product_name/quantity/status/problem/delivered_date) — sumber kebenaran dropdown & validasi.
+- **Service**: `mapHeaders` kini DB-aware — `headerMappingFor(source)` (cache per instance) → mapping DB **menang per header**, header lain fallback alias hardcoded (mapping sebagian tidak memutus kolom lain). `extractHeaders(filePath)` (header unik + carry-over db_column) + `saveHeaderMapping(source, items)` (bulk replace 1 transaksi). `extractStatuses` dihapus.
+- **Controller**: `index` → kartu per dashboard (hitungan via 2 aggregate groupBy); `edit($source)` → halaman per dashboard (mapping header + rules khusus sumber); `upload` (JSON `{source, headers[]}`, file di-`store` dulu agar path punya ekstensi — pola `trackingImport`, `createWithContent` juga pathname tanpa ekstensi); `saveMapping` (validasi `db_column in:COLUMNS`, redirect ke edit). `parse`/`apply` (flow status-value lama) DIHAPUS beserta routes-nya.
+- **Views**: `index` → kartu dashboard (gradient per ekspedisi, jumlah mapping + rules, tombol Edit); `edit` (baru) → kartu Mapping Header CSV (upload → tabel header → dropdown kolom DB, simpan via JS hidden `items[]`, validasi sumber file = dashboard dibuka) + kartu Aturan Status (tabel rule khusus sumber + form manual `source` hidden + modal edit).
+- **Test** `TrackingStatusRuleTest` 14: index kartu, edit scoped per dashboard (rule flik tak tampil di spx), upload header + carry-over, **save mapping → import parse pakai header tak standar** (RESI001/hp customer/status paket dll, cleanup mapping & rule di finally), + 10 test lama tetap hijau. Pipeline + cleanup `TrackingHeaderMapping::query()->delete()` di awal (agar import tracking selalu pakai alias bawaan).
+- **Verifikasi**: suite **147 pass** (hanya ExampleTest 302 pre-existing) · pipeline **104/104 PASS**. AGENTS.md section S di-update (deskripsi per dashboard, implementasi, Penting).
+
+## Session: Fitur Copy ke WhatsApp di detail laporan operasional
+
+- **Latar**: user minta tombol copy di halaman detail laporan (`/laporan-operasional/{batch}`) yang mengubah SEMUA isinya jadi teks untuk di-paste di WhatsApp (bukan screenshot).
+- **Implementasi (view-only, tanpa controller)**: teks dibangun **server-side di `@php`** view `laporan/batch.blade.php` — `$copyText` memakai `$rows`/`$grouped` yang SAMA dengan tabel (format angka identik `number_format(...,0,',','.')`; pemisah varian pcs 2 vs 4 tetap baris terpisah). Format WA: header (pengirim, rentang, batch) → ringkasan (order/resi, qty, uang masuk, HPP, margin %) → `━━━ BARANG TERJUAL ━━━` per produk + baris varian (`kode (+power) | nama | N pcs/order ×J = Q pcs — Rp (HPP)`) → `━━━ TOTAL ━━━`.
+- **Mekanisme copy**: teks disimpan di `<textarea id="copy-report-text" hidden>` (dibaca `.value` — HTML-escape ter-decode otomatis oleh browser) + `<pre id="copy-report-fallback">`. JS: `navigator.clipboard.writeText` (cek `window.isSecureContext` — di HTTP non-localhost clipboard API undefined) → fallback `document.execCommand('copy')` dengan `select()`+`setSelectionRange` → gagal total → `<pre>` fallback tampil utk blok manual. Textarea pakai `position:fixed;left:-9999px` (BUKAN `display:none`) agar select/execCommand tetap jalan.
+- **Tombol**: `📋 Copy ke WhatsApp` (`#btn-copy-report`, `clay-btn-primary`) di header batch samping tombol Kembali; feedback "✅ Tersalin — paste di WhatsApp!" / "❌ Gagal — blok teks di bawah manual".
+- **Test** `OperationalReportTest` +1 → 11/11: `test_batch_detail_has_whatsapp_copy_text` — halaman memuat btn/textarea/pre + isi teks (LAPORAN PENGIRIM, BARANG TERJUAL, 2 pcs, 238.000, HPP 140.000).
+- **Verifikasi**: suite **145 pass** (hanya ExampleTest 302 pre-existing) · pipeline **104/104 PASS**. AGENTS.md section T di-update.
 
 ## Session: Laporan hanya hitung order yang DIPROSES (cancel/belum_diproses/duplikat/undeliverable dikecualikan)
 

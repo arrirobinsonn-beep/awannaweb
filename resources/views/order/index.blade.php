@@ -272,7 +272,7 @@
                                                     @csrf @method('PUT')
                                                     <select name="courier">
                                                         <option value="">— Pilih —</option>
-                                                        @foreach(\App\Services\CourierRuleService::COURIERS as $cc)
+                                                        @foreach($courierList as $cc)
                                                             <option value="{{ $cc }}" @selected($o->courier === $cc)>{{ $cc }}</option>
                                                         @endforeach
                                                     </select>

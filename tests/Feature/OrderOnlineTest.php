@@ -1404,7 +1404,7 @@ class OrderOnlineTest extends TestCase
         $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-KMP-1', 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+        $order = $this->createOrder($batch->id, 'PKG-KMP-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
         $variantId = $order->product_variant_id;
         $kdf = ProductVariant::where('product_id', Product::where('code', 'KDF')->firstOrFail()->id)
             ->where('power', ProductVariant::find($variantId)->power)
@@ -1482,7 +1482,7 @@ class OrderOnlineTest extends TestCase
         $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-KBJ-1', 'Pkg Customer', 'flix-tf', 'real', $kbj->id, 'KBJ', 3);
+        $order = $this->createOrder($batch->id, 'PKG-KBJ-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kbj->id, 'KBJ', 3);
         $order->update(['product_variant_id' => $kbjVariant->id]);
 
         $before = [
@@ -1514,7 +1514,7 @@ class OrderOnlineTest extends TestCase
         $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-KBJ-0', 'Pkg Customer', 'flix-tf', 'real', $kbj->id, 'KBJ', 1);
+        $order = $this->createOrder($batch->id, 'PKG-KBJ0-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kbj->id, 'KBJ', 1);
         $order->update(['product_variant_id' => $kbjVariant->id]);
 
         $before = [
@@ -1542,7 +1542,7 @@ class OrderOnlineTest extends TestCase
         $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-UND-1', 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+        $order = $this->createOrder($batch->id, 'PKG-UND-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
         $variantId = $order->product_variant_id;
 
         $before = [
@@ -1574,7 +1574,7 @@ class OrderOnlineTest extends TestCase
         $box = ProductVariant::where('code', 'BOX')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-NOBOX', 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+        $order = $this->createOrder($batch->id, 'PKG-NOBOX-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
         $variantId = $order->product_variant_id;
         $beforeKmp = $stock->stockOf($variantId);
 
@@ -2280,7 +2280,7 @@ class OrderOnlineTest extends TestCase
                 'status' => 'active',
                 'min_stock' => 4,
             ])
-            ->assertRedirect(route('product.index'));
+            ->assertOk()->assertJson(['success' => true]);
 
         $product = Product::where('code', $code)->firstOrFail();
         $this->assertSame('core', $product->goods_type);
@@ -2299,7 +2299,7 @@ class OrderOnlineTest extends TestCase
                 'unit' => 'pcs',
                 'status' => 'active',
             ])
-            ->assertRedirect(route('product.index'));
+            ->assertOk()->assertJson(['success' => true]);
         $product->refresh();
         $this->assertSame('Produk Master Diubah', $product->name);
         $this->assertSame('additional', $product->goods_type);
@@ -2309,10 +2309,10 @@ class OrderOnlineTest extends TestCase
             ->patchJson(route('product.toggle-status', $product))
             ->assertJson(['success' => true, 'status' => 'inactive']);
 
-        // Hapus (soft delete)
+        // Hapus
         $this->actingAs($user)
             ->delete(route('product.destroy', $product))
-            ->assertRedirect(route('product.index'));
+            ->assertOk()->assertJson(['success' => true]);
         $this->assertNull(Product::find($product->id));
     }
 

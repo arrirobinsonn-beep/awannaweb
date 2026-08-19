@@ -19,6 +19,7 @@
 
 use App\Models\CourierRule;
 use App\Models\ExportTemplateMapping;
+use App\Models\TrackingHeaderMapping;
 use App\Models\TrackingStatusRule;
 use App\Models\OrderOnlineImportBatch;
 use App\Models\ProductVariant;
@@ -110,6 +111,28 @@ foreach (ShippingOrder::whereIn('order_id', $orderIds)->get() as $o) {
     $removed++;
 }
 echo "  Dihapus {$removed} order lama (jurnal dibalik).\n";
+
+// Mapping header CSV + config per dashboard (fitur Aturan Status) — hapus sisa
+// run agar import tracking selalu memakai alias bawaan / konfigurasi default.
+TrackingHeaderMapping::query()->delete();
+\App\Models\TrackingSourceConfig::query()->delete();
+echo "  Tracking header mappings & config dibersihkan.\n";
+
+// Seed ulang mapping header dari template (diperlukan agar detectSource bisa jalan)
+$svc = new \App\Services\AggregatorTrackingImportService;
+$dirTpl = base_path('training/templateTracking');
+foreach (['flik' => 'header_flix.csv', 'sicepat' => 'header_sicepat.csv', 'spx' => 'header_spx.csv'] as $src => $file) {
+    $fp = $dirTpl.'/'.$file;
+    if (! file_exists($fp)) continue;
+    $result = $svc->extractDefaultMapping($fp, $src);
+    foreach ($result['mapping'] as $header => $dbCol) {
+        \App\Models\TrackingHeaderMapping::updateOrCreate(
+            ['source' => $src, 'header' => $header],
+            ['db_column' => $dbCol],
+        );
+    }
+}
+echo '  Tracking header mapping di-seed ulang.\n';
 
 // ─── 1. IMPORT ──────────────────────────────────────────────────────────────
 echo "\n── 1. Import data mentah ─────────────────────────────────\n";
