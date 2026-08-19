@@ -14,8 +14,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
  * dari file dashboard aggregator (FLIK / SiCepat / SPX) yang di-upload admin.
  *
  * Baris file dihubungkan ke order lewat signature:
- *   Tier 1: phone_normalized + product_id + quantity + alamat (dinormalisasi)
- *   Tier 2 (fallback): phone_normalized + product_id + quantity (bila tier 1 kosong)
+ * Pencocokan hanya pakai 2 kolom: phone_normalized + customer_name
  *
  * `aggregator_status` dinormalisasi ke 6 nilai Inggris (ShippingOrder::TRACKING_STATUSES).
  * Ketika status berubah menjadi `returned`, stok yang di-reserve saat export
@@ -207,8 +206,6 @@ class AggregatorTrackingImportService
         $source = $rows->first()['source'];
 
         return DB::transaction(function () use ($rows, $source) {
-            $productIndex = $this->matcher->buildIndex();
-
             $candidates = ShippingOrder::whereIn('phone_normalized', $rows->pluck('phone_normalized')->unique()->all())
                 ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
                 ->get()
@@ -221,8 +218,7 @@ class AggregatorTrackingImportService
             $ambiguous = [];
 
             foreach ($rows as $row) {
-                $product = $this->matcher->match($row['product_text'] ?? '', $productIndex);
-                $resolved = $this->resolveOrder($candidates->get($row['phone_normalized'], collect()), $product?->id, $row);
+                $resolved = $this->resolveOrder($candidates->get($row['phone_normalized'], collect()), $row);
 
                 if ($resolved['ambiguous']) {
                     $ambiguous[] = $row['awb'];
@@ -273,70 +269,36 @@ class AggregatorTrackingImportService
     }
 
     /**
-     * Cari 1 order yang cocok dengan baris tracking (tier 1 lalu tier 2).
+     * Cari 1 order yang cocok dengan baris tracking.
      *
-     * Saat produk TIDAK dikenali (mis. kolom "Nama Produk" dashboard FLIK berisi
-     * nama promo seperti "Promo: PROMO Beli 1 Dapat 2...", bukan nama produk),
-     * fallback tetap mencoba resolve via phone + quantity + nama/alamat — order
-     * yang cocok tetap ketemu walau matcher produk gagal. Keunikan tetap dijaga:
-     * bila ada >1 kandidat dan nama/alamat tidak memutuskan → ambiguous.
+     * Pencocokan hanya berdasarkan 2 kolom:
+     * - `phone_normalized` (sudah di-filter di batch query)
+     * - `customer_name` (dari kolom "Nama Penerima" / "Customer Name" file)
      *
-     * @param  Collection<int, ShippingOrder>  $candidates
+     * @param  Collection<int, ShippingOrder>  $candidates  kandidat dengan phone SAMA
      * @return array{order:?ShippingOrder,ambiguous:bool}
      */
-    protected function resolveOrder(Collection $candidates, ?int $productId, array $row): array
+    protected function resolveOrder(Collection $candidates, array $row): array
     {
-        if ($productId !== null) {
-            $sameProduct = $candidates->filter(
-                fn ($o) => (int) $o->product_id === $productId && (int) $o->quantity === $row['quantity']
-            );
-        } else {
-            // Produk tak dikenal → filter cukup phone + quantity; nama/alamat memutuskan
-            $sameProduct = $candidates->filter(
-                fn ($o) => (int) $o->quantity === $row['quantity']
-            );
-        }
-        if ($sameProduct->isEmpty()) {
+        $nameNorm = trim((string) ($row['name_norm'] ?? ''));
+        if ($nameNorm === '') {
+            // Nama kosong di file → tidak bisa match
             return ['order' => null, 'ambiguous' => false];
         }
 
-        // Tier 1: nama pelanggan (bila file memuatnya) — lebih spesifik dari alamat
-        $nameNorm = trim((string) ($row['name_norm'] ?? ''));
-        if ($nameNorm !== '') {
-            $byName = $sameProduct->filter(fn ($o) => $this->normalizeName($o->customer_name) === $nameNorm);
-            if ($byName->count() === 1) {
-                return ['order' => $byName->first(), 'ambiguous' => false];
-            }
-            if ($byName->count() > 1) {
-                // Beberapa order nama sama → coba pisahkan lewat alamat
-                $byNameAndAddress = $byName->filter(
-                    fn ($o) => $this->normalizeAddress($o->address) === $row['address_norm']
-                );
-                if ($byNameAndAddress->count() === 1) {
-                    return ['order' => $byNameAndAddress->first(), 'ambiguous' => false];
-                }
-
-                return ['order' => null, 'ambiguous' => true];
-            }
-            // Nama tidak cocok dengan siapa pun → lanjut coba alamat
-        }
-
-        $byAddress = $sameProduct->filter(
-            fn ($o) => $this->normalizeAddress($o->address) === $row['address_norm']
+        $byName = $candidates->filter(
+            fn ($o) => $this->normalizeName($o->customer_name) === $nameNorm
         );
-        if ($byAddress->count() === 1) {
-            return ['order' => $byAddress->first(), 'ambiguous' => false];
+
+        if ($byName->count() === 1) {
+            return ['order' => $byName->first(), 'ambiguous' => false];
         }
-        if ($byAddress->count() > 1) {
+        if ($byName->count() > 1) {
             return ['order' => null, 'ambiguous' => true];
         }
 
-        // Tier terakhir: tanpa alamat/nama, hanya bila unik
-        if ($sameProduct->count() === 1) {
-            return ['order' => $sameProduct->first(), 'ambiguous' => false];
-        }
-
-        return ['order' => null, 'ambiguous' => true];
+        // Nama tidak cocok dengan siapa pun
+        return ['order' => null, 'ambiguous' => false];
     }
 
     /**

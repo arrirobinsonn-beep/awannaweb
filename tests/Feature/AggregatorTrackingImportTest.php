@@ -180,13 +180,16 @@ class AggregatorTrackingImportTest extends TestCase
     public function test_import_flik_fills_awb_status_and_delivered_at(): void
     {
         $product = $this->makeProduct();
-        $order = $this->makeOrder('6281234567890', $product, 2, 'Jl. Merdeka No. 10');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $local = substr($phone, 2);
 
         $path = $this->flikCsv([
             [
                 'Order ID' => 'uuid-1',
                 'AWB' => 'SPXID123456789',
-                'No Telp' => '081234567890',
+                'No Telp' => '0'.$local,
+                'Nama Shopper' => 'Customer Tracking',
                 'Status' => 'Terkirim',
                 'Nama Produk' => 'Produk Tracking 2 pcs',
                 'Terakhir Update' => '8/9/2026 17:34',
@@ -208,16 +211,19 @@ class AggregatorTrackingImportTest extends TestCase
     public function test_import_sicepat_fills_status(): void
     {
         $product = $this->makeProduct();
-        $order = $this->makeOrder('6281234567890', $product, 2, 'Jl. Merdeka No. 10');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $local = substr($phone, 2);
 
         $path = $this->sicepatCsv([
             [
                 'Nomor Resi' => '999515101688',
                 'Status' => 'Proses pengiriman',
+                'Nama Penerima' => 'Customer Tracking',
                 'Isi Paket' => 'Produk Tracking 2 pcs',
                 'Jumlah Isi Paket' => 2,
                 'Alamat Penerima' => 'Jl. Merdeka No. 10',
-                'No. HP Penerima' => '081234567890',
+                'No. HP Penerima' => '0'.$local,
             ],
         ]);
 
@@ -233,14 +239,17 @@ class AggregatorTrackingImportTest extends TestCase
     public function test_import_spx_fills_delivered_at(): void
     {
         $product = $this->makeProduct();
-        $order = $this->makeOrder('6281234567890', $product, 2, 'Jl. Merdeka No. 10');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $local = substr($phone, 2);
 
         $path = $this->spxCsv([
             [
                 'Tracking No.' => 'SPXID060407040698',
                 'Tracking Status' => 'Delivered',
                 'Delivered Time' => '04-07-2026 19:47',
-                'Recipient Phone Number' => '081234567890',
+                'Recipient Name' => 'Customer Tracking',
+                'Recipient Phone Number' => '0'.$local,
                 'Recipient Detail Address' => 'Jl. Merdeka No. 10',
                 'Item in Parcel' => 'Produk Tracking 2 pcs',
                 'No. of item in Parcel' => 2,
@@ -260,14 +269,17 @@ class AggregatorTrackingImportTest extends TestCase
     {
         // SPX file memakai format 8xxxxx, DB menyimpan 62xxxxx → harus tetap merge
         $product = $this->makeProduct();
-        $order = $this->makeOrder('6281234567890', $product, 2, 'Jl. Merdeka No. 10');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $local = substr($phone, 2);
 
         $path = $this->spxCsv([
             [
                 'Tracking No.' => 'SPXID060407040699',
                 'Tracking Status' => 'Delivered',
                 'Delivered Time' => '04-07-2026 19:47',
-                'Recipient Phone Number' => '81234567890',
+                'Recipient Name' => 'Customer Tracking',
+                'Recipient Phone Number' => $local,
                 'Recipient Detail Address' => 'Jl. Merdeka No. 10',
                 'Item in Parcel' => 'Produk Tracking 2 pcs',
                 'No. of item in Parcel' => 2,
@@ -286,7 +298,9 @@ class AggregatorTrackingImportTest extends TestCase
     public function test_import_returned_restores_stock(): void
     {
         $product = $this->makeProduct(100);
-        $order = $this->makeOrder('6281234567890', $product, 2, 'Jl. Merdeka No. 10');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $local = substr($phone, 2);
 
         $stock = $this->app->make(StockService::class);
         $variant = $this->variant($product);
@@ -297,10 +311,11 @@ class AggregatorTrackingImportTest extends TestCase
             [
                 'Nomor Resi' => '999515101688',
                 'Status' => 'Retur',
+                'Nama Penerima' => 'Customer Tracking',
                 'Isi Paket' => 'Produk Tracking 2 pcs',
                 'Jumlah Isi Paket' => 2,
                 'Alamat Penerima' => 'Jl. Merdeka No. 10',
-                'No. HP Penerima' => '081234567890',
+                'No. HP Penerima' => '0'.$local,
             ],
         ]);
 
@@ -316,7 +331,9 @@ class AggregatorTrackingImportTest extends TestCase
     public function test_import_returned_is_idempotent_for_stock(): void
     {
         $product = $this->makeProduct(100);
-        $order = $this->makeOrder('6281234567890', $product, 2, 'Jl. Merdeka No. 10');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $local = substr($phone, 2);
 
         $stock = $this->app->make(StockService::class);
         $variant = $this->variant($product);
@@ -326,10 +343,11 @@ class AggregatorTrackingImportTest extends TestCase
             [
                 'Nomor Resi' => '999515101688',
                 'Status' => 'Retur',
+                'Nama Penerima' => 'Customer Tracking',
                 'Isi Paket' => 'Produk Tracking 2 pcs',
                 'Jumlah Isi Paket' => 2,
                 'Alamat Penerima' => 'Jl. Merdeka No. 10',
-                'No. HP Penerima' => '081234567890',
+                'No. HP Penerima' => '0'.$local,
             ],
         ]);
 
@@ -344,19 +362,22 @@ class AggregatorTrackingImportTest extends TestCase
         $this->assertSame(100, $stock->stockOf($variant->id));
     }
 
-    public function test_import_tier2_fallback_without_address(): void
+    public function test_import_matches_by_phone_and_name_regardless_of_address(): void
     {
         $product = $this->makeProduct();
-        $order = $this->makeOrder('6281234567890', $product, 1, 'Alamat Asli');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 1, 'Alamat Asli');
+        $local = substr($phone, 2);
 
         $path = $this->sicepatCsv([
             [
                 'Nomor Resi' => '999515101688',
                 'Status' => 'Terkirim',
+                'Nama Penerima' => 'Customer Tracking',
                 'Isi Paket' => 'Produk Tracking 1 pcs',
                 'Jumlah Isi Paket' => 1,
                 'Alamat Penerima' => 'Alamat Berbeda Dari DB',
-                'No. HP Penerima' => '081234567890',
+                'No. HP Penerima' => '0'.$local,
             ],
         ]);
 
@@ -368,10 +389,10 @@ class AggregatorTrackingImportTest extends TestCase
         $this->assertSame('delivered', $order->aggregator_status);
     }
 
-    public function test_import_falls_back_without_product_match(): void
+    public function test_import_matches_even_with_unrecognizable_product_name(): void
     {
         // Dashboard FLIK asli: kolom "Nama Produk" berisi nama PROMO (bukan nama
-        // produk) → matcher gagal. Fallback tetap resolve via phone+qty+nama.
+        // produk). Matching hanya pakai phone + customer_name, jadi produk tidak relevan.
         $product = $this->makeProduct();
         $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
         $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
@@ -383,6 +404,7 @@ class AggregatorTrackingImportTest extends TestCase
                 'AWB' => 'SPXIDPROMO001',
                 'No Telp' => '0'.substr($phone, 2),
                 'Status' => 'Dikonfirmasi',
+                'Nama Shopper' => 'Deny Promo',
                 'Nama Produk' => 'Promo: PROMO Beli 1 Dapat 2 - Rp 129.000, Ukuran: Usia 43-44 Tahun Plus +1.25',
                 'Alamat Lengkap Penerima' => 'Jl. Merdeka No. 10',
             ],
@@ -409,6 +431,7 @@ class AggregatorTrackingImportTest extends TestCase
                 'AWB' => 'SPXIDDAPAT001',
                 'No Telp' => '0'.substr($phone, 2),
                 'Status' => 'Terkirim',
+                'Nama Shopper' => 'Customer Tracking',
                 'Nama Produk' => 'Promo: PROMO Beli 1 Dapat 2 - Rp 129.000',
                 'Alamat Lengkap Penerima' => 'Jl. Merdeka No. 10',
             ],
@@ -420,14 +443,14 @@ class AggregatorTrackingImportTest extends TestCase
         $this->assertSame('SPXIDDAPAT001', $order->refresh()->awb);
     }
 
-    public function test_import_without_product_match_stays_ambiguous_when_not_unique(): void
+    public function test_import_ambiguous_when_same_name_multiple_orders(): void
     {
-        // Fallback TIDAK boleh asal-cocok: 2 order phone+qty sama tanpa nama
-        // pembeda → tetap ambiguous (bukan match salah satu).
+        // 2 order dengan phone + nama SAMA → ambiguous (tidak bisa dibedakan)
         $product = $this->makeProduct();
         $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
         $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
         $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        // makeOrder default name = 'Customer Tracking'
 
         $path = $this->flikCsv([
             [
@@ -435,6 +458,7 @@ class AggregatorTrackingImportTest extends TestCase
                 'AWB' => 'SPXIDAMBIG001',
                 'No Telp' => '0'.substr($phone, 2),
                 'Status' => 'Dikonfirmasi',
+                'Nama Shopper' => 'Customer Tracking',
                 'Nama Produk' => 'Promo: PROMO Beli 1 Dapat 2 - Rp 129.000',
                 'Alamat Lengkap Penerima' => 'Jl. Merdeka No. 10',
             ],
@@ -448,12 +472,14 @@ class AggregatorTrackingImportTest extends TestCase
 
     public function test_import_matches_by_customer_name(): void
     {
-        // Dua order HP+produk+qty sama, alamat & nama BEDA → nama memutuskan
+        // Dua order HP sama, nama BEDA → nama memutuskan
         $product = $this->makeProduct();
-        $budi = $this->makeOrder('6281234567890', $product, 1, 'Jl. A No. 1');
-        $andi = $this->makeOrder('6281234567890', $product, 1, 'Jl. B No. 2');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $budi = $this->makeOrder($phone, $product, 1, 'Jl. A No. 1');
+        $andi = $this->makeOrder($phone, $product, 1, 'Jl. B No. 2');
         $budi->update(['customer_name' => 'Budi Santoso']);
         $andi->update(['customer_name' => 'Andi Wijaya']);
+        $local = substr($phone, 2);
 
         $path = $this->sicepatCsv([
             [
@@ -463,7 +489,7 @@ class AggregatorTrackingImportTest extends TestCase
                 'Isi Paket' => 'Produk Tracking 1 pcs',
                 'Jumlah Isi Paket' => 1,
                 'Alamat Penerima' => 'Jl. B No. 2',
-                'No. HP Penerima' => '081234567890',
+                'No. HP Penerima' => '0'.$local,
             ],
         ]);
 
@@ -476,10 +502,12 @@ class AggregatorTrackingImportTest extends TestCase
 
     public function test_import_name_wins_over_address_when_unique(): void
     {
-        // Nama cocok unik meski alamat file beda dari DB → nama tier 1 menang
+        // Nama cocok unik meski alamat file beda dari DB → nama jadi pembeda
         $product = $this->makeProduct();
-        $order = $this->makeOrder('6281234567890', $product, 1, 'Jl. Asli No. 1');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 1, 'Jl. Asli No. 1');
         $order->update(['customer_name' => 'Budi Santoso']);
+        $local = substr($phone, 2);
 
         $path = $this->sicepatCsv([
             [
@@ -489,7 +517,7 @@ class AggregatorTrackingImportTest extends TestCase
                 'Isi Paket' => 'Produk Tracking 1 pcs',
                 'Jumlah Isi Paket' => 1,
                 'Alamat Penerima' => 'Jl. Berbeda',
-                'No. HP Penerima' => '081234567890',
+                'No. HP Penerima' => '0'.$local,
             ],
         ]);
 
@@ -502,17 +530,21 @@ class AggregatorTrackingImportTest extends TestCase
     public function test_import_ambiguous_is_not_updated(): void
     {
         $product = $this->makeProduct();
-        $orderA = $this->makeOrder('6281234567890', $product, 1, 'Jl. Merdeka No. 10');
-        $orderB = $this->makeOrder('6281234567890', $product, 1, 'Jl. Merdeka No. 10');
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $orderA = $this->makeOrder($phone, $product, 1, 'Jl. Merdeka No. 10');
+        $orderB = $this->makeOrder($phone, $product, 1, 'Jl. Merdeka No. 10');
+        // Both have same default name 'Customer Tracking'
+        $local = substr($phone, 2);
 
         $path = $this->sicepatCsv([
             [
                 'Nomor Resi' => '999515101688',
                 'Status' => 'Terkirim',
+                'Nama Penerima' => 'Customer Tracking',
                 'Isi Paket' => 'Produk Tracking 1 pcs',
                 'Jumlah Isi Paket' => 1,
                 'Alamat Penerima' => 'Jl. Merdeka No. 10',
-                'No. HP Penerima' => '081234567890',
+                'No. HP Penerima' => '0'.$local,
             ],
         ]);
 
@@ -532,6 +564,7 @@ class AggregatorTrackingImportTest extends TestCase
             [
                 'Nomor Resi' => '999515101688',
                 'Status' => 'Terkirim',
+                'Nama Penerima' => 'Siapapun',
                 'Isi Paket' => 'Produk Tracking 1 pcs',
                 'Jumlah Isi Paket' => 1,
                 'Alamat Penerima' => 'Jl. Lain',
