@@ -37,11 +37,13 @@ class TrackingStatusRuleService
                 continue;
             }
 
+            $ruleRaw = strtolower($rule->raw_status); // stored as-is, compared lowercase
+
             if ($rule->match_type === 'contains') {
-                if ($raw !== '' && str_contains($raw, $rule->raw_status)) {
+                if ($raw !== '' && str_contains($raw, $ruleRaw)) {
                     return $rule->status;
                 }
-            } elseif ($raw === $rule->raw_status) {
+            } elseif ($raw === $ruleRaw) {
                 return $rule->status;
             }
         }

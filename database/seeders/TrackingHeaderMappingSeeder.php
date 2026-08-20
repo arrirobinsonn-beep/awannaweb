@@ -30,6 +30,7 @@ class TrackingHeaderMappingSeeder extends Seeder
             'flik' => $dir.'/header_flix.csv',
             'sicepat' => $dir.'/header_sicepat.csv',
             'spx' => $dir.'/header_spx.csv',
+            'idx' => $dir.'/header_idx.csv',
         ];
 
         $service = new AggregatorTrackingImportService;

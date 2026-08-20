@@ -240,11 +240,13 @@ class OrderOnlineController extends Controller
     {
         $request->validate([
             'file' => ['required', 'file', 'mimes:csv,txt,xlsx,xls', 'max:10240'],
+            'courier' => ['nullable', 'string', 'max:50'],
         ]);
 
         try {
             $path = $request->file('file')->store('order-online/tracking');
-            $result = $this->tracking->import(Storage::path($path));
+            $courier = $request->filled('courier') ? $request->input('courier') : null;
+            $result = $this->tracking->import(Storage::path($path), null, $courier);
 
             $message = 'Tracking import ('.($result['source'] ?? '-').') | Total: '.$result['total']
                 .' | Terisi: '.$result['updated'];

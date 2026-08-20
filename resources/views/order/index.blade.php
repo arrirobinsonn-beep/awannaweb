@@ -112,7 +112,18 @@
     </div>
     <input type="file" id="track-file" accept=".csv,.xlsx,.xls,text/csv,text/plain" style="display:none;">
 
-    <div style="margin-top:14px;">
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <select id="track-courier" class="clay-input" style="max-width:220px;">
+            <option value="">Semua Courier (tanpa filter)</option>
+            @php
+                $trackingSources = \App\Models\ExportTemplate::where('is_active', true)->get();
+            @endphp
+            @foreach($trackingSources as $ts)
+                @foreach(($ts->couriers ?? []) as $tc)
+                    <option value="{{ $tc }}">{{ $ts->name }} — {{ $tc }}</option>
+                @endforeach
+            @endforeach
+        </select>
         <button type="button" id="btn-track-import" class="clay-btn clay-btn-primary">📡 Import Status</button>
     </div>
 
@@ -140,7 +151,7 @@
                 <a href="{{ route('orders.index', ['batch' => $b->id]) }}"
                    class="batch-item {{ $selectedBatch && $selectedBatch->id === $b->id ? 'selected' : '' }}">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                        <span style="font-size:.78rem;font-weight:700;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🗓 {{ $b->created_at?->format('d M Y H:i') }}</span>
+                        <span style="font-size:.78rem;font-weight:700;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ $b->created_at?->copy()->timezone('Asia/Jakarta')->format('d M Y H:i') }}{{ $b->sender ? ' ('.$b->sender.')' : '' }}</span>
                         <span class="badge-batch-status st-{{ $b->status }}">{{ $b->status }}</span>
                     </div>
                     <div style="font-size:.68rem;color:#9ca3af;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
@@ -161,7 +172,7 @@
                 <div style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;border-bottom:1px solid rgba(0,0,0,.06);">
                     <div>
                         <h2 style="margin:0;font-size:1rem;font-weight:800;">{{ $selectedBatch->original_filename }}</h2>
-                        <div style="font-size:.72rem;color:#9ca3af;">{{ $selectedBatch->created_at?->format('d/m/Y H:i') }} • Total {{ $selectedBatch->total_rows }} • Sukses {{ $selectedBatch->success_rows }}</div>
+                        <div style="font-size:.72rem;color:#9ca3af;">{{ $selectedBatch->created_at?->copy()->timezone('Asia/Jakarta')->format('d/m/Y H:i') }}{{ $selectedBatch->sender ? ' ('.$selectedBatch->sender.')' : '' }} • Total {{ $selectedBatch->total_rows }} • Sukses {{ $selectedBatch->success_rows }}</div>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                         @foreach($exportTemplates as $et)
@@ -257,12 +268,19 @@
                                             <div style="font-size:.65rem;color:#b91c1c;margin-top:2px;">{{ $o->courier_note }}</div>
                                         @endif
                                     </td>
-                                    <td>
-                                        @if(!empty($o->awb))
+                                    <td>                                                @if(!empty($o->awb))
                                             <div>
                                                 <span class="badge-courier" style="background:#d1fae5;color:#065f46;">✓ {{ $o->awb }}</span>
                                                 @if($o->aggregator_status)
-                                                    <div style="font-size:.65rem;color:#047857;margin-top:2px;">{{ str_replace('_', ' ', $o->aggregator_status) }}</div>
+                                                    @php
+                                                        $aggColor = match($o->aggregator_status) {
+                                                            'waiting_pickup', 'in_transit', 'delivered' => 'background:#dcfce7;color:#15803d;',
+                                                            'problem' => 'background:#fee2e2;color:#b91c1c;',
+                                                            'returning', 'returned' => 'background:#fef3c7;color:#92400e;',
+                                                            default => 'background:#f3f4f6;color:#6b7280;',
+                                                        };
+                                                    @endphp
+                                                    <span class="badge-courier" style="{{ $aggColor }}margin-top:2px;">{{ str_replace('_', ' ', $o->aggregator_status) }}</span>
                                                 @endif
                                             </div>
                                         @else
@@ -507,6 +525,8 @@
         if (!fileInput.files.length) { alert('Pilih file terlebih dahulu.'); return; }
         const fd = new FormData();
         fd.append('file', fileInput.files[0]);
+        const courierVal = document.getElementById('track-courier').value;
+        if (courierVal) fd.append('courier', courierVal);
         resultBox.style.display = 'block';
         resultBox.className = 'clay-alert clay-alert-success';
         resultBox.innerHTML = '<span>⏳</span><span>Mengimport status... mohon tunggu.</span>';

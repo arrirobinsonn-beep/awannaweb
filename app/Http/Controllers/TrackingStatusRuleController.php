@@ -279,7 +279,7 @@ class TrackingStatusRuleController extends Controller
     private function normalize(array $data): array
     {
         $data['source'] = strtolower(trim($data['source']));
-        $data['raw_status'] = strtolower(trim($data['raw_status']));
+        $data['raw_status'] = trim($data['raw_status']); // preserve case
         $data['match_type'] = strtolower(trim($data['match_type']));
         $data['status'] = trim($data['status']);
         $data['problem_mode'] = strtolower(trim($data['problem_mode']));

@@ -1,4 +1,14 @@
-# MEMORY — 15 Agustus 2026
+# MEMORY — 15 Agustus 2026 (lanjutan)
+
+## Session: Multi-perbaikan — raw_status case, scope narrowing, badge warna, IDX, WIB, test DB
+
+- **raw_status case sensitivity**: Controller `normalize()` tidak lagi `strtolower()` raw_status → disimpan dengan huruf asli. Service `TrackingStatusRuleService::resolve()` bandingkan case-insensitive (`strtolower($rule->raw_status)` saat perbandingan). Seeder diupdate pakai huruf asli ("Dikonfirmasi" bukan "dikonfirmasi"). MySQL collation `utf8mb4_unicode_ci` di unique constraint juga case-insensitive.
+- **Narrow scope tracking import**: `import()` menerima param `?string $courier`. Kandidat difilter: `EXPORTABLE_STATUSES` (real/tembakan) + `when($courier, where('courier', $courier))`. View order/index.blade.php: dropdown courier di section tracking import (data dari `ExportTemplate.couriers`). JS sertakan `courier` di FormData saat kirim. Tujuan: cegah order yang sudah pindah courier tidak kena tracking lama.
+- **Badge warna aggregator status**: order/index.blade.php + show.blade.php: `waiting_pickup`/`in_transit`/`delivered` → hijau, `problem` → merah, `returning`/`returned` → kuning.
+- **IDX ke seeder**: TrackingHeaderMappingSeeder tambah `'idx' => $dir.'/header_idx.csv'` (6 kolom di-seed). TrackingStatusRuleSeeder tambah 8 rules IDX (Pending/Pickup→waiting_pickup, In Transit/Out For Delivery→in_transit, Delivered→delivered, Return→returning, Returned→returned, Undeliverable→problem). `detectSource()` otomatis kenali IDX dari mapping header.
+- **Riwayat upload WIB**: batch list tampilkan waktu `->copy()->timezone('Asia/Jakarta')->format('d M Y H:i')` + nama sender dalam kurung. Hapus emoji 🗓. Berlaku di batch list + batch detail header.
+- **Test DB terpisah**: `phpunit.xml` diupdate: `DB_CONNECTION=mysql`, `DB_DATABASE=awannatestlaravel`, `DB_HOST/PORT/USERNAME/PASSWORD`. Database `awannatestlaravel` di-create + `migrate:fresh --seed`. Semua test sekarang jalan di DB terpisah → bebas migrate/hapus data tanpa ganggu dev.
+- **Hasil**: Tracking tests 15/15, suite 158 pass (ExampleTest pre-existing), pipeline 104/104 PASS.
 
 ## Follow-up (hari yang sama): Simplify resolveOrder — hanya phone + customer_name
 

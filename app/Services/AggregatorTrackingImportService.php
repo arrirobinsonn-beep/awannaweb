@@ -184,9 +184,10 @@ class AggregatorTrackingImportService
      * Proses satu file di dalam satu transaksi: cocokkan tiap baris ke
      * shipping_orders dan isi awb / aggregator_status / delivered_at.
      *
+     * @param  ?string  $courier  filter courier eksplisit (opsional — fallback: courier dari file)
      * @return array{source:?string,total:int,matched:int,updated:int,stock_returned:int,unmatched:array,ambiguous:array}
      */
-    public function import(string $filePath, ?string $source = null): array
+    public function import(string $filePath, ?string $source = null, ?string $courier = null): array
     {
         $parsed = $this->parse($filePath, $source);
         $rows = $parsed['data'];
@@ -205,9 +206,12 @@ class AggregatorTrackingImportService
 
         $source = $rows->first()['source'];
 
-        return DB::transaction(function () use ($rows, $source) {
-            $candidates = ShippingOrder::whereIn('phone_normalized', $rows->pluck('phone_normalized')->unique()->all())
+        return DB::transaction(function () use ($rows, $source, $courier) {
+            $phones = $rows->pluck('phone_normalized')->unique()->all();
+
+            $candidates = ShippingOrder::whereIn('phone_normalized', $phones)
                 ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
+                ->when($courier, fn ($q) => $q->where('courier', $courier))
                 ->get()
                 ->groupBy('phone_normalized');
 
