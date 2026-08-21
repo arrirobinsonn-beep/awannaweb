@@ -1397,8 +1397,6 @@ class SpendingHarianController extends Controller
             ->with('success', 'Data spending berhasil dihapus.');
     }
 
-<<<<<<< HEAD
-=======
     // ─── Bulk Destroy (hapus massal via centang di detail spending) ─
 
     public function bulkDestroy(Request $request): RedirectResponse
@@ -1557,7 +1555,6 @@ class SpendingHarianController extends Controller
         return back()->with('success', 'Data spending disetujui.');
     }
 
->>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
     // ─── Private helper ────────────────────────────────────────────
 
     /**

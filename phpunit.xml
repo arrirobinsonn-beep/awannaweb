@@ -21,6 +21,9 @@
         <env name="APP_ENV" value="testing" force="true"/>
         <!-- ServerConstAdapter dotenv dibaca lebih dulu daripada EnvConstAdapter → $_SERVER juga wajib di-set -->
         <server name="APP_ENV" value="testing"/>
+        <!-- DB test terpisah dari DB aplikasi — jangan pernah pakai webawanna di sini -->
+        <env name="DB_DATABASE" value="webawanna_test"/>
+        <server name="DB_DATABASE" value="webawanna_test"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>

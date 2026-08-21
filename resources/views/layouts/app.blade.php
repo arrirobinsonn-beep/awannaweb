@@ -160,6 +160,21 @@
         body.sidebar-is-open #sidebar-toggle .icon-open  { display: none;  }
         body.sidebar-is-open #sidebar-toggle .icon-close { display: block; }
 
+        /* ── Sidebar nav groups (dropdown/accordion) ────────── */
+        .nav-group-header {
+            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+            width: 100%; border: none; background: none; cursor: pointer;
+            padding: 14px 10px 4px; font-family: inherit; text-align: left;
+        }
+        .nav-group-header:hover .nav-group-title { color: var(--color-primary, #FF6B6B); }
+        .nav-chev {
+            font-size: .7rem; color: #9ca3af; margin-left: auto; flex-shrink: 0;
+            transition: transform .2s ease;
+        }
+        .nav-group.open .nav-chev { transform: rotate(180deg); }
+        .nav-group-body { display: none; padding-top: 2px; }
+        .nav-group.open .nav-group-body { display: block; }
+
         /* ── Page content ──────────────────────────────────── */
         #main-content {
             flex: 1;
@@ -329,7 +344,7 @@
                 <span class="sidebar-label">Dashboard</span>
             </a>
 
-            @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs']))
+            @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs','keuangan']))
             <div class="sidebar-label nav-divider" style="padding:14px 10px 4px;">
                 <span style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;">Iklan</span>
             </div>
@@ -343,7 +358,7 @@
             </a>
             @endif
 
-            @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs']))
+            @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs','keuangan']))
             <a href="{{ route('spending.index') }}"
                class="nav-item {{ request()->routeIs('spending.*') ? 'active' : '' }}"
                data-page-link data-tip="Spending Harian">
@@ -372,7 +387,7 @@
             </a>
             @endif
 
-            @if($u->hasRole(['owner','super_admin','mentor','advertiser']))
+            @if($u->hasRole(['owner','super_admin','mentor','advertiser','keuangan']))
             <a href="{{ route('topup.index') }}"
                class="nav-item {{ request()->routeIs('topup.*') ? 'active' : '' }}"
                data-page-link data-tip="Top Up">
@@ -401,6 +416,16 @@
                data-page-link data-tip="Nomor CS">
                 <span class="nav-icon">📞</span>
                 <span class="sidebar-label">Nomor CS</span>
+            </a>
+            @endif
+
+            @if($u->hasRole(['owner','super_admin','mentor','cs']))
+            <a href="{{ route('finance.bank-transfers.index') }}"
+               class="nav-item {{ request()->routeIs('finance.bank-transfers.*') ? 'active' : '' }}"
+               data-page-link data-tip="Upload bukti transfer pembeli">
+                <span class="nav-icon">🧾</span>
+                <span class="sidebar-label">Upload Bukti Transfer</span>
+                <span class="bt-pending-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">0</span>
             </a>
             @endif
             @endif
@@ -507,26 +532,53 @@
 
             @endif
 
-            {{-- ── Keuangan ──────────────────────────────────────── --}}
+            {{-- ── Cashflow (dropdown) ─────────────────────────────── --}}
             @if($u->hasRole(['owner','super_admin','mentor','keuangan']))
-            <div class="sidebar-label nav-divider" style="padding:14px 10px 4px;">
-                <span style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;">Keuangan</span>
+            <div class="nav-group" data-group="cashflow">
+                <button type="button" class="nav-group-header sidebar-label" data-tip="Cashflow">
+                    <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;">💵 Cashflow</span>
+                    <span class="nav-chev">▾</span>
+                </button>
+                <div class="nav-group-body">
+
+            <a href="{{ route('finance.accounts.index') }}"
+               class="nav-item {{ request()->routeIs('finance.accounts.*') ? 'active' : '' }}"
+               data-page-link data-tip="Akun keuangan (rekening, cash, aggregator)">
+                <span class="nav-icon">💼</span>
+                <span class="sidebar-label">Akun Keuangan</span>
+            </a>
+
+            <a href="{{ route('finance.categories.index') }}"
+               class="nav-item {{ request()->routeIs('finance.categories.*') ? 'active' : '' }}"
+               data-page-link data-tip="Kategori transaksi">
+                <span class="nav-icon">🏷</span>
+                <span class="sidebar-label">Kategori Transaksi</span>
+            </a>
+
+            <a href="{{ route('finance.transfers.index') }}"
+               class="nav-item {{ request()->routeIs('finance.transfers.*') ? 'active' : '' }}"
+               data-page-link data-tip="Operan saldo antar akun">
+                <span class="nav-icon">🔁</span>
+                <span class="sidebar-label">Transfer Antar Akun</span>
+            </a>
+
+            <a href="{{ route('finance.bank-transfers.index') }}"
+               class="nav-item {{ request()->routeIs('finance.bank-transfers.*') ? 'active' : '' }}"
+               data-page-link data-tip="Bukti transfer dari CS + approval">
+                <span class="nav-icon">🧾</span>
+                <span class="sidebar-label">Bukti Transfer</span>
+                <span class="bt-pending-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">0</span>
+            </a>
+
+            <a href="{{ route('finance.bank-statement.index') }}"
+               class="nav-item {{ request()->routeIs('finance.bank-statement.*') ? 'active' : '' }}"
+               data-page-link data-tip="Rekening koran per akun">
+                <span class="nav-icon">📒</span>
+                <span class="sidebar-label">Rekening Koran</span>
+            </a>
+
+                </div>
             </div>
-
-            <a href="{{ route('spending.index') }}"
-               class="nav-item {{ request()->routeIs('spending.*') ? 'active' : '' }}"
-               data-page-link data-tip="Spending Harian">
-                <span class="nav-icon">💸</span>
-                <span class="sidebar-label">Spending Harian</span>
-                <span id="spending-alarm-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">!</span>
-            </a>
-
-            <a href="{{ route('topup.index') }}"
-               class="nav-item {{ request()->routeIs('topup.*') ? 'active' : '' }}"
-               data-page-link data-tip="Top Up">
-                <span class="nav-icon">💰</span>
-                <span class="sidebar-label">Top Up</span>
-            </a>
             @endif
 
             {{-- ── Manajemen (owner, super_admin) ─────────── --}}
@@ -556,7 +608,7 @@
                class="nav-item {{ request()->routeIs('topup.*') ? 'active' : '' }}"
                data-page-link data-tip="Top Up">
                 <span class="nav-icon">💰</span>
-                <span class="sidebar-label">Persetujuan Top Up</span>
+                <span class="sidebar-label">Top Up</span>
             </a>
             @endif
 
@@ -1037,6 +1089,30 @@ _click:ck,_hover:hv
     init();
 })();
 
+{{-- ── Sidebar nav groups (accordion/dropdown) ─────────────── --}}
+(function(){
+    var groups = document.querySelectorAll('.nav-group');
+    if(!groups.length) return;
+
+    function apply(g, open){
+        g.classList.toggle('open', open);
+        try { localStorage.setItem('wa_navgroup_'+g.dataset.group, open ? '1' : '0'); } catch(e){}
+    }
+
+    groups.forEach(function(g){
+        var stored = null;
+        try { stored = localStorage.getItem('wa_navgroup_'+g.dataset.group); } catch(e){}
+        // Default collapsed; expand jika tersimpan atau ada item aktif di dalamnya.
+        var hasActive = g.querySelector('.nav-item.active');
+        apply(g, stored !== null ? stored === '1' : !!hasActive);
+
+        var header = g.querySelector('.nav-group-header');
+        if(header){
+            header.addEventListener('click', function(){ apply(g, !g.classList.contains('open')); });
+        }
+    });
+})();
+
 {{-- ── Discrepancy Alarm Badge (Spending vs Regional) ── --}}
 (function(){
     var spBadge = document.getElementById('spending-alarm-badge');
@@ -1057,6 +1133,28 @@ _click:ck,_hover:hv
     checkDiscrepancy();
     // Cek setiap 60 detik
     setInterval(checkDiscrepancy, 60000);
+})();
+
+{{-- ── Pending Bukti Transfer badge ──────────────────────── --}}
+(function(){
+    var badges = document.querySelectorAll('.bt-pending-badge');
+    if(!badges.length) return;
+
+    function fetchPending(){
+        fetch('{{ route("finance.bank-transfers.pending-count") }}')
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+                var count = d.count || 0;
+                badges.forEach(function(b){
+                    b.textContent = count > 99 ? '99+' : count;
+                    b.style.display = count > 0 ? 'inline-block' : 'none';
+                });
+            })
+            .catch(function(){});
+    }
+
+    fetchPending();
+    setInterval(fetchPending, 60000);
 })();
 
 {{-- ── Notification unread count ──────────────────────── --}}

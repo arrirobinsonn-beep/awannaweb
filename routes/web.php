@@ -1,9 +1,14 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BankStatementController;
+use App\Http\Controllers\BankTransferController;
 use App\Http\Controllers\CourierRuleController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExportMappingController;
+use App\Http\Controllers\FinanceAccountController;
+use App\Http\Controllers\FinanceCategoryController;
+use App\Http\Controllers\FinanceTransferController;
 use App\Http\Controllers\GudangController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\InventoryController;
@@ -99,14 +104,14 @@ Route::middleware('auth')->group(function () {
 
         // Spending Harian
         Route::resource('spending', SpendingHarianController::class)->names('spending');
-<<<<<<< HEAD
-=======
+
+
         Route::patch('/spending/{spending}/approve', [SpendingHarianController::class, 'approve'])->name('spending.approve');
         Route::post('/spending/change-date', [SpendingHarianController::class, 'changeDate'])->name('spending.change-date');
         Route::post('/spending/bulk-delete', [SpendingHarianController::class, 'bulkDestroy'])->name('spending.bulk-destroy');
         Route::post('/spending/bulk-update', [SpendingHarianController::class, 'bulkUpdate'])->name('spending.bulk-update');
         Route::post('/spending/parse-upload', [SpendingHarianController::class, 'parseUpload'])->name('spending.parse-upload');
->>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
+
 
         // Top Up
         Route::get('/top-up', [TopUpController::class, 'index'])->name('topup.index');
@@ -200,5 +205,33 @@ Route::middleware('auth')->group(function () {
 
         // Jurnal Stok
         Route::get('/jurnal-stok', [StockMovementController::class, 'index'])->name('stock-movement.index');
+
+        // ── Keuangan (akun, kategori, transfer antar akun, bukti transfer) ──
+        Route::prefix('keuangan')->name('finance.')->group(function () {
+            Route::resource('akun', FinanceAccountController::class)
+                ->except(['show'])
+                ->parameters(['akun' => 'account'])
+                ->names('accounts');
+            Route::patch('/akun/{account}/toggle', [FinanceAccountController::class, 'toggle'])->name('accounts.toggle');
+
+            Route::resource('kategori', FinanceCategoryController::class)
+                ->except(['show'])
+                ->parameters(['kategori' => 'category'])
+                ->names('categories');
+
+            Route::get('transfer', [FinanceTransferController::class, 'index'])->name('transfers.index');
+            Route::post('transfer', [FinanceTransferController::class, 'store'])->name('transfers.store');
+            Route::delete('transfer/{transfer}', [FinanceTransferController::class, 'destroy'])->name('transfers.destroy');
+
+            Route::get('bukti-transfer', [BankTransferController::class, 'index'])->name('bank-transfers.index');
+            Route::get('rekening-koran', [BankStatementController::class, 'index'])->name('bank-statement.index');
+            Route::get('rekening-koran/pdf', [BankStatementController::class, 'downloadPdf'])->name('bank-statement.pdf');
+            Route::get('bukti-transfer/pending-count', [BankTransferController::class, 'pendingCount'])->name('bank-transfers.pending-count');
+            Route::post('bukti-transfer', [BankTransferController::class, 'store'])->name('bank-transfers.store');
+            Route::post('bukti-transfer/{bankTransfer}/approve', [BankTransferController::class, 'approve'])->name('bank-transfers.approve');
+            Route::post('bukti-transfer/{bankTransfer}/reject', [BankTransferController::class, 'reject'])->name('bank-transfers.reject');
+            Route::delete('bukti-transfer/{bankTransfer}', [BankTransferController::class, 'destroy'])->name('bank-transfers.destroy');
+            Route::get('bukti-transfer/{bankTransfer}/download', [BankTransferController::class, 'download'])->name('bank-transfers.download');
+        });
     });
 });

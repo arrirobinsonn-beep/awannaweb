@@ -305,7 +305,6 @@ class RegionalController extends Controller
                     ->keyBy(fn ($r) => $r->tanggal->format('Y-m-d').'|'.$r->province);
 
                 foreach ($items as $item) {
-                    $tanggalKey = date('Y-m-d', strtotime($item['tanggal']));
                     $data = [
                         'tanggal' => $item['tanggal'],
                         'user_id' => $targetUserId,
@@ -316,11 +315,7 @@ class RegionalController extends Controller
 
                     RegionalReport::computeRatio($data);
 
-<<<<<<< HEAD
-                    $key = $tanggalKey . '|' . $item['province'];
-=======
                     $key = $item['tanggal'].'|'.$item['province'];
->>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
                     $existing = $existingMap[$key] ?? null;
 
                     if ($existing) {

@@ -3,6 +3,16 @@ Baca file ini sebelum memulai sesi. Lanjutkan fitur yang belum selesai sesuai pl
 
 ---
 
+# Catatan DB Test (19 Agustus 2026)
+
+- `php artisan test` memakai DB **`webawanna_test`** (di-set di `phpunit.xml`), TERPISAH dari DB aplikasi `webawanna` — test TIDAK pernah membuat dummy di DB aplikasi.
+- DB test sudah di-migrate + di-seed (DatabaseSeeder lengkap: user, produk, courier rules, export templates, warehouse rules, tracking status rules). Tanpa `RefreshDatabase` — data antar-run menumpuk di DB test (boleh, tidak mengganggu siapa pun).
+- Reset DB test bila perlu: `CREATE DATABASE webawanna_test` → `$env:DB_DATABASE='webawanna_test'; php artisan migrate:fresh --seed`.
+- `filecoba/verify_pipeline.php` tetap memakai DB aktif (.env = `webawanna`) tapi self-cleanup (hapus order CBC-* + balik jurnal).
+- Catatan lama di bagian fitur yang menyebut "Test memakai DB `awannacoba`" tidak berlaku lagi (DB test = `webawanna_test`, DB aplikasi = `webawanna`).
+
+---
+
 # Performance Optimization Rules
 
 ## 1. Database Indexes
@@ -969,6 +979,54 @@ Dashboard admin (general) kini menampilkan 4 kartu operasional **hari ini** yang
 
 ---
 
+## U. ✅ Sektor Keuangan — Akun, Kategori, Transfer Antar Akun, Bukti Transfer (19 Agustus 2026)
+
+### Deskripsi
+Modul keuangan 4 tabel: **`accounts`** (master rekening/cash/aggregator + `current_balance`), **`transaction_categories`** (kategori transaksi, `type` in/out), **`account_transfers`** (operan saldo antar akun), **`bank_transfers`** (transaksi masuk/keluar per akun + bukti gambar). Alur: CS upload bukti transfer pembeli (type=in) → status `pending` (saldo BELUM berubah) → role Keuangan/Owner **approve** (saldo bertambah, gambar bukti DIHAPUS dari disk) atau **reject** (wajib `rejection_note`, saldo tetap, gambar disimpan agar CS bisa lihat; notifikasi terkirim ke CS). Transaksi **keluar** dicatat langsung oleh approver (status langsung `approved`, saldo berkurang, tanpa gambar/approval). `current_balance` dihitung otomatis dari transaksi via `FinanceService` (single source of truth).
+
+### Skema (migration `2026_08_19_000000_create_finance_tables.php`)
+- `accounts`: `name`, `type` (bank/cash/ewallet/aggregator), `current_balance` decimal(15,2), `status` (active/inactive) + index.
+- `transaction_categories`: `name`, `type` (in/out) + UNIQUE `(name, type)`.
+- `account_transfers`: `from_account_id`/`to_account_id` FK RESTRICT, `amount`, `transfer_date` (datetime), `description`, `created_by` + index (from, to, transfer_date).
+- `bank_transfers`: `account_id`, `category_id` FK RESTRICT, `type` (in/out), `amount` decimal(15,2), `transaction_date` (datetime), `description`, `image_url` nullable, `status` (pending/approved/rejected), `rejection_note` nullable, `created_by` + index (status, account_id, type, transaction_date).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Models/Account.php` | `TYPES`/`TYPE_LABELS`/`STATUSES`, scopeAktif, `type_label`, relasi bankTransfers/transfersFrom/transfersTo |
+| `app/Models/TransactionCategory.php` | `TYPES`, relasi bankTransfers |
+| `app/Models/AccountTransfer.php`, `BankTransfer.php` | `STATUS_LABELS` + isPending/isApproved/isRejected; casts `transaction_date:datetime`, `amount:decimal:2` |
+| `app/Services/FinanceService.php` | `applyBankTransfer`/`reverseBankTransfer`/`applyAccountTransfer` (+`RuntimeException` saldo cukup)/`reverseAccountTransfer` — SEMUA update `accounts.current_balance` lewat sini (DB::transaction + `lockForUpdate`) |
+| `app/Http/Controllers/FinanceAccountController.php` | CRUD + toggle; hapus diblokir (flash error) bila punya transaksi |
+| `app/Http/Controllers/FinanceCategoryController.php` | CRUD + cek duplikat (name+type); hapus diblokir bila dipakai transaksi |
+| `app/Http/Controllers/FinanceTransferController.php` | store (validasi saldo cukup) / destroy (balikin saldo) / index |
+| `app/Http/Controllers/BankTransferController.php` | `APPROVERS = ['owner','super_admin','admin','keuangan']`; CS: HANYA type=in + gambar WAJIB + hanya lihat milik sendiri (`where created_by`); approve → hapus gambar + null image_url; reject → `rejection_note` wajib + notif `bank_transfer_rejected`; destroy → reverse saldo; notifyCreator via model `Notification` |
+| `routes/web.php` | grup `prefix('keuangan')->name('finance.')`: resource akun/kategori (params `account`/`category`), transfer, bukti-transfer |
+| `resources/views/finance/accounts/index.blade.php`, `categories/index.blade.php`, `transfers/index.blade.php`, `bank_transfers/index.blade.php` | pola clay-card/clay-table + modal edit + JS filter kategori by tipe |
+| `resources/views/layouts/app.blade.php` | Sidebar Keuangan: Akun Keuangan, Kategori Transaksi, Transfer Antar Akun, Bukti Transfer (owner/super_admin/mentor/keuangan) + Upload Bukti Transfer (cs) |
+| `resources/views/notifications/index.blade.php` | `@case('bank_transfer_approved') ✅` & `@case('bank_transfer_rejected') ❌` |
+| `tests/Feature/FinanceTest.php` | 14 test: CRUD akun (hapus diblokir), kategori (duplikat), transfer saldo cukup/tidak + destroy balikin, CS upload pending (saldo tetap) → approve (saldo naik + gambar terhapus) / reject (note + notif + gambar disimpan), out langsung kurangi saldo, CS dilarang out, guard role advertiser, approve hanya approver |
+
+### Endpoint
+- `GET/POST /keuangan/akun`, `PUT/DELETE /keuangan/akun/{account}`, `PATCH /keuangan/akun/{account}/toggle`
+- `GET/POST /keuangan/kategori`, `PUT/DELETE /keuangan/kategori/{category}`
+- `GET/POST /keuangan/transfer`, `DELETE /keuangan/transfer/{transfer}`
+- `GET/POST /keuangan/bukti-transfer`, `POST /keuangan/bukti-transfer/{bankTransfer}/approve|reject`, `DELETE .../destroy`
+
+### Penting
+- **Semua perubahan `current_balance` WAJIB lewat `FinanceService`** (jangan `$account->update` manual di controller) - ini satu-satunya titik yang konsisten + lockForUpdate.
+- Approve = hapus `image_url` dari disk (`Storage::disk('public')->delete`); reject TIDAK menghapus gambar (CS perlu melihat buktinya). Alur ini disengaja, beda dari dugaan awal.
+- Resource route param: `->parameters(['akun' => 'account'])` - tanpanya `route('finance.accounts.update', ['account' => ...])` di JS view error "Missing parameter: akun" (URL tetap `/keuangan/akun/...`).
+- Gambar disimpan ke disk `public` folder `bukti-transfer`; `php artisan storage:link` sudah dijalankan.
+- Approval tidak mengirim notifikasi `approved` (hanya reject  CS); status lihat di halaman.
+- `transaction_date` disimpan datetime (jam ikut); form date dikirim `Y-m-d`  jam 00:00.
+- **Keterangan = template chat CS** (19 Agustus): `description` max **5000** char (kolom `text`); CS menempel template konfirmasi pesanan utuh. Klik **keterangan / thumbnail bukti** (khusus role approver)  **modal detail**: foto besar  keterangan (`white-space:pre-wrap`, baris baru terjaga)  tombol **? Download Bukti** (`<a download>`) + **?? Salin Keterangan** (clipboard + fallback execCommand). `data-desc` di-encode `rawurlencode` (newline & quote aman di atribut HTML)  `decodeURIComponent` + `textContent` di JS (anti-XSS). CS melihat keterangan/bukti polos (tanpa klik).
+- **Saldo awal rekening (saldo endap BNI/dll.)** diisi di field `current_balance` saat **tambah akun** (menu Keuangan  Akun Keuangan  Tambah). Saat membuat akun bank baru (mis. BNI), masukkan saldo yang sudah ada di rekening tersebut ke field **Saldo Awal (current_balance)**. Angka ini jadi basis saldo buku; transaksi selanjutnya (bukti transfer, transfer antar akun) akan menambah/mengurangi dari sini. Jika akun sudah dibuat tapi saldo awal salah, edit akun & ubah `current_balance` langsung (tanpa lewat FinanceService, karena ini penyesuaian buku awal bukan transaksi).
+- Test memakai DB bersama tanpa refresh  nama akun/kategori pakai `uniqid()`, gambar via `Storage::fake('public')`.
+- Suite: **159 pass** (hanya `ExampleTest` 302 pre-existing).
+
+---
+
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 
 Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier`, dan `Gudang` (master tempat gudang, `gudang.master*`).
@@ -984,3 +1042,18 @@ Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier
 ---
 
 # Fitur Belum Selesai / Ide ke Depan
+
+## 📌 Sesi Berikutnya (setelah 19 Agustus): Lanjutan Sektor Keuangan
+
+Modul dasar keuangan (fitur U) SELESAI: akun, kategori, transfer antar akun, bukti transfer + approval. Sisa yang bisa dikerjakan berikutnya:
+
+- **Dashboard keuangan masih 500** (`DashboardController` role keuangan tidak mengirim `$topAdvertiser` — kartu "top whitelist" error) — bug pre-existing yang belum diperbaiki.
+- **`SpendingHarianController::approve()` no-op** — action approve spending belum benar-benar mengubah status (perlu diverifikasi + test).
+- **Top-up belum punya test** — `TopUpController` (proposal → approve → bayar → va-paid → confirm) belum ter-cover suite.
+- Pertanyaan yang belum dijawab user: apakah saldo akun boleh negatif (rekening vs cash), kolom bank/atas nama di `accounts`, dan apakah reject perlu alur CS upload ulang (edit bukti yang ditolak).
+
+- Tabel keuangan yang relevan saat ini: `spending_harians`, `top_up_proposals`, `top_up_proposal_items`, `whitelists` (total_topup/total_spending/nominal_terakhir_topup), `users` (role advertiser/keuangan), `notifications`, `regional_reports`, `regional_cs_stats`; sisi operasional pendukung: `shipping_orders`, `shipments`, `stock_movements`, `purchases`, `products`, `product_variants`.
+- Alur top-up yang ada: proposal → approve → bayar → va-paid → confirm saldo. Alur spending: input harian → approve (role keuangan/owner).
+- Login demo: `owner@awanna.id` / `password` (semua user seeder pakai `password`).
+
+**Langkah besok:** (1) user kasih daftar tabel + alur keuangan versi mereka → (2) cocokkan dengan modul U yang sudah dibangun → (3) tentukan apa yang baru/diubah → (4) bangun + test.
