@@ -285,6 +285,7 @@ class TopUpController extends Controller
 
                 // Update whitelist
                 $wl = $item->whitelist;
+                abort_if(! $wl, 400, 'Whitelist untuk item ini tidak ditemukan.');
                 $wl->total_topup += (float) $item->nominal;
                 $wl->nominal_terakhir_topup = (float) $item->nominal;
                 $wl->save();

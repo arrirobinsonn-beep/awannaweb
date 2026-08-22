@@ -49,6 +49,9 @@ class RegionalController extends Controller
                 $advertisers = User::where('id', $user->advertiser_id)
                     ->where('is_active', true)
                     ->get(['id', 'nama', 'panggilan', 'email']);
+            } elseif ($user->hasRole('cs')) {
+                // CS tanpa advertiser_id → tidak lihat data siapa pun
+                $advertisers = collect();
             } else {
                 $advertisers = User::role('advertiser')
                     ->where('is_active', true)
@@ -325,16 +328,29 @@ class RegionalController extends Controller
                 }
 
                 if (! empty($csStats)) {
+                    // ─── Batch resolve CS user + existing stats ──────
+                    $csPanggilans = collect($csStats)->pluck('cs_panggilan')
+                        ->map(fn ($c) => trim($c))->filter()->unique()->values();
+                    $csUsers = User::whereIn('panggilan', $csPanggilans)
+                        ->role('cs')
+                        ->where('is_active', true)
+                        ->get()
+                        ->keyBy('panggilan');
+
+                    $csDates = collect($csStats)->pluck('tanggal')
+                        ->map(fn ($t) => date('Y-m-d', strtotime($t)))->unique()->values();
+                    $existingCsMap = RegionalCsStat::where('user_id', $targetUserId)
+                        ->whereIn('tanggal', $csDates)
+                        ->get()
+                        ->keyBy(fn ($s) => $s->tanggal->format('Y-m-d').'|'.$s->cs_panggilan);
+
                     foreach ($csStats as $stat) {
                         $csPanggilan = trim($stat['cs_panggilan']);
                         if (empty($csPanggilan)) {
                             continue;
                         }
 
-                        $csUser = User::where('panggilan', $csPanggilan)
-                            ->role('cs')
-                            ->where('is_active', true)
-                            ->first();
+                        $csUser = $csUsers[$csPanggilan] ?? null;
 
                         $data = [
                             'tanggal' => $stat['tanggal'],
@@ -345,10 +361,7 @@ class RegionalController extends Controller
                             'paid' => (int) $stat['paid'],
                         ];
 
-                        $existing = RegionalCsStat::where('tanggal', $stat['tanggal'])
-                            ->where('user_id', $targetUserId)
-                            ->where('cs_panggilan', $csPanggilan)
-                            ->first();
+                        $existing = $existingCsMap[date('Y-m-d', strtotime($stat['tanggal'])).'|'.$csPanggilan] ?? null;
 
                         if ($existing) {
                             $existing->update($data);

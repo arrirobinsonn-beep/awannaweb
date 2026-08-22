@@ -25,9 +25,17 @@ class SpendingHarianController extends Controller
 
         // ── CS → hanya lihat advertiser yang menjadi atasan langsungnya ─
         if ($user->hasRole('cs')) {
-            $advertiserIds = $user->advertiser_id ? [$user->advertiser_id] : [];
+            if (! $user->advertiser_id) {
+                return view('spending.index-general', [
+                    'dataPerAdvertiser' => [],
+                    'advertisers' => collect(),
+                    'activeTab' => null,
+                    'dari' => $request->input('dari', now()->startOfMonth()->format('Y-m-d')),
+                    'sampai' => $request->input('sampai', now()->format('Y-m-d')),
+                ]);
+            }
 
-            return $this->indexGeneral($request, advertiserIds: $advertiserIds);
+            return $this->indexGeneral($request, advertiserIds: [$user->advertiser_id]);
         }
 
         // ── Superadmin / owner / mentor → view folder per advertiser ──
@@ -1342,7 +1350,7 @@ class SpendingHarianController extends Controller
         }
 
         // Rekalkulasi whitelist baru
-        $spending->fresh()->whitelist->recalculateTotalSpending();
+        $spending->fresh()->whitelist?->recalculateTotalSpending();
 
         // ─── Notifikasi ke advertiser jika CS yang edit ───────
         $this->notifyWhitelistOwner($spending);
@@ -1383,7 +1391,7 @@ class SpendingHarianController extends Controller
         $spending->delete();
 
         // Update total_spending di whitelist
-        $whitelist->recalculateTotalSpending();
+        $whitelist?->recalculateTotalSpending();
 
         return redirect()->route('spending.index')
             ->with('success', 'Data spending berhasil dihapus.');

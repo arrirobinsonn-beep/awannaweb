@@ -32,6 +32,9 @@
                 @case('proposal_approved') ✅ @break
                 @case('proposal_declined') ❌ @break
                 @case('payment_confirmed') 💳 @break
+                @case('bank_transfer_received') 📥 @break
+                @case('bank_transfer_approved') ✅ @break
+                @case('bank_transfer_rejected') ❌ @break
                 @default 🔔
             @endswitch
         </div>

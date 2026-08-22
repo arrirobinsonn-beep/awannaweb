@@ -4,64 +4,35 @@
 @section('page-subtitle', 'Informasi lengkap data spending')
 
 @section('content')
-<div class="max-w-3xl">
-    <div class="clay-card p-6" data-reveal>
+<div style="max-width:640px;">
+    <div class="clay-card" style="padding:20px;" data-reveal>
 
         {{-- Header --}}
-        <div class="flex items-center justify-between mb-5 pb-5 border-b border-gray-100">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #f1f5f9;">
             <div>
-                <div class="font-800 text-xl">{{ $spending->tanggal->format('d F Y') }}</div>
-                <div class="text-gray-400 text-sm">{{ $spending->user->name ?? '-' }} · {{ ucfirst($spending->platform) }}</div>
+                <div style="font-weight:800;font-size:1.1rem;">{{ $spending->tanggal->format('d F Y') }}</div>
+                <div style="color:#9ca3af;font-size:.8rem;">{{ $spending->user?->nama ?? '-' }} · {{ $spending->whitelist?->nama ?? '-' }}</div>
             </div>
-            @php
-                $statusClass = match($spending->status) {
-                    'approved'  => 'clay-badge-green',
-                    'submitted' => 'clay-badge-yellow',
-                    'rejected'  => 'clay-badge-red',
-                    default     => 'clay-badge-gray',
-                };
-            @endphp
-            <span class="clay-badge {{ $statusClass }} text-sm px-4 py-1.5">{{ ucfirst($spending->status) }}</span>
+            <span class="badge badge-success">{{ $spending->paid_ratio }}%</span>
         </div>
 
         {{-- Angka Utama --}}
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            <div class="clay-card-sm p-3 text-center" style="background:#FFF5F5">
-                <div class="text-xs text-gray-500">Budget</div>
-                <div class="font-800 mt-1" style="color:#374151">Rp {{ number_format($spending->budget,0,',','.') }}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px;">
+            <div class="clay-card" style="padding:12px;text-align:center;background:#FFF5F5;">
+                <div style="font-size:.7rem;color:#6b7280;">SPENDING</div>
+                <div style="font-weight:800;margin-top:4px;color:var(--color-primary,#FF6B6B);">Rp {{ number_format($spending->spending,0,',','.') }}</div>
             </div>
-            <div class="clay-card-sm p-3 text-center" style="background:#FFF5F5">
-                <div class="text-xs text-gray-500">Spending</div>
-                <div class="font-800 mt-1" style="color:var(--color-primary)">Rp {{ number_format($spending->spending,0,',','.') }}</div>
+            <div class="clay-card" style="padding:12px;text-align:center;background:#F5F0FF;">
+                <div style="font-size:.7rem;color:#6b7280;">LEAD</div>
+                <div style="font-weight:800;margin-top:4px;">{{ number_format($spending->lead) }}</div>
             </div>
-            <div class="clay-card-sm p-3 text-center" style="background:#F0FFFE">
-                <div class="text-xs text-gray-500">Revenue</div>
-                <div class="font-800 mt-1" style="color:var(--color-secondary)">Rp {{ number_format($spending->revenue,0,',','.') }}</div>
+            <div class="clay-card" style="padding:12px;text-align:center;background:#F0FFFE;">
+                <div style="font-size:.7rem;color:#6b7280;">PAID</div>
+                <div style="font-weight:800;margin-top:4px;">{{ number_format($spending->paid) }}</div>
             </div>
-            <div class="clay-card-sm p-3 text-center" style="background:{{ $spending->profit >= 0 ? '#F0FFF4' : '#FFF5F5' }}">
-                <div class="text-xs text-gray-500">Profit</div>
-                <div class="font-800 mt-1" style="color:{{ $spending->profit >= 0 ? 'var(--color-green)' : 'var(--color-primary)' }}">
-                    Rp {{ number_format(abs($spending->profit),0,',','.') }}
-                </div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            <div class="clay-card-sm p-3 text-center" style="background:#F5F0FF">
-                <div class="text-xs text-gray-500">Leads</div>
-                <div class="font-800 mt-1" style="color:var(--color-purple)">{{ number_format($spending->leads) }}</div>
-            </div>
-            <div class="clay-card-sm p-3 text-center" style="background:#FFF8F0">
-                <div class="text-xs text-gray-500">Konversi</div>
-                <div class="font-800 mt-1" style="color:var(--color-orange)">{{ number_format($spending->konversi) }}</div>
-            </div>
-            <div class="clay-card-sm p-3 text-center" style="background:#F0FFFE">
-                <div class="text-xs text-gray-500">CPL</div>
-                <div class="font-800 mt-1" style="color:var(--color-secondary)">Rp {{ number_format($spending->cpl,0,',','.') }}</div>
-            </div>
-            <div class="clay-card-sm p-3 text-center" style="background:{{ $spending->roas >= 1 ? '#F0FFF4' : '#FFF5F5' }}">
-                <div class="text-xs text-gray-500">ROAS</div>
-                <div class="font-800 mt-1" style="color:{{ $spending->roas >= 1 ? 'var(--color-green)' : 'var(--color-primary)' }}">{{ $spending->roas }}x</div>
+            <div class="clay-card" style="padding:12px;text-align:center;background:#F0FFF4;">
+                <div style="font-size:.7rem;color:#6b7280;">CPA LEAD</div>
+                <div style="font-weight:800;margin-top:4px;">Rp {{ number_format($spending->cpa_lead,0,',','.') }}</div>
             </div>
         </div>
 
@@ -75,16 +46,8 @@
         </div>
 
         {{-- Actions --}}
-        <div class="flex gap-3 pt-5 border-t border-gray-100 flex-wrap">
-            @if($spending->status === 'submitted')
-            <form method="POST" action="{{ route('spending.approve', $spending) }}">
-                @csrf @method('PATCH')
-                <button type="submit" class="clay-btn clay-btn-secondary">✓ Approve</button>
-            </form>
-            @endif
-            @if($spending->status === 'draft')
+        <div style="display:flex;gap:10px;padding-top:16px;border-top:1px solid #f1f5f9;flex-wrap:wrap;">
             <a href="{{ route('spending.edit', $spending) }}" class="clay-btn clay-btn-secondary" data-page-link>✏️ Edit</a>
-            @endif
             <a href="{{ route('spending.index') }}" class="clay-btn clay-btn-outline" data-page-link>← Kembali</a>
         </div>
     </div>

@@ -147,8 +147,16 @@ class DashboardController extends Controller
             ->selectRaw('whitelist_id, SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
             ->groupBy('whitelist_id')->orderByDesc('total_spending')->limit(6)->get();
 
+        $topAdvertiser = SpendingHarian::with('user')
+            ->whereYear('tanggal', now()->year)->whereMonth('tanggal', now()->month)
+            ->selectRaw('user_id,
+                             SUM(spending) as total_spending,
+                             SUM(`lead`) as total_lead,
+                             SUM(paid) as total_paid')
+            ->groupBy('user_id')->orderByDesc('total_spending')->limit(5)->get();
+
         return view('dashboard.keuangan', compact(
-            'bulanIni', 'bulanLalu', 'spendingPerWhitelist'
+            'bulanIni', 'bulanLalu', 'spendingPerWhitelist', 'topAdvertiser'
         ));
     }
 }

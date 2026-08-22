@@ -57,6 +57,8 @@ class WhitelistController extends Controller
             'tanggal' => ['required', 'date'],
             'status' => ['required', 'in:aktif,nonaktif'],
             'catatan' => ['nullable', 'string'],
+            'total_topup' => ['nullable', 'numeric', 'min:0'],
+            'nominal_terakhir_topup' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         // Kepemilikan otomatis = advertiser yang sedang login
