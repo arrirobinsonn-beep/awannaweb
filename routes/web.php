@@ -9,6 +9,7 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OperationalReportController;
+use App\Http\Controllers\OrderOnlineBatchController;
 use App\Http\Controllers\OrderOnlineController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PurchaseController;
@@ -193,6 +194,10 @@ Route::middleware('auth')->group(function () {
         Route::put('/orders/{shippingOrder}', [OrderOnlineController::class, 'update'])->name('orders.update');
         Route::get('/orders/{shippingOrder}', [OrderOnlineController::class, 'show'])->name('orders.show');
         Route::get('/orders/{batch}/export/{template}/{courier?}', [OrderOnlineController::class, 'export'])->name('orders.export');
+
+        // Riwayat Batch Import Order Online
+        Route::get('/order-batches', [OrderOnlineBatchController::class, 'index'])->name('order-batch.index');
+        Route::delete('/order-batches/{orderOnlineImportBatch}', [OrderOnlineBatchController::class, 'destroy'])->name('order-batch.destroy');
 
         // Purchase (Barang Masuk) & Stock Movement (Jurnal Stok)
         Route::get('/barang-masuk', [PurchaseController::class, 'index'])->name('purchase.index');

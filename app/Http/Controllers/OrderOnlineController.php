@@ -32,32 +32,28 @@ class OrderOnlineController extends Controller
     public function index(Request $request): View
     {
         $batchId = $request->integer('batch');
+        $selectedBatch = $batchId ? OrderOnlineImportBatch::find($batchId) : null;
 
+        // Query orders — filter by batch if selected, otherwise show all
+        $ordersQuery = ShippingOrder::query()
+            ->when($selectedBatch, fn ($q) => $q->where('order_online_import_batch_id', $selectedBatch->id))
+            ->when($request->filled('search'), fn ($q) => $q->where(function ($qq) use ($request) {
+                $qq->where('order_id', 'like', '%'.$request->search.'%')
+                    ->orWhere('customer_name', 'like', '%'.$request->search.'%')
+                    ->orWhere('phone', 'like', '%'.$request->search.'%');
+            }))
+            ->when($request->filled('courier'), fn ($q) => $q->where('courier', $request->courier))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', 'like', '%'.$request->status.'%'))
+            ->when($request->filled('product_code'), fn ($q) => $q->where('product_code', $request->product_code))
+            ->orderByDesc('id');
+
+        $orders = $ordersQuery->paginate(25)->withQueryString();
+
+        // Batch list untuk dropdown filter (hanya batch yang punya order)
         $batches = OrderOnlineImportBatch::query()
+            ->withCount('shippingOrders')
             ->orderByDesc('id')
-            ->paginate(10)
-            ->withQueryString();
-
-        $orders = collect();
-        $selectedBatch = null;
-
-        if ($batchId) {
-            $selectedBatch = OrderOnlineImportBatch::find($batchId);
-            if ($selectedBatch) {
-                $orders = ShippingOrder::where('order_online_import_batch_id', $selectedBatch->id)
-                    ->when($request->filled('search'), fn ($q) => $q->where(function ($qq) use ($request) {
-                        $qq->where('order_id', 'like', '%'.$request->search.'%')
-                            ->orWhere('customer_name', 'like', '%'.$request->search.'%')
-                            ->orWhere('phone', 'like', '%'.$request->search.'%');
-                    }))
-                    ->when($request->filled('courier'), fn ($q) => $q->where('courier', $request->courier))
-                    ->when($request->filled('status'), fn ($q) => $q->where('status', 'like', '%'.$request->status.'%'))
-                    ->when($request->filled('product_code'), fn ($q) => $q->where('product_code', $request->product_code))
-                    ->orderByDesc('id')
-                    ->paginate(25)
-                    ->withQueryString();
-            }
-        }
+            ->get();
 
         // Courier dinamis dari export_templates + undeliverable (special case)
         $exportTemplates = ExportTemplate::where('is_active', true)->get();
@@ -67,7 +63,7 @@ class OrderOnlineController extends Controller
 
         $products = Product::query()->orderBy('code')->with('variants')->get(['id', 'code', 'name']);
 
-        // Dropdown filter kode produk: varian dari master + kode yang masih dipakai di order.
+        // Dropdown filter kode produk
         $productOptions = collect();
         foreach ($products as $p) {
             foreach ($p->variants as $v) {
@@ -84,6 +80,7 @@ class OrderOnlineController extends Controller
 
         $exportTemplates = \App\Models\ExportTemplate::query()->where('is_active', true)->orderBy('id')->get();
 
+        // Courier counts untuk dropdown export (per batch terpilih)
         $courierCounts = collect();
         if ($selectedBatch) {
             $courierCounts = ShippingOrder::where('order_online_import_batch_id', $selectedBatch->id)

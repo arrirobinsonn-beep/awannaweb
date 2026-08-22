@@ -498,6 +498,13 @@
                 <span class="sidebar-label">Data Mentah</span>
             </a>
 
+            <a href="{{ route('order-batch.index') }}"
+               class="nav-item {{ request()->routeIs('order-batch.*') ? 'active' : '' }}"
+               data-page-link data-tip="Riwayat Batch Import & Hapus Batch">
+                <span class="nav-icon">🗂</span>
+                <span class="sidebar-label">Riwayat Batch</span>
+            </a>
+
             <a href="{{ route('operational-report.index') }}"
                class="nav-item {{ request()->routeIs('operational-report.*') ? 'active' : '' }}"
                data-page-link data-tip="Laporan Operasional (stok keluar/masuk, resi, metode bayar per pengirim)">
