@@ -205,7 +205,7 @@ Route::middleware('auth')->group(function () {
 
         // Riwayat Batch Import Order Online
         Route::get('/order-batches', [OrderOnlineBatchController::class, 'index'])->name('order-batch.index');
-        Route::delete('/order-batches/{orderOnlineImportBatch}', [OrderOnlineBatchController::class, 'destroy'])->name('order-batch.destroy');
+        Route::delete('/order-batches/{batch}', [OrderOnlineBatchController::class, 'destroy'])->name('order-batch.destroy');
 
         // Purchase (Barang Masuk) & Stock Movement (Jurnal Stok)
         Route::get('/barang-masuk', [PurchaseController::class, 'index'])->name('purchase.index');

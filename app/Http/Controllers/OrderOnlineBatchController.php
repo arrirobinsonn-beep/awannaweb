@@ -26,16 +26,26 @@ class OrderOnlineBatchController extends Controller
 
     public function destroy(OrderOnlineImportBatch $batch)
     {
-        // Reverse stock movements for all orders in this batch before cascade delete
+        $filename = $batch->original_filename;
+        $orderCount = $batch->shippingOrders()->count();
+
+        // 1) Reverse stock movements for all orders in this batch
         $orderIds = $batch->shippingOrders()->pluck('id')->toArray();
 
         if (! empty($orderIds)) {
             $this->stock->reverseReferences('order_online', $orderIds);
         }
 
-        $filename = $batch->original_filename;
-        $batch->delete(); // cascade deletes shipping_orders
+        // 2) Explicitly delete shipping_orders (don't rely on cascade)
+        \Illuminate\Support\Facades\DB::table('shipping_orders')
+            ->where('order_online_import_batch_id', $batch->id)
+            ->delete();
 
-        return back()->with('success', "Batch \"{$filename}\" & semua order terkait berhasil dihapus.");
+        // 3) Delete the batch itself
+        \Illuminate\Support\Facades\DB::table('order_online_import_batches')
+            ->where('id', $batch->id)
+            ->delete();
+
+        return back()->with('success', "Batch \"{$filename}\" & {$orderCount} order terkait berhasil dihapus.");
     }
 }

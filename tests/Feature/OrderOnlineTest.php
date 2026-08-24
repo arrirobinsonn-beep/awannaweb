@@ -2395,4 +2395,99 @@ class OrderOnlineTest extends TestCase
 
         return $spreadsheet->getActiveSheet()->toArray();
     }
+
+    // ── Batch delete: paksa hapus semua data ──────────────────────────
+
+    public function test_batch_delete_removes_all_data_permanently(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+
+        $admin = $this->adminUser();
+        $product = $this->makeProduct(100);
+        $variant = $this->variant($product);
+        $batch = $this->makeBatch();
+
+        $stockService = app(StockService::class);
+        $stockService->recordIn($variant->id, now()->toDateString(), 100, 10000, 'adjustment', $variant->id, 'opening');
+
+        $orderIds = [];
+        for ($i = 1; $i <= 3; $i++) {
+            $order = ShippingOrder::create([
+                'order_online_import_batch_id' => $batch->id,
+                'order_id' => 'DEL-'.uniqid(),
+                'customer_name' => 'Customer '.$i,
+                'phone' => '08123456'.str_pad($i, 4, '0', STR_PAD_LEFT),
+                'phone_normalized' => '628123456'.str_pad($i, 4, '0', STR_PAD_LEFT),
+                'status' => 'real',
+                'courier' => 'spx',
+                'product_code' => $variant->code,
+                'product_id' => $product->id,
+                'product_variant_id' => $variant->id,
+                'quantity' => 1,
+                'amount' => 100000,
+            ]);
+            $stockService->recordOut($variant->id, now()->toDateString(), 1, 'order_online', $order->id);
+            $orderIds[] = $order->id;
+        }
+
+        $this->assertDatabaseHas('order_online_import_batches', ['id' => $batch->id]);
+        $this->assertCount(3, ShippingOrder::where('order_online_import_batch_id', $batch->id)->get());
+        $this->assertEquals(3, StockMovement::where('reference', 'order_online')
+            ->whereIn('reference_id', $orderIds)->count());
+
+        // Act — assert redirect + flash success message
+        $response = $this->actingAs($admin)
+            ->delete(route('order-batch.destroy', $batch->id));
+        $response->assertRedirect();
+        $response->assertSessionHas('success');
+
+        // Assert: ALL data is gone
+        $this->assertDatabaseMissing('order_online_import_batches', ['id' => $batch->id]);
+        $this->assertCount(0, ShippingOrder::where('order_online_import_batch_id', $batch->id)->get());
+        $this->assertEquals(0, StockMovement::where('reference', 'order_online')
+            ->whereIn('reference_id', $orderIds)->count());
+    }
+
+    public function test_batch_delete_reverse_stock_correctly(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+
+        $admin = $this->adminUser();
+        $product = $this->makeProduct(100);
+        $variant = $this->variant($product);
+        $batch = $this->makeBatch();
+
+        $stockService = app(StockService::class);
+        $stockService->recordIn($variant->id, now()->toDateString(), 100, 10000, 'adjustment', $variant->id, 'opening');
+
+        $order = ShippingOrder::create([
+            'order_online_import_batch_id' => $batch->id,
+            'order_id' => 'REV-'.uniqid(),
+            'customer_name' => 'Customer Rev',
+            'phone' => '081999999999',
+            'phone_normalized' => '6281999999999',
+            'status' => 'real',
+            'courier' => 'spx',
+            'product_code' => $variant->code,
+            'product_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'quantity' => 2,
+            'amount' => 200000,
+        ]);
+
+        $stockService->recordOut($variant->id, now()->toDateString(), 2, 'order_online', $order->id);
+
+        $stockBefore = $variant->fresh()->stock;
+        $this->assertEquals(98, $stockBefore);
+
+        // Act — assert redirect + flash success
+        $response = $this->actingAs($admin)
+            ->delete(route('order-batch.destroy', $batch->id));
+        $response->assertRedirect();
+        $response->assertSessionHas('success');
+
+        // Stock must be restored
+        $stockAfter = $variant->fresh()->stock;
+        $this->assertEquals(100, $stockAfter);
+    }
 }
