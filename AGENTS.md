@@ -594,6 +594,12 @@ Semua elemen halaman spending advertiser (`index-advertiser`) kini fleksibel di 
 
 ---
 
+<<<<<<< HEAD
+## M. ✅ Batas Tinggi Tabel Performa Team — ±7 baris (11 Agustus 2026)
+
+### Deskripsi
+Tabel performa team (`team/performance.blade.php`, sisi advertiser & CS) dibatasi tingginya agar hanya menampilkan **±7 baris data CS**, sisanya bisa di-scroll vertikal di dalam container (pola sama dengan batas 5 baris tabel spending).
+=======
 ## M. ✅ Halaman Admin Kelola Aturan Courier (Dinamis dari DB) (12 Agustus 2026)
 
 ### Deskripsi
@@ -603,10 +609,26 @@ Aturan auto-mapping kurir (tabel `courier_rules`) kini bisa dikelola langsung da
 - Evaluasi 2 fase (sejak 13 Agustus, fitur P): **fase 1 = rule khusus produk** (`product_code` terisi, selalu menang) → **fase 2 = rule umum** (`product_code` null, perilaku lama). Dalam tiap fase dievaluasi berurutan dari `sort_order` terkecil; rule pertama yang cocok (`payment_method` + `province`) menang. `payment_method`/`province` null = berlaku semua.
 - Fallback bila tidak ada rule cocok: `spx` (konstanta `FALLBACK_COURIER`, belum dinamis).
 - `CourierRuleService::resolve(paymentMethod, province, productCode?)` membaca DB per-request (cache per instance) → perubahan langsung berlaku untuk import order berikutnya.
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
+<<<<<<< HEAD
+| `resources/views/team/performance.blade.php` | Kedua wrapper tabel (`<div style="overflow-x:auto;">`) diberi class `.perf-scroll-limit` (overflow-y:auto + scrollbar tipis); script baru: hitung `maxHeight = tinggi header + 7 baris data + tinggi baris GRAND TOTAL` (baris total sticky-bottom dihitung agar tidak menutupi baris ke-7), pass-2 setelah scrollbar muncul + re-measure saat resize; gaya JS `const`/arrow (konsisten dgn script donut di file yang sama) |
+
+### Penting
+- Baris data di-deteksi dari `tbody.rows` yang inline `position` BUKAN `sticky` (baris GRAND TOTAL memakai `position:sticky;bottom:0` inline) & bukan `display:none` — jika baris total dipindah ke CSS class, filter ini harus disesuaikan (sudah dicatat sebagai komentar di script).
+- Header (2 baris, sticky top) & kolom sticky kiri/kanan tetap berfungsi di dalam container scroll karena tabel memakai `border-collapse:separate`.
+- ≤7 CS / empty state → tanpa batasan (tinggi natural).
+
+---
+
+## J. ✅ Ringkasan Periode — 4 Kartu Summary di Halaman Spending Advertiser (11 Agustus 2026)
+
+### Deskripsi
+Halaman spending sisi advertiser kini punya 4 kartu summary (Total Spending, Total Lead/Paid, CPA Lead/Paid, Paid Ratio) di antara area filter rentang periodik dan tabel utama. Seluruh kartu terpengaruh rentang periodik yang sedang aktif. Warna paid ratio: <50% merah, 50–75% kuning, >75% hijau.
+=======
 | `app/Http/Controllers/CourierRuleController.php` | `index/store/update/destroy/toggle/move`; normalisasi `payment_method` lowercase & `province` uppercase; validasi courier `in:COURIERS`; cek duplikat kombinasi (payment+province) |
 | `routes/web.php` | `GET/POST /courier-rules`, `PUT /courier-rules/{rule}`, `PATCH …/toggle`, `POST …/move/{up|down}`, `DELETE …/courier-rules/{rule}` (nama `courier-rule.*`) |
 | `resources/views/courier_rule/index.blade.php` | Form tambah (sort_order, payment_method+datalist, province+datalist master, courier select, aktif) + tabel rules (badge metode/provinsi/courier, toggle status, tombol ↑/↓ reorder, edit via modal, hapus) + info box cara kerja |
@@ -633,10 +655,29 @@ Pemetaan kolom saat export `shipping_orders` → template courier (FLIK/SiCepat/
 | `computed` | Nilai khusus hasil perhitungan (registry `COMPUTED`, 15 key) | `warehouse` (KSP→Aurora/SH→GTM), `product_name_display` (+power), `phone_spx` (mulai 8), `weight_1`, `pack_length/width/height` (10/8/6), `default_courier_note`, `cod_flag`, `cod_amount`, `payment_method_upper`, `province/city/district_upper` (CAPSLOCK), `order_id_50` |
 | `static` | Teks tetap yang diketik admin | `'Barang'` (Jenis Paket SiCepat), `'N'` (Asuransi SPX) |
 | `empty` | Dikosongkan | Kelurahan FLIK, kolom DO Balik SiCepat |
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
+<<<<<<< HEAD
+| `app/Http/Controllers/SpendingHarianController.php` | `indexGeneral()` hitung summary batch per rentang (1 query aggregate, bukan per baris) |
+| `resources/views/spending/index.blade.php` | 4 kartu summary + logic warna ratio |
+
+## K. ✅ Top Up: Area Sisa Saldo Berdampingan + Centang Whitelist (11 Agustus 2026)
+
+### Deskripsi
+Halaman `topup/create` kini punya **dua area berdampingan** (grid 1fr 1fr, collapse 1 kolom di ≤900px):
+- **📋 Rencana Top Up per Whitelist** — tiap whitelist punya **checkbox** untuk memilih whitelist yang di-top up; input nominal `disabled` sampai dicentang. Total hanya menghitung baris tercentang.
+- **💳 Input Sisa Saldo per Whitelist** — otomatis menampilkan whitelist yang ber-**spending kemarin** (aggregate `SUM(spending/lead/paid)` per whitelist, 1 query batch `whereDate` + `groupBy`), input sisa saldo default = `sisa_saldo` saat ini.
+
+> Tahap ini **UI dulu**: `store()` belum menyimpan field `sisa_saldo[*]` (ada info kecil di view). Sisa saldo saat ini tetap di-input di tahap akhir (confirm setelah VA dibayar) — pemindahan penyimpanan ke awal menyusul.
+
+### Penting
+- Baris tidak dicentang → `syncRowState()` men-disable **input nominal DAN hidden `items[id][whitelist_id]`** sekaligus. Kalau hidden whitelist_id tidak ikut di-disable, baris tak dicentang tetap terkirim `items[id]` tanpa `nominal` → validasi `items.*.nominal required` gagal membingungkan.
+- `sisa_saldo` adalah **accessor** (`total_topup − total_spending`), bukan kolom DB.
+- Query spending kemarin memakai `whereDate('tanggal', now()->subDay())` + `whereIn` whitelist milik advertiser (aman saat whitelists kosong — Laravel `0=1`).
+=======
 | `database/migrations/2026_08_12_100000_create_export_template_mappings_table.php` | `template` (flik/sicepat/spx), `column_index`, `header`, `source_type`, `source_value`, `is_active`; UNIQUE `(template, column_index)` |
 | `app/Models/ExportTemplateMapping.php` | model sederhana |
 | `app/Services/ExportMappingService.php` | registry `COLUMNS`/`COMPUTED`/`SOURCE_TYPES`; `mappingFor()` (cache per request, order by column_index); `parseTemplateFile()` (baca header CSV + BOM + buang trailing empty); `matchHeaders()` (bawa mapping lama by nama header saat upload ulang); `saveMapping()` (replace per template dlm 1 transaksi) |
@@ -662,10 +703,19 @@ Pemetaan kolom saat export `shipping_orders` → template courier (FLIK/SiCepat/
 
 ### Deskripsi
 Template export tidak lagi terbatas 3 bawaan: tabel **`export_templates`** (key/name/couriers/is_active) jadi master; `export_template_mappings.template` menyimpan `key` (relasi string, tanpa alter tabel mapping). Admin bisa **buat template baru** (mis. JNE) yang langsung muncul sebagai tombol export di Data Mentah. Tampilan dipecah: **index = daftar** (kartu per template + tombol **Edit**/**Hapus**) dan **create = halaman terpisah** (`/export-mapping/create`); edit juga halaman terpisah (`/export-mapping/{tpl}/edit`). **Hapus = permanen** (mapping ikut hapus; SPX tetap jadi safety net bila template hilang).
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
+<<<<<<< HEAD
+| `app/Http/Controllers/TopUpController.php` | `create()`: import `SpendingHarian`, query batch spending kemarin → `$sisaSaldoWhitelists` (properti dinamis `spending_kemarin`/`lead_kemarin`/`paid_kemarin`); `store()`: pesan error custom + atribut `items.{id}.nominal` → nama whitelist |
+| `resources/views/topup/create.blade.php` | `.topup-split` grid dua card, checkbox `.wl-select`, JS `syncRowState()`/`hitungTotal()` (hitung baris tercentang saja); tinggi card disamakan via `align-items:stretch` + `height:100%` + `flex:1` pada daftar item |
+
+> **Validasi submit top-up (fix 11 Agustus):** whitelist dicentang tapi nominal kosong → dulu error membingungkan `The items.8.nominal field is required.`. Kini: form pakai **`novalidate`** (native browser dimatikan agar guard JS yang jalan), guard submit mengecek `.wl-select:checked` dengan nominal kosong/negatif → `preventDefault` + alert nama whitelist (`WL_NAMES` dari `@json`) + highlight merah + scroll ke baris. `store()` punya pesan custom `Nominal top up untuk :attribute wajib diisi` dgn atribut dinamis `items.{id}.nominal` → nama whitelist. Saat validasi gagal, `old('items.{id}.nominal')` memulihkan centang + nilai input (`data-was-filled` + `restoreRowState()`), jadi user tidak mengetik ulang. |
+
+> ⚠️ **Reserved word MySQL — kolom `lead` WAJIB backtick di raw SQL** (fix 11 Agustus): `spending_harians.lead` adalah **reserved word** di MySQL 8.4 → `SUM(lead)` tanpa backtick memicu `SQLSTATE[42000] 1064`. SELALU tulis `SUM(\`lead\`)` di `selectRaw` (contoh kanonik: `DashboardController`, `SpendingHarianController`, `RegionalController`). Kolom `spending` & `paid` aman tanpa backtick.
+=======
 | `database/migrations/2026_08_12_120000_create_export_templates_table.php` | `key` unique, `name`, `couriers` (JSON), `is_active`; seed 3 bawaan (flik→4 flix-*, sicepat→[sicepat], spx→[spx]) |
 | `app/Models/ExportTemplate.php` | fillable+casts `couriers` array; relasi `mappings()` (hasMany via `template`=key) |
 | `app/Services/ExportMappingService.php` | + `templates()`, `template(key)` (cache), `couriersForTemplate(key)` (**DB-driven** + fallback `LEGACY_COURIERS` bila row terhapus), `createTemplate(name, couriers, items)` (key auto-slug `Str::slug`, couriers kosong → `[key]`), `updateTemplate`, `deleteTemplate` (transaksi hapus mapping+row) |
@@ -1046,6 +1096,7 @@ Modul keuangan 4 tabel: **`accounts`** (master rekening/cash/aggregator + `curre
 - Suite: **159 pass** (hanya `ExampleTest` 302 pre-existing).
 
 ---
+>>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
 
 ## B. ✅ Fitur yang DIHAPUS (3 Agustus 2026)
 
