@@ -53,6 +53,7 @@
 
 @section('content')
 
+@if(!$isCs)
 {{-- Upload CSV & Status Aggregator — berdampingan --}}
 <div class="upload-grid">
 <div class="clay-card" style="padding:20px 24px;">
@@ -121,7 +122,9 @@
     <div id="track-result" style="margin-top:14px;display:none;"></div>
 </div>
 </div>
+@endif
 
+@if(!$isCs)
 {{-- Preview modal --}}
 <div id="preview-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:60;align-items:center;justify-content:center;padding:20px;">
     <div style="background:#fff;border-radius:16px;max-width:860px;width:100%;max-height:85vh;overflow:auto;padding:20px;">
@@ -132,11 +135,12 @@
         <div id="preview-body" style="font-size:.85rem;"></div>
     </div>
 </div>
+@endif
 
 {{-- Filter bar + Orders table --}}
 <div class="clay-card" style="padding:0;overflow:hidden;">
     {{-- Header: Export buttons (when batch selected) --}}
-    @if($selectedBatch)
+    @if($selectedBatch && !$isCs)
     <div style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;border-bottom:1px solid rgba(0,0,0,.06);">
         <div>
             <h2 style="margin:0;font-size:1rem;font-weight:800;">{{ $selectedBatch->original_filename }}</h2>
@@ -263,6 +267,7 @@
                                     @endif
                                 </div>
                             @else
+                                @if(!$isCs)
                                 <details style="font-size:.78rem;">
                                     <summary style="cursor:pointer;color:var(--color-primary,#FF6B6B);font-weight:700;">Edit</summary>
                                     <form method="POST" action="{{ route('orders.update', $o->id) }}" class="courier-edit-form" style="margin-top:6px;flex-wrap:wrap;">
@@ -285,6 +290,7 @@
                                         <button class="clay-btn clay-btn-primary" style="padding:2px 8px;font-size:.72rem;">Simpan</button>
                                     </form>
                                 </details>
+                                @endif
                             @endif
                         </td>
                     </tr>

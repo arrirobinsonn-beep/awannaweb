@@ -84,7 +84,6 @@ class BankTransferController extends Controller
         $orderIds = ShippingOrder::whereNotNull('order_id')
             ->where('order_id', '!=', '')
             ->distinct()
-            ->orderByDesc('id')
             ->limit(500)
             ->pluck('order_id');
 

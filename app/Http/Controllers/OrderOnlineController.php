@@ -92,7 +92,9 @@ class OrderOnlineController extends Controller
                 ->pluck('total', 'courier');
         }
 
-        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions'));
+        $isCs = auth()->user()->hasRole('cs');
+
+        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions', 'isCs'));
     }
 
     public function show(ShippingOrder $shippingOrder): View
@@ -133,6 +135,8 @@ class OrderOnlineController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(auth()->user()->hasRole('cs'), 403, 'CS tidak bisa mengimport data.');
+
         $request->validate([
             'sender' => ['required', 'string', 'max:191'],
             'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
@@ -180,6 +184,8 @@ class OrderOnlineController extends Controller
 
     public function update(Request $request, ShippingOrder $shippingOrder)
     {
+        abort_if(auth()->user()->hasRole('cs'), 403, 'CS tidak bisa mengubah data order.');
+
         if (! empty($shippingOrder->awb)) {
             return back()->withErrors(['order' => 'Order sudah memiliki resi (AWB), tidak bisa diedit.']);
         }
@@ -235,6 +241,8 @@ class OrderOnlineController extends Controller
 
     public function trackingImport(Request $request): JsonResponse
     {
+        abort_if(auth()->user()->hasRole('cs'), 403, 'CS tidak bisa mengimport tracking.');
+
         $request->validate([
             'file' => ['required', 'file', 'mimes:csv,txt,xlsx,xls', 'max:10240'],
             'courier' => ['nullable', 'string', 'max:50'],
@@ -274,6 +282,8 @@ class OrderOnlineController extends Controller
 
     public function export(OrderOnlineImportBatch $batch, string $template, ?string $courier = null): StreamedResponse
     {
+        abort_if(auth()->user()->hasRole('cs'), 403, 'CS tidak bisa export data.');
+
         // Template export bisa custom (tabel export_templates) — bukan hanya 3 bawaan.
         if (! \App\Models\ExportTemplate::where('key', $template)->exists()) {
             abort(404);
