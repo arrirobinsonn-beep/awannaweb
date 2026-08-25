@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -45,6 +47,18 @@ class Account extends Model
     public function transfersTo(): HasMany
     {
         return $this->hasMany(AccountTransfer::class, 'to_account_id');
+    }
+
+    /** Pemilik akun ini (via pivot account_owners) */
+    public function owners(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'account_owners', 'account_id', 'user_id')->withTimestamps();
+    }
+
+    /** Pemilik pertama akun ini (convenience — 1 akun biasanya 1 owner) */
+    public function getFirstOwnerIdAttribute(): ?int
+    {
+        return $this->owners()->first()?->id;
     }
 
     public function scopeAktif($query)

@@ -21,12 +21,8 @@ use Illuminate\View\View;
 /**
  * Bukti transfer (bank_transfers).
  *
- * - CS: upload bukti pembayaran masuk (type=in + gambar wajib) → pending.
- *   Statusnya dilihat di halaman ini; saat ditolak, rejection_note tampil
- *   sebagai feedback.
- * - Keuangan/owner/super_admin/admin: approve (gambar dihapus + saldo naik),
- *   reject (wajib catatan), input transaksi keluar (type=out, saldo langsung
- *   turun), dan hapus transaksi (saldo dikembalikan).
+ * Alur: CS upload → pending → pemilik bank confirm → confirmed → guru approve → approved.
+ * Gambar tidak pernah dihapus otomatis — hanya manual oleh guru via deleteImage().
  */
 class BankTransferController extends Controller
 {
@@ -37,16 +33,28 @@ class BankTransferController extends Controller
         return auth()->user()->hasRole(self::APPROVERS);
     }
 
+    /** Cek apakah user adalah pemilik dari akun tertentu (via pivot account_owners) */
+    private function isAccountOwner(Account $account): bool
+    {
+        return $account->owners()->where('users.id', auth()->id())->exists();
+    }
+
     public function index(Request $request): View
     {
         $user = auth()->user();
         $isApprover = $this->isApprover();
 
-        $query = BankTransfer::with('account', 'category', 'creator', 'product');
+        $query = BankTransfer::with('account', 'category', 'creator', 'product', 'confirmer');
 
-        if (! $isApprover) {
+        if (! $isApprover && ! $user->hasRole('pemilik_bank')) {
             abort_unless($user->hasRole('cs'), 403);
             $query->where('created_by', $user->id);
+        }
+
+        // Pemilik bank hanya lihat bukti transfer ke akun yang dia miliki
+        if ($user->hasRole('pemilik_bank') && ! $isApprover) {
+            $ownedAccountIds = $user->ownedAccounts()->pluck('accounts.id');
+            $query->whereIn('account_id', $ownedAccountIds);
         }
 
         $query->when($request->filled('search'), function ($q) use ($request) {
@@ -88,7 +96,13 @@ class BankTransferController extends Controller
             ->limit(500)
             ->pluck('order_id');
 
-        return view('finance.bank_transfers.index', compact('transfers', 'accounts', 'categories', 'products', 'orderIds', 'stats', 'statusCounts', 'isApprover'));
+        // ID akun yang dimiliki user ini (untuk tampilkan tombol confirm di view)
+        $ownedAccountIds = $user->ownedAccounts()->pluck('accounts.id')->toArray();
+
+        return view('finance.bank_transfers.index', compact(
+            'transfers', 'accounts', 'categories', 'products', 'orderIds',
+            'stats', 'statusCounts', 'isApprover', 'ownedAccountIds'
+        ));
     }
 
     public function pendingCount(): JsonResponse
@@ -150,7 +164,7 @@ class BankTransferController extends Controller
                 'image_url' => $request->hasFile('image')
                     ? $request->file('image')->store('bukti-transfer', 'public')
                     : null,
-                // Approver = langsung dicatat (saldo ter-update); CS = pending (perlu acc).
+                // Approver = langsung dicatat (saldo ter-update); CS = pending (perlu confirm pemilik bank dulu).
                 'status' => $isApprover ? 'approved' : 'pending',
             ]);
 
@@ -159,8 +173,8 @@ class BankTransferController extends Controller
             return $bt;
         });
 
-        // CS upload → beri tahu semua role keuangan/approver (pola notifyRole TopUpController).
         if ($isCs) {
+            // Notifikasi ke semua approver
             foreach (User::role(self::APPROVERS)->pluck('id') as $uid) {
                 Notification::create([
                     'user_id' => $uid,
@@ -173,26 +187,69 @@ class BankTransferController extends Controller
                     'data' => ['url' => route('finance.bank-transfers.index')],
                 ]);
             }
+
+            // Notifikasi ke pemilik bank yang memiliki akun ini
+            $account = $bt->account->load('owners');
+            foreach ($account->owners as $owner) {
+                Notification::create([
+                    'user_id' => $owner->id,
+                    'from_user_id' => $user->id,
+                    'type' => 'bank_transfer_received',
+                    'title' => '📥 Bukti Transfer Masuk',
+                    'message' => $user->display_name.' meng-upload bukti transfer Rp '
+                        .number_format((float) $data['amount'], 0, ',', '.')
+                        .' ke '.$bt->account->name.'. Silakan tandai jika sudah masuk ke rekening Anda.',
+                    'data' => ['url' => route('finance.bank-transfers.index')],
+                ]);
+            }
         }
 
         return redirect()->route('finance.bank-transfers.index')
             ->with('success', $isApprover
                 ? 'Transaksi berhasil dicatat (saldo otomatis diperbarui).'
-                : 'Bukti transfer terkirim. Menunggu persetujuan keuangan.');
+                : 'Bukti transfer terkirim. Menunggu konfirmasi pemilik bank.');
+    }
+
+    /**
+     * Pemilik bank menandai bukti transfer sudah masuk ke rekening.
+     * Status: pending → confirmed. Tidak hapus gambar, tidak ubah saldo.
+     */
+    public function confirm(BankTransfer $bankTransfer): RedirectResponse
+    {
+        abort_unless($bankTransfer->isPending(), 400, 'Transaksi sudah diproses.');
+        abort_unless($this->isAccountOwner($bankTransfer->account), 403, 'Anda bukan pemilik akun ini.');
+
+        $bankTransfer->update([
+            'status' => 'confirmed',
+            'confirmed_by' => auth()->id(),
+            'confirmed_at' => now(),
+        ]);
+
+        // Notifikasi ke semua approver bahwa pemilik bank sudah confirm
+        foreach (User::role(self::APPROVERS)->pluck('id') as $uid) {
+            Notification::create([
+                'user_id' => $uid,
+                'from_user_id' => auth()->id(),
+                'type' => 'bank_transfer_confirmed',
+                'title' => '✅ Bukti Transfer Dikonfirmasi Pemilik Bank',
+                'message' => auth()->user()->display_name.' menandai bukti transfer Rp '
+                    .number_format((float) $bankTransfer->amount, 0, ',', '.')
+                    .' ke '.$bankTransfer->account->name.' sudah masuk ke rekening.',
+                'data' => ['url' => route('finance.bank-transfers.index')],
+            ]);
+        }
+
+        return redirect()->route('finance.bank-transfers.index')
+            ->with('success', 'Bukti transfer ditandai sudah masuk. Menunggu persetujuan guru.');
     }
 
     public function approve(BankTransfer $bankTransfer): RedirectResponse
     {
         abort_unless($this->isApprover(), 403);
-        abort_unless($bankTransfer->isPending(), 400, 'Transaksi sudah diproses.');
+        abort_unless($bankTransfer->isConfirmed(), 400, 'Bukti transfer harus dikonfirmasi pemilik bank terlebih dahulu.');
 
         DB::transaction(function () use ($bankTransfer) {
-            // Gambar bukti dihapus permanen — transaksi sudah disetujui.
-            if ($bankTransfer->image_url) {
-                Storage::disk('public')->delete($bankTransfer->image_url);
-            }
-
-            $bankTransfer->update(['status' => 'approved', 'image_url' => null]);
+            $bankTransfer->update(['status' => 'approved']);
             app(FinanceService::class)->applyBankTransfer($bankTransfer);
         });
 
@@ -208,7 +265,7 @@ class BankTransferController extends Controller
     public function reject(Request $request, BankTransfer $bankTransfer): RedirectResponse
     {
         abort_unless($this->isApprover(), 403);
-        abort_unless($bankTransfer->isPending(), 400, 'Transaksi sudah diproses.');
+        abort_unless(in_array($bankTransfer->status, ['pending', 'confirmed']), 400, 'Transaksi sudah diproses.');
 
         $data = $request->validate([
             'rejection_note' => ['required', 'string', 'max:500'],
@@ -228,9 +285,28 @@ class BankTransferController extends Controller
         return redirect()->route('finance.bank-transfers.index')->with('success', 'Transaksi ditolak. Feedback terkirim ke CS.');
     }
 
+    /**
+     * Hapus gambar bukti transfer secara manual (guru/keuangan).
+     * Tidak mengubah status atau saldo.
+     */
+    public function deleteImage(BankTransfer $bankTransfer): RedirectResponse
+    {
+        abort_unless($this->isApprover(), 403);
+        abort_unless($bankTransfer->image_url, 404, 'Tidak ada gambar yang bisa dihapus.');
+
+        if (Storage::disk('public')->exists($bankTransfer->image_url)) {
+            Storage::disk('public')->delete($bankTransfer->image_url);
+        }
+
+        $bankTransfer->update(['image_url' => null]);
+
+        return redirect()->route('finance.bank-transfers.index')
+            ->with('success', 'Gambar bukti transfer berhasil dihapus.');
+    }
+
     public function download(BankTransfer $bankTransfer)
     {
-        abort_unless($this->isApprover() || $bankTransfer->created_by === auth()->id(), 403);
+        abort_unless($this->isApprover() || $this->isAccountOwner($bankTransfer->account) || $bankTransfer->created_by === auth()->id(), 403);
         abort_unless($bankTransfer->image_url && Storage::disk('public')->exists($bankTransfer->image_url),
             404, 'Bukti gambar sudah tidak tersedia.');
 

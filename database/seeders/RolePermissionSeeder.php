@@ -78,6 +78,10 @@ class RolePermissionSeeder extends Seeder
                 'produk.view',
                 'spending.view', 'spending.create', 'spending.edit',
             ],
+
+            'pemilik_bank' => [
+                'dashboard.view',
+            ],
         ];
 
         foreach ($roleMap as $roleName => $rolePermissions) {

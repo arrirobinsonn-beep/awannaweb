@@ -446,13 +446,24 @@ class FinanceTest extends TestCase
 
         $bt = BankTransfer::where('account_id', $account->id)->first();
 
+        // Download bisa sebelum approve
         $this->actingAs($keu)->get(route('finance.bank-transfers.download', $bt))->assertOk();
 
+        // Confirm dulu, lalu approve — gambar TIDAK dihapus otomatis
+        $owner = $this->makeUser('pemilik_bank');
+        $account->owners()->attach($owner->id);
+        $this->actingAs($owner)->post(route('finance.bank-transfers.confirm', $bt));
         $this->actingAs($keu)->post(route('finance.bank-transfers.approve', $bt));
+
+        // Gambar masih ada setelah approve (baru hilang kalau dihapus manual)
+        $this->actingAs($keu)->get(route('finance.bank-transfers.download', $bt))->assertOk();
+
+        // Hapus manual → download 404
+        $this->actingAs($keu)->delete(route('finance.bank-transfers.delete-image', $bt));
         $this->actingAs($keu)->get(route('finance.bank-transfers.download', $bt))->assertNotFound();
     }
 
-    public function test_approve_adds_balance_and_deletes_image(): void
+    public function test_approve_adds_balance_and_keeps_image_until_manual_delete(): void
     {
         Storage::fake('public');
         $cs = $this->makeUser('cs');
@@ -470,6 +481,16 @@ class FinanceTest extends TestCase
         ]);
 
         $bt = BankTransfer::where('account_id', $account->id)->first();
+
+        // Confirm dulu oleh pemilik bank
+        $owner = $this->makeUser('pemilik_bank');
+        $account->owners()->attach($owner->id);
+        $this->actingAs($owner)->post(route('finance.bank-transfers.confirm', $bt));
+        $bt->refresh();
+        $this->assertSame('confirmed', $bt->status);
+        $this->assertNotNull($bt->image_url);
+
+        // Approve oleh guru
         $this->actingAs($keu)
             ->from(route('finance.bank-transfers.index'))
             ->post(route('finance.bank-transfers.approve', $bt))
@@ -478,7 +499,8 @@ class FinanceTest extends TestCase
 
         $bt->refresh();
         $this->assertSame('approved', $bt->status);
-        $this->assertNull($bt->image_url);
+        // Gambar TIDAK dihapus otomatis saat approve — tetap ada
+        $this->assertNotNull($bt->image_url);
         $this->assertSame('750000.00', (string) $account->fresh()->current_balance);
     }
 
@@ -500,6 +522,7 @@ class FinanceTest extends TestCase
         ]);
 
         $bt = BankTransfer::where('account_id', $account->id)->first();
+        $this->assertSame('pending', $bt->status);
 
         // Reject tanpa catatan → error
         $this->actingAs($keu)
@@ -507,7 +530,7 @@ class FinanceTest extends TestCase
             ->post(route('finance.bank-transfers.reject', $bt), [])
             ->assertSessionHasErrors('rejection_note');
 
-        // Reject dengan catatan → feedback tersimpan + notif ke CS + balance tetap
+        // Reject dengan catatan dari pending → feedback tersimpan + notif ke CS + balance tetap
         $this->actingAs($keu)
             ->from(route('finance.bank-transfers.index'))
             ->post(route('finance.bank-transfers.reject', $bt), [
@@ -843,9 +866,178 @@ class FinanceTest extends TestCase
         ]);
 
         $bt = BankTransfer::where('account_id', $account->id)->first();
+        $this->assertSame('pending', $bt->status);
 
+        // CS lain tidak bisa approve (bahkan dari status confirmed sekalipun)
+        // Approve dari pending ditolak karena butuh confirm dulu
         $this->actingAs($otherCs)->post(route('finance.bank-transfers.approve', $bt))->assertForbidden();
         $this->assertSame('pending', $bt->fresh()->status);
         $this->assertSame('0.00', (string) $account->fresh()->current_balance);
+    }
+
+    // ─── Konfirmasi Pemilik Bank ────────────────────────────────
+
+    public function test_pemilik_bank_can_confirm_pending_transfer(): void
+    {
+        Storage::fake('public');
+        $cs = $this->makeUser('cs');
+        $owner = $this->makeUser('pemilik_bank');
+        $account = $this->makeAccount(0);
+        $category = $this->makeCategory('in');
+        $account->owners()->attach($owner->id);
+
+        $this->actingAs($cs)->post(route('finance.bank-transfers.store'), [
+            'account_id' => $account->id,
+            'category_id' => $category->id,
+            'type' => 'in',
+            'amount' => 500000,
+            'transaction_date' => now()->format('Y-m-d'),
+            'image' => UploadedFile::fake()->image('bukti.jpg'),
+        ]);
+
+        $bt = BankTransfer::where('account_id', $account->id)->first();
+        $this->assertSame('pending', $bt->status);
+
+        $this->actingAs($owner)
+            ->from(route('finance.bank-transfers.index'))
+            ->post(route('finance.bank-transfers.confirm', $bt))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $bt->refresh();
+        $this->assertSame('confirmed', $bt->status);
+        $this->assertSame($owner->id, $bt->confirmed_by);
+        $this->assertNotNull($bt->confirmed_at);
+        $this->assertNotNull($bt->image_url); // gambar tetap ada
+        $this->assertSame('0.00', (string) $account->fresh()->current_balance); // saldo tetap
+    }
+
+    public function test_non_owner_cannot_confirm(): void
+    {
+        Storage::fake('public');
+        $cs = $this->makeUser('cs');
+        $other = $this->makeUser('cs');
+        $account = $this->makeAccount(0);
+        $category = $this->makeCategory('in');
+
+        $this->actingAs($cs)->post(route('finance.bank-transfers.store'), [
+            'account_id' => $account->id,
+            'category_id' => $category->id,
+            'type' => 'in',
+            'amount' => 100000,
+            'transaction_date' => now()->format('Y-m-d'),
+            'image' => UploadedFile::fake()->image('bukti.jpg'),
+        ]);
+
+        $bt = BankTransfer::where('account_id', $account->id)->first();
+
+        // User lain yang bukan owner akun → 403
+        $this->actingAs($other)->post(route('finance.bank-transfers.confirm', $bt))->assertForbidden();
+        $this->assertSame('pending', $bt->fresh()->status);
+    }
+
+    public function test_approve_requires_confirmed_status(): void
+    {
+        Storage::fake('public');
+        $cs = $this->makeUser('cs');
+        $keu = $this->makeUser('keuangan');
+        $account = $this->makeAccount(0);
+        $category = $this->makeCategory('in');
+
+        $this->actingAs($cs)->post(route('finance.bank-transfers.store'), [
+            'account_id' => $account->id,
+            'category_id' => $category->id,
+            'type' => 'in',
+            'amount' => 200000,
+            'transaction_date' => now()->format('Y-m-d'),
+            'image' => UploadedFile::fake()->image('bukti.jpg'),
+        ]);
+
+        $bt = BankTransfer::where('account_id', $account->id)->first();
+        $this->assertSame('pending', $bt->status);
+
+        // Approve dari pending → 400 error
+        $this->actingAs($keu)->post(route('finance.bank-transfers.approve', $bt))->assertStatus(400);
+        $this->assertSame('pending', $bt->fresh()->status);
+    }
+
+    public function test_delete_image_on_approved_transfer(): void
+    {
+        Storage::fake('public');
+        $cs = $this->makeUser('cs');
+        $keu = $this->makeUser('keuangan');
+        $owner = $this->makeUser('pemilik_bank');
+        $account = $this->makeAccount(0);
+        $category = $this->makeCategory('in');
+        $account->owners()->attach($owner->id);
+
+        $this->actingAs($cs)->post(route('finance.bank-transfers.store'), [
+            'account_id' => $account->id,
+            'category_id' => $category->id,
+            'type' => 'in',
+            'amount' => 300000,
+            'transaction_date' => now()->format('Y-m-d'),
+            'image' => UploadedFile::fake()->image('bukti.jpg'),
+        ]);
+
+        $bt = BankTransfer::where('account_id', $account->id)->first();
+
+        // Confirm → approve
+        $this->actingAs($owner)->post(route('finance.bank-transfers.confirm', $bt));
+        $this->actingAs($keu)->post(route('finance.bank-transfers.approve', $bt));
+
+        $bt->refresh();
+        $this->assertSame('approved', $bt->status);
+        $this->assertNotNull($bt->image_url); // gambar masih ada setelah approve
+
+        // Hapus gambar manual
+        $this->actingAs($keu)
+            ->from(route('finance.bank-transfers.index'))
+            ->delete(route('finance.bank-transfers.delete-image', $bt))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $bt->refresh();
+        $this->assertNull($bt->image_url);
+        $this->assertSame('approved', $bt->status); // status tidak berubah
+        $this->assertSame('300000.00', (string) $account->fresh()->current_balance); // saldo tetap
+    }
+
+    public function test_approve_from_confirmed_notifies_cs(): void
+    {
+        Storage::fake('public');
+        $cs = $this->makeUser('cs');
+        $keu = $this->makeUser('keuangan');
+        $owner = $this->makeUser('pemilik_bank');
+        $account = $this->makeAccount(0);
+        $category = $this->makeCategory('in');
+        $account->owners()->attach($owner->id);
+
+        $this->actingAs($cs)->post(route('finance.bank-transfers.store'), [
+            'account_id' => $account->id,
+            'category_id' => $category->id,
+            'type' => 'in',
+            'amount' => 400000,
+            'transaction_date' => now()->format('Y-m-d'),
+            'image' => UploadedFile::fake()->image('bukti.jpg'),
+        ]);
+
+        $bt = BankTransfer::where('account_id', $account->id)->first();
+
+        // Confirm → approve
+        $this->actingAs($owner)->post(route('finance.bank-transfers.confirm', $bt));
+        $this->actingAs($keu)->post(route('finance.bank-transfers.approve', $bt));
+
+        // CS mendapat notifikasi approved
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $cs->id,
+            'type' => 'bank_transfer_approved',
+        ]);
+
+        // Approver mendapat notifikasi confirmed (dikirim saat pemilik bank confirm)
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $keu->id,
+            'type' => 'bank_transfer_confirmed',
+        ]);
     }
 }
