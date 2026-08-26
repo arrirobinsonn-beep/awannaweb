@@ -237,8 +237,10 @@ Route::middleware('auth')->group(function () {
             Route::get('rekening-koran/pdf', [BankStatementController::class, 'downloadPdf'])->name('bank-statement.pdf');
             Route::get('bukti-transfer/pending-count', [BankTransferController::class, 'pendingCount'])->name('bank-transfers.pending-count');
             Route::post('bukti-transfer', [BankTransferController::class, 'store'])->name('bank-transfers.store');
+            Route::post('bukti-transfer/{bankTransfer}/confirm', [BankTransferController::class, 'confirm'])->name('bank-transfers.confirm');
             Route::post('bukti-transfer/{bankTransfer}/approve', [BankTransferController::class, 'approve'])->name('bank-transfers.approve');
             Route::post('bukti-transfer/{bankTransfer}/reject', [BankTransferController::class, 'reject'])->name('bank-transfers.reject');
+            Route::delete('bukti-transfer/{bankTransfer}/image', [BankTransferController::class, 'deleteImage'])->name('bank-transfers.delete-image');
             Route::delete('bukti-transfer/{bankTransfer}', [BankTransferController::class, 'destroy'])->name('bank-transfers.destroy');
             Route::get('bukti-transfer/{bankTransfer}/download', [BankTransferController::class, 'download'])->name('bank-transfers.download');
         });

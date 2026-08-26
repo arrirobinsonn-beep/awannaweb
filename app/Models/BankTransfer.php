@@ -6,21 +6,21 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Transaksi keuangan masuk/keluar per akun. CS meng-upload bukti (image_url)
- * untuk type=in → status pending → di-approve/reject role keuangan/owner.
+ * Transaksi keuangan masuk/keluar per akun.
  *
+ * Alur: CS upload → pending → pemilik bank confirm → confirmed → guru approve → approved.
+ * Gambar tidak pernah dihapus otomatis — hanya manual oleh guru.
  * Hanya status approved yang mengubah current_balance (via FinanceService).
- * Saat approved, file bukti gambar DIHAPUS dari disk (image_url di-null).
- * Saat rejected, rejection_note berisi feedback untuk CS.
  */
 class BankTransfer extends Model
 {
     public const TYPES = ['in', 'out'];
 
-    public const STATUSES = ['pending', 'approved', 'rejected'];
+    public const STATUSES = ['pending', 'confirmed', 'approved', 'rejected'];
 
     public const STATUS_LABELS = [
-        'pending' => 'Menunggu',
+        'pending' => 'Menunggu Konfirmasi',
+        'confirmed' => 'Sudah Dikonfirmasi',
         'approved' => 'Disetujui',
         'rejected' => 'Ditolak',
     ];
@@ -30,11 +30,13 @@ class BankTransfer extends Model
     protected $fillable = [
         'account_id', 'category_id', 'product_id', 'order_online_id', 'type', 'amount', 'description',
         'transaction_date', 'created_by', 'image_url', 'status', 'rejection_note',
+        'confirmed_by', 'confirmed_at',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'transaction_date' => 'datetime',
+        'confirmed_at' => 'datetime',
     ];
 
     public function account(): BelongsTo
@@ -57,9 +59,19 @@ class BankTransfer extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function confirmer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'confirmed_by');
+    }
+
     public function isPending(): bool
     {
         return $this->status === 'pending';
+    }
+
+    public function isConfirmed(): bool
+    {
+        return $this->status === 'confirmed';
     }
 
     public function isApproved(): bool

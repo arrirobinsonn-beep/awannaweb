@@ -27,6 +27,7 @@
     .bt-badge-in  { background: #dcfce7; color: #15803d; }
     .bt-badge-out { background: #fee2e2; color: #b91c1c; }
     .bt-badge-pending  { background: #fef3c7; color: #b45309; }
+    .bt-badge-confirmed { background: #e0e7ff; color: #4338ca; }
     .bt-badge-approved { background: #d1fae5; color: #065f46; }
     .bt-badge-rejected { background: #fee2e2; color: #b91c1c; }
 
@@ -55,7 +56,9 @@
     }
     .bt-act-approve { background: #d1fae5; color: #065f46; border: 1.5px solid #6ee7b7; }
     .bt-act-reject  { background: #fee2e2; color: #b91c1c; border: 1.5px solid #fca5a5; }
-    .bt-act-approve:hover, .bt-act-reject:hover { transform: translateY(-1px); box-shadow: 0 3px 0 rgba(0,0,0,.08); }
+    .bt-act-confirm { background: #e0e7ff; color: #4338ca; border: 1.5px solid #a5b4fc; }
+    .bt-act-delete-img { background: #fef3c7; color: #92400e; border: 1.5px solid #fcd34d; }
+    .bt-act-approve:hover, .bt-act-reject:hover, .bt-act-confirm:hover, .bt-act-delete-img:hover { transform: translateY(-1px); box-shadow: 0 3px 0 rgba(0,0,0,.08); }
 
     .bt-del-form { display: inline; }
     .bt-del-btn { background: none; border: none; color: #dc2626; font-weight: 700; font-size: .72rem; cursor: pointer; padding: 2px 6px; }
@@ -207,6 +210,7 @@
         padding: 1px 7px; font-weight: 800;
     }
     .bt-tab[data-status="pending"].active span { background: #fef3c7; color: #b45309; }
+    .bt-tab[data-status="confirmed"].active span { background: #e0e7ff; color: #4338ca; }
     .bt-tab[data-status="approved"].active span { background: #d1fae5; color: #065f46; }
     .bt-tab[data-status="rejected"].active span { background: #fee2e2; color: #b91c1c; }
 </style>
@@ -218,14 +222,14 @@
 <div class="clay-card bt-alur" style="background:linear-gradient(135deg,#FFF7F7,#fff);" data-reveal>
     @if($isApprover)
         <span class="bt-step" style="border:none;background:transparent;font-weight:800;color:#1e1b2e;">💡 Alur:</span>
-        <span class="bt-step">1️⃣ Input transaksi</span><span class="bt-step-arrow">→</span>
-        <span class="bt-step">💰 Masuk = saldo + · 💸 Keluar = saldo −</span><span class="bt-step-arrow">→</span>
-        <span class="bt-step">✅ Approve bukti CS / ❌ reject + catatan</span>
+        <span class="bt-step">1️⃣ CS upload bukti</span><span class="bt-step-arrow">→</span>
+        <span class="bt-step">🏦 Pemilik bank tandai masuk</span><span class="bt-step-arrow">→</span>
+        <span class="bt-step">✅ Guru setujui = saldo berubah</span>
     @else
         <span class="bt-step" style="border:none;background:transparent;font-weight:800;color:#1e1b2e;">💡 Alur:</span>
-        <span class="bt-step">1️⃣ Upload bukti + keterangan pesanan</span><span class="bt-step-arrow">→</span>
-        <span class="bt-step">⏳ Menunggu persetujuan (saldo belum berubah)</span><span class="bt-step-arrow">→</span>
-        <span class="bt-step">✅ Disetujui = saldo masuk · ❌ Ditolak = lihat catatan</span>
+        <span class="bt-step">1️⃣ Upload bukti + keterangan</span><span class="bt-step-arrow">→</span>
+        <span class="bt-step">🏦 Tunggu pemilik bank tandai</span><span class="bt-step-arrow">→</span>
+        <span class="bt-step">✅ Disetujui guru = saldo masuk</span>
     @endif
 </div>
 
@@ -515,19 +519,36 @@
                         </td>
                         <td>
                             @if($isApprover)
-                                @if($bt->isPending())
-                                    <button type="button" class="bt-act-btn bt-act-approve"
-                                            onclick="submitBt('{{ route('finance.bank-transfers.approve', $bt) }}', 'Setujui transfer Rp {{ number_format((float) $bt->amount, 0, ',', '.') }}? Gambar bukti akan dihapus.')">
-                                        ✓ Setujui
-                                    </button>
+                                @if($bt->isPending() || $bt->isConfirmed())
+                                    {{-- Tolak: bisa dari pending atau confirmed --}}
                                     <button type="button" class="bt-act-btn bt-act-reject" id="bt-rej-{{ $bt->id }}"
                                             onclick="openBtReject({{ $bt->id }})">✕ Tolak</button>
+                                @endif
+                                @if($bt->isConfirmed())
+                                    {{-- Setujui: hanya dari confirmed --}}
+                                    <button type="button" class="bt-act-btn bt-act-approve"
+                                            onclick="submitBt('{{ route('finance.bank-transfers.approve', $bt) }}', 'Setujui transfer Rp {{ number_format((float) $bt->amount, 0, ',', '.') }}?')">
+                                        ✓ Setujui
+                                    </button>
+                                @endif
+                                @if($bt->isApproved() && $bt->image_url)
+                                    {{-- Hapus Gambar: hanya dari approved + gambar ada --}}
+                                    <button type="button" class="bt-act-btn bt-act-delete-img"
+                                            onclick="submitBt('{{ route('finance.bank-transfers.delete-image', $bt) }}', 'Hapus gambar bukti transfer? Gambar akan dihapus permanen.')">
+                                        🗑 Hapus Gambar
+                                    </button>
                                 @endif
                                 <form method="POST" action="{{ route('finance.bank-transfers.destroy', $bt) }}" class="bt-del-form"
                                       data-confirm="Hapus transaksi Rp {{ number_format((float) $bt->amount, 0, ',', '.') }}? Saldo akun akan dikembalikan.">
                                     @csrf @method('DELETE')
                                     <button type="submit" class="bt-del-btn">🗑 Hapus</button>
                                 </form>
+                            @elseif(in_array($bt->account_id, $ownedAccountIds) && $bt->isPending())
+                                {{-- Pemilik bank: tandai sudah masuk --}}
+                                <button type="button" class="bt-act-btn bt-act-confirm"
+                                        onclick="submitBt('{{ route('finance.bank-transfers.confirm', $bt) }}', 'Tandai bukti transfer Rp {{ number_format((float) $bt->amount, 0, ',', '.') }} sudah masuk ke rekening {{ $bt->account->name }}?')">
+                                    ✓ Tandai Sudah Masuk
+                                </button>
                             @else
                                 <span style="font-size:.68rem;color:#9ca3af;">—</span>
                             @endif
