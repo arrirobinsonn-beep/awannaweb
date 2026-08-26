@@ -2490,4 +2490,215 @@ class OrderOnlineTest extends TestCase
         $stockAfter = $variant->fresh()->stock;
         $this->assertEquals(100, $stockAfter);
     }
+
+    // ── Varian non-power (motif) ──────────────────────────────────────
+
+    /**
+     * Produk non-kacamata (mis. celengan) punya varian berdasarkan motif
+     * (Bunga, Kartun, Polos) — BUKAN power. Kolom variation tidak punya
+     * keyword "Dapat" sehingga qty = 1. Sistem harus bisa membedakan
+     * varian berdasarkan nama varian yang muncul di kolom variation.
+     */
+    public function test_variant_resolved_by_name_for_non_power_product(): void
+    {
+        $product = Product::create([
+            'code' => 'CLG'.strtoupper(substr(uniqid(), -4)),
+            'name' => 'Celengan Celengan',
+            'status' => 'active',
+        ]);
+
+        $vBunga = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+BUNGA',
+            'name' => 'Bunga',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+        $vKartun = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+KARTUN',
+            'name' => 'Kartun',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+        $vPolos = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+POLOS',
+            'name' => 'Polos',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+
+        $admin = $this->adminUser();
+        $uid = strtoupper(substr(uniqid(), -6));
+        $phone1 = '62812'.rand(10000000, 99999999);
+        $phone2 = '62813'.rand(10000000, 99999999);
+        $phone3 = '62814'.rand(10000000, 99999999);
+
+        $csv = $this->writeTempCsv([
+            $this->row('CLG-001-'.$uid, $phone1, 'processing', 'paid', $product->code, 'Jl. A', 'Motif: Bunga', 'Celengan Celengan'),
+            $this->row('CLG-002-'.$uid, $phone2, 'processing', 'paid', $product->code, 'Jl. B', 'Motif: Kartun', 'Celengan Celengan'),
+            $this->row('CLG-003-'.$uid, $phone3, 'processing', 'paid', $product->code, 'Jl. C', 'Motif: Polos', 'Celengan Celengan'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($csv, 'TestSender', 'celengan_test.csv');
+
+        $this->assertEquals(3, $result['inserted']);
+        $this->assertEquals(0, $result['duplicates']);
+
+        // CLG-001 → varian Bunga
+        $o1 = ShippingOrder::where('order_id', 'CLG-001-'.$uid)->first();
+        $this->assertNotNull($o1);
+        $this->assertEquals($vBunga->id, $o1->product_variant_id);
+        $this->assertEquals($vBunga->code, $o1->product_code);
+
+        // CLG-002 → varian Kartun
+        $o2 = ShippingOrder::where('order_id', 'CLG-002-'.$uid)->first();
+        $this->assertNotNull($o2);
+        $this->assertEquals($vKartun->id, $o2->product_variant_id);
+        $this->assertEquals($vKartun->code, $o2->product_code);
+
+        // CLG-003 → varian Polos
+        $o3 = ShippingOrder::where('order_id', 'CLG-003-'.$uid)->first();
+        $this->assertNotNull($o3);
+        $this->assertEquals($vPolos->id, $o3->product_variant_id);
+        $this->assertEquals($vPolos->code, $o3->product_code);
+    }
+
+    /**
+     * Produk non-power tanpa keyword "Dapat" → qty tetap 1 (dari CSV).
+     */
+    public function test_non_power_variant_qty_default_one(): void
+    {
+        $product = Product::create([
+            'code' => 'CLG'.strtoupper(substr(uniqid(), -4)),
+            'name' => 'Celengan',
+            'status' => 'active',
+        ]);
+
+        ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+BUNGA',
+            'name' => 'Bunga',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+
+        $uid = strtoupper(substr(uniqid(), -6));
+        $phone = '62815'.rand(10000000, 99999999);
+
+        $csv = $this->writeTempCsv([
+            $this->row('CLG-Q1-'.$uid, $phone, 'processing', 'paid', $product->code, 'Jl. Q', 'Motif: Bunga', 'Celengan'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($csv, 'TestSender', 'celengan_qty.csv');
+
+        $this->assertEquals(1, $result['inserted']);
+
+        $order = ShippingOrder::where('order_id', 'CLG-Q1-'.$uid)->first();
+        $this->assertNotNull($order);
+        $this->assertEquals(1, $order->quantity);
+        $this->assertStringNotContainsString('pcs', strtolower((string) $order->product_name));
+    }
+
+    /**
+     * Variasi kosong / tak dikenal → fallback ke varian default.
+     */
+    public function test_non_power_variant_fallback_to_default(): void
+    {
+        $product = Product::create([
+            'code' => 'CLG'.strtoupper(substr(uniqid(), -4)),
+            'name' => 'Celengan',
+            'status' => 'active',
+        ]);
+
+        $v1 = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+POLOS',
+            'name' => 'Polos',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+        ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+BUNGA',
+            'name' => 'Bunga',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+
+        $uid = strtoupper(substr(uniqid(), -6));
+        $phone = '62816'.rand(10000000, 99999999);
+
+        $csv = $this->writeTempCsv([
+            $this->row('CLG-F1-'.$uid, $phone, 'processing', 'paid', $product->code, 'Jl. F', '', 'Celengan'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($csv, 'TestSender', 'celengan_fallback.csv');
+
+        $order = ShippingOrder::where('order_id', 'CLG-F1-'.$uid)->first();
+        $this->assertNotNull($order);
+        // Fallback ke varian default (power terkecil, id terkecil)
+        $this->assertEquals($v1->id, $order->product_variant_id);
+    }
+
+    /**
+     * Produk non-power dengan nama varian berisi spasi (multi-kata)
+     * tetap bisa dicocokkan. Contoh: varian "Kartun Polos" cocok
+     * dengan variation "Motif: Kartun Polos".
+     */
+    public function test_non_power_variant_multi_word_name(): void
+    {
+        $product = Product::create([
+            'code' => 'CLG'.strtoupper(substr(uniqid(), -4)),
+            'name' => 'Celengan',
+            'status' => 'active',
+        ]);
+
+        $vBunga = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+BUNGA',
+            'name' => 'Bunga',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+        $vKartunPolos = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+KARTUNPOLOS',
+            'name' => 'Kartun Polos',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+
+        $uid = strtoupper(substr(uniqid(), -6));
+        $phone1 = '62817'.rand(10000000, 99999999);
+        $phone2 = '62818'.rand(10000000, 99999999);
+
+        $csv = $this->writeTempCsv([
+            $this->row('CLG-M1-'.$uid, $phone1, 'processing', 'paid', $product->code, 'Jl. M1', 'Motif: Bunga', 'Celengan'),
+            $this->row('CLG-M2-'.$uid, $phone2, 'processing', 'paid', $product->code, 'Jl. M2', 'Motif: Kartun Polos', 'Celengan'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($csv, 'TestSender', 'celengan_multi.csv');
+
+        $this->assertEquals(2, $result['inserted']);
+
+        $o1 = ShippingOrder::where('order_id', 'CLG-M1-'.$uid)->first();
+        $this->assertEquals($vBunga->id, $o1->product_variant_id);
+
+        $o2 = ShippingOrder::where('order_id', 'CLG-M2-'.$uid)->first();
+        $this->assertEquals($vKartunPolos->id, $o2->product_variant_id);
+    }
 }

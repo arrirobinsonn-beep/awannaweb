@@ -425,8 +425,8 @@ class OrderOnlineImportService
             return null;
         }
 
+        // 1. Coba cocokkan power (kacamata: "Plus +1.50")
         $power = $this->extractPower($variation);
-
         if ($power !== null) {
             foreach ($variants as $variant) {
                 if ((float) $variant->power === $power) {
@@ -435,6 +435,17 @@ class OrderOnlineImportService
             }
         }
 
+        // 2. Coba cocokkan berdasarkan nama/kode varian (non-kacamata:
+        //    "Motif: Bunga", "Warna: Merah", "Bunga", dll.)
+        $keyword = $this->extractVariantKeyword($variation);
+        if ($keyword !== '') {
+            $match = $this->matchVariantByKeyword($variants, $keyword);
+            if ($match !== null) {
+                return $match;
+            }
+        }
+
+        // 3. Fallback ke varian default (power terkecil)
         $default = $variants
             ->where('status', 'active')
             ->sortBy(fn ($v) => [(float) $v->power, $v->id])
@@ -454,6 +465,77 @@ class OrderOnlineImportService
 
         if (preg_match('/Plus\s*([+\-]?\d+(?:\.\d+)?)/i', $variation, $m)) {
             return (float) $m[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * Ekstrak kata kunci varian dari teks variasi (non-power).
+     * Contoh:
+     *  - "Motif: Bunga" → "bunga"
+     *  - "Warna: Merah, Motif: Kartun" → "merah" (token pertama)
+     *  - "Bunga" → "bunga"
+     *  - "" → ""
+     */
+    protected function extractVariantKeyword(string $variation): string
+    {
+        $variation = trim($variation);
+        if ($variation === '') {
+            return '';
+        }
+
+        // Buang prefix "Ukuran:" / "Size:" karena itu untuk power/kacamata
+        $variation = preg_replace('/^(Ukuran|Size)\s*:\s*/i', '', $variation);
+
+        // Ambil token pertama (pisah koma/semikolon)
+        $parts = preg_split('/[,;\-]/', $variation);
+        $first = trim($parts[0] ?? '');
+        if ($first === '') {
+            return '';
+        }
+
+        // Bila ada "Key: Value", ambil Value-nya
+        if (preg_match('/^\w+\s*:\s*(.+)$/i', $first, $m)) {
+            $first = trim($m[1]);
+        }
+
+        return mb_strtolower($first);
+    }
+
+    /**
+     * Cocokkan keyword varian terhadap koleksi varian produk.
+     * Prioritas: exact → contains (keyword dalam nama) → contains (nama dalam keyword).
+     */
+    protected function matchVariantByKeyword(Collection $variants, string $keyword): ?int
+    {
+        $active = $variants->where('status', 'active');
+        if ($active->isEmpty()) {
+            return null;
+        }
+
+        // Exact match (nama atau kode)
+        foreach ($active as $variant) {
+            if (mb_strtolower(trim((string) $variant->name)) === $keyword
+                || mb_strtolower(trim((string) $variant->code)) === $keyword) {
+                return $variant->id;
+            }
+        }
+
+        // Keyword mengandung nama varian (mis. "bunga kartun" mengandung "bunga")
+        foreach ($active as $variant) {
+            $name = mb_strtolower(trim((string) $variant->name));
+            if ($name !== '' && mb_strpos($keyword, $name) !== false) {
+                return $variant->id;
+            }
+        }
+
+        // Nama varian mengandung keyword (mis. varian "Bunga" cocok "bunga")
+        foreach ($active as $variant) {
+            $name = mb_strtolower(trim((string) $variant->name));
+            if ($name !== '' && mb_strpos($name, $keyword) !== false) {
+                return $variant->id;
+            }
         }
 
         return null;
