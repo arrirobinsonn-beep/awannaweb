@@ -617,6 +617,13 @@
                 <span class="nav-icon">💰</span>
                 <span class="sidebar-label">Top Up</span>
             </a>
+
+            <a href="{{ route('mobile-device.index') }}"
+               class="nav-item {{ request()->routeIs('mobile-device.*') ? 'active' : '' }}"
+               data-page-link data-tip="Mobile Devices & Token">
+                <span class="nav-icon">📱</span>
+                <span class="sidebar-label">Mobile Devices</span>
+            </a>
             @endif
 
         </nav>

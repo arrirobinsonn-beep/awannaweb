@@ -27,6 +27,7 @@ use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TopUpController;
 use App\Http\Controllers\TrackingStatusRuleController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\MobileDeviceController;
 use App\Http\Controllers\WarehouseRuleController;
 use App\Http\Controllers\WhitelistController;
 use Illuminate\Support\Facades\Route;
@@ -214,6 +215,14 @@ Route::middleware('auth')->group(function () {
 
         // Jurnal Stok
         Route::get('/jurnal-stok', [StockMovementController::class, 'index'])->name('stock-movement.index');
+
+        // ── Mobile Devices (manajemen credential mobile API) ──
+        Route::get('/mobile-devices', [MobileDeviceController::class, 'index'])->name('mobile-device.index');
+        Route::post('/mobile-devices', [MobileDeviceController::class, 'store'])->name('mobile-device.store');
+        Route::put('/mobile-devices/{mobileDevice}', [MobileDeviceController::class, 'update'])->name('mobile-device.update');
+        Route::delete('/mobile-devices/{mobileDevice}', [MobileDeviceController::class, 'destroy'])->name('mobile-device.destroy');
+        Route::patch('/mobile-devices/{mobileDevice}/toggle', [MobileDeviceController::class, 'toggle'])->name('mobile-device.toggle');
+        Route::post('/mobile-devices/{mobileDevice}/regenerate', [MobileDeviceController::class, 'regenerate'])->name('mobile-device.regenerate');
 
         // ── Keuangan (akun, kategori, transfer antar akun, bukti transfer) ──
         Route::prefix('keuangan')->name('finance.')->group(function () {
