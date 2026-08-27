@@ -2,12 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Account;
+use App\Models\BankTransfer;
 use App\Models\Notification;
+use App\Models\TransactionCategory;
+use App\Models\TopUpPaymentBatch;
+use App\Models\TopUpProposalReview;
 use App\Models\SpendingHarian;
 use App\Models\TopUpProposal;
 use App\Models\TopUpProposalItem;
 use App\Models\User;
 use App\Models\Whitelist;
+use App\Services\FinanceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -21,8 +27,9 @@ class TopUpController extends Controller
     public function index(Request $request): View
     {
         $user = Auth::user();
+        abort_if($user->hasRole('keuangan'), 403, 'Gunakan menu Pengajuan / Approval.');
 
-        if ($user->hasRole(['owner', 'super_admin', 'admin', 'keuangan'])) {
+        if ($user->hasRole(['owner', 'super_admin', 'admin'])) {
             // Super admin: tab per advertiser
             $advertisers = User::role('advertiser')
                 ->orderBy('nama')
@@ -260,26 +267,72 @@ class TopUpController extends Controller
             abort(403);
         }
 
-        $proposal->load('user', 'approver', 'items.whitelist');
+        $proposal->load([
+            'user',
+            'approver',
+            'items.whitelist',
+            'paymentBatches.items.whitelist',
+            'reviews.reviewer',
+        ]);
 
         return view('topup.show', compact('proposal'));
     }
 
     // ─── Approve ───────────────────────────────────────────────
 
-    public function approve(TopUpProposal $proposal): RedirectResponse
+    public function approve(Request $request, TopUpProposal $proposal): RedirectResponse
     {
         $approver = Auth::user();
-        abort_unless($approver->hasRole(['owner', 'super_admin', 'admin']), 403);
+        abort_unless($approver->hasRole(['owner', 'super_admin', 'admin', 'keuangan']), 403);
         abort_unless($proposal->isPending(), 400, 'Proposal sudah diproses.');
 
-        $proposal->update([
-            'status' => 'approved',
-            'approver_id' => $approver->id,
-            'approved_at' => now(),
+        $data = $request->validate([
+            'payment_mode' => ['required', 'in:shared_va,single_va_per_wl'],
         ]);
 
-        // Notifikasi ke advertiser
+        DB::transaction(function () use ($proposal, $approver, $data) {
+            $proposal->update([
+                'status' => 'approved',
+                'payment_mode' => $data['payment_mode'],
+                'approver_id' => $approver->id,
+                'reviewed_by' => $approver->id,
+                'reviewed_at' => now(),
+                'approved_at' => now(),
+                'decline_note' => null,
+                'suggested_total_nominal' => null,
+            ]);
+
+            TopUpProposalReview::create([
+                'proposal_id' => $proposal->id,
+                'reviewer_id' => $approver->id,
+                'decision' => 'approved',
+                'note' => 'Disetujui dengan mode '.$data['payment_mode'].'.',
+            ]);
+
+            $items = $proposal->items()->orderBy('id')->get();
+            if ($data['payment_mode'] === 'shared_va') {
+                $batch = TopUpPaymentBatch::create([
+                    'proposal_id' => $proposal->id,
+                    'batch_no' => 1,
+                    'payment_mode' => 'shared_va',
+                    'nominal' => $items->sum('nominal'),
+                ]);
+                foreach ($items as $item) {
+                    $item->update(['payment_batch_id' => $batch->id, 'approved_nominal' => $item->nominal]);
+                }
+            } else {
+                foreach ($items as $index => $item) {
+                    $batch = TopUpPaymentBatch::create([
+                        'proposal_id' => $proposal->id,
+                        'batch_no' => $index + 1,
+                        'payment_mode' => 'single_va_per_wl',
+                        'nominal' => $item->nominal,
+                    ]);
+                    $item->update(['payment_batch_id' => $batch->id, 'approved_nominal' => $item->nominal]);
+                }
+            }
+        });
+
         $this->notifyUser(
             $proposal->user_id,
             'proposal_approved',
@@ -290,7 +343,7 @@ class TopUpController extends Controller
         );
 
         return redirect()->route('topup.show', $proposal)
-            ->with('success', 'Pengajuan top up disetujui. Silakan lanjut ke pembayaran.');
+            ->with('success', 'Pengajuan top up disetujui.');
     }
 
     // ─── Decline ───────────────────────────────────────────────
@@ -298,35 +351,89 @@ class TopUpController extends Controller
     public function decline(Request $request, TopUpProposal $proposal): RedirectResponse
     {
         $approver = Auth::user();
-        abort_unless($approver->hasRole(['owner', 'super_admin', 'admin']), 403);
+        abort_unless($approver->hasRole(['owner', 'super_admin', 'admin', 'keuangan']), 403);
         abort_unless($proposal->isPending(), 400, 'Proposal sudah diproses.');
 
         $data = $request->validate([
             'decline_note' => ['required', 'string', 'max:500'],
+            'suggested_total_nominal' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        $proposal->update([
-            'status' => 'declined',
-            'approver_id' => $approver->id,
-            'decline_note' => $data['decline_note'],
-            'declined_at' => now(),
-        ]);
+        DB::transaction(function () use ($proposal, $approver, $data) {
+            $proposal->update([
+                'status' => 'revision_requested',
+                'approver_id' => $approver->id,
+                'reviewed_by' => $approver->id,
+                'reviewed_at' => now(),
+                'decline_note' => $data['decline_note'],
+                'suggested_total_nominal' => $data['suggested_total_nominal'] ?? null,
+                'declined_at' => now(),
+            ]);
 
-        // Notifikasi ke advertiser
+            TopUpProposalReview::create([
+                'proposal_id' => $proposal->id,
+                'reviewer_id' => $approver->id,
+                'decision' => 'revision_requested',
+                'suggested_total_nominal' => $data['suggested_total_nominal'] ?? null,
+                'note' => $data['decline_note'],
+            ]);
+        });
+
         $this->notifyUser(
             $proposal->user_id,
             'proposal_declined',
-            '❌ Pengajuan Top Up Ditolak',
-            'Pengajuan top up Rp '.number_format($proposal->total_nominal, 0, ',', '.')." ditolak oleh {$approver->display_name}. Alasan: {$data['decline_note']}",
+            '⚠️ Pengajuan Top Up Perlu Revisi',
+            'Pengajuan top up Rp '.number_format($proposal->total_nominal, 0, ',', '.')." diminta revisi oleh {$approver->display_name}. Alasan: {$data['decline_note']}",
             ['proposal_id' => $proposal->id, 'url' => route('topup.show', $proposal)],
             $approver->id
         );
 
         return redirect()->route('topup.show', $proposal)
-            ->with('success', 'Pengajuan top up ditolak.');
+            ->with('success', 'Pengajuan top up diminta revisi.');
     }
 
     // ─── Form Pembayaran (Advertiser input VA) ─────────────────
+    
+    public function revise(Request $request, TopUpProposal $proposal): RedirectResponse
+    {
+        $user = Auth::user();
+        abort_unless($proposal->user_id === $user->id, 403);
+        abort_unless($proposal->status === 'revision_requested', 400, 'Pengajuan tidak dalam status revisi.');
+
+        $data = $request->validate([
+            'items' => ['required', 'array'],
+            'items.*' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        DB::transaction(function () use ($proposal, $data) {
+            $totalNominal = 0;
+            foreach ($data['items'] as $itemId => $nominal) {
+                $item = $proposal->items()->find($itemId);
+                if ($item) {
+                    $item->update(['nominal' => $nominal]);
+                    $totalNominal += $nominal;
+                }
+            }
+            
+            $proposal->update([
+                'status' => 'pending',
+                'total_nominal' => $totalNominal,
+                'decline_note' => null,
+            ]);
+        });
+
+        $this->notifyRole(
+            ['super_admin', 'keuangan'],
+            'proposal_revised',
+            '📝 Pengajuan Top Up Direvisi',
+            "{$user->display_name} merevisi pengajuannya menjadi Rp ".number_format($proposal->total_nominal, 0, ',', '.'),
+            ['proposal_id' => $proposal->id, 'url' => route('topup.show', $proposal)],
+            $user->id
+        );
+
+        return redirect()->route('topup.show', $proposal)
+            ->with('success', 'Pengajuan berhasil direvisi dan dikirim ulang.');
+    }
 
     public function paymentForm(TopUpProposal $proposal): View
     {
@@ -334,7 +441,7 @@ class TopUpController extends Controller
         abort_unless($proposal->user_id === $user->id, 403);
         abort_unless($proposal->isApproved(), 400, 'Pengajuan belum disetujui.');
 
-        $proposal->load('items.whitelist');
+        $proposal->load('items.whitelist', 'paymentBatches.items.whitelist');
 
         return view('topup.payment', compact('proposal'));
     }
@@ -348,37 +455,49 @@ class TopUpController extends Controller
         abort_unless($proposal->isApproved(), 400, 'Pengajuan belum disetujui.');
 
         $data = $request->validate([
-            'items' => ['required', 'array'],
-            'items.*.item_id' => ['required', 'exists:top_up_proposal_items,id'],
-            'items.*.va_number' => ['required', 'string', 'max:100'],
+            'batches' => ['required', 'array'],
+            'batches.*.batch_id' => ['required', 'exists:top_up_payment_batches,id'],
+            'batches.*.va_number' => ['required', 'string', 'max:100'],
         ]);
 
         $allVaSubmitted = false;
 
         DB::transaction(function () use ($proposal, $data, &$allVaSubmitted) {
-            foreach ($data['items'] as $itemData) {
-                $item = TopUpProposalItem::findOrFail($itemData['item_id']);
-                abort_unless($item->proposal_id === $proposal->id, 403);
-                abort_unless($item->isPending(), 400, 'Item sudah dibayar.');
+            foreach ($data['batches'] as $batchData) {
+                $batch = $proposal->paymentBatches()
+                    ->whereKey($batchData['batch_id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-                $item->update([
-                    'va_number' => $itemData['va_number'],
-                    'payment_status' => 'paid',
-                    'paid_at' => now(),
+                abort_unless($batch->status === 'waiting_va', 400, 'Batch sudah diproses.');
+
+                $batch->update([
+                    'va_number' => $batchData['va_number'],
+                    'status' => 'va_submitted',
                 ]);
 
-                // Update whitelist
-                $wl = $item->whitelist;
-                abort_if(! $wl, 400, 'Whitelist untuk item ini tidak ditemukan.');
-                $wl->total_topup += (float) $item->nominal;
-                $wl->nominal_terakhir_topup = (float) $item->nominal;
-                $wl->save();
+                foreach ($batch->items as $item) {
+                    if ($item->payment_status === 'paid') {
+                        continue;
+                    }
+
+                    $item->update([
+                        'va_number' => $batchData['va_number'],
+                        'payment_status' => 'paid',
+                        'paid_at' => now(),
+                    ]);
+
+                    $wl = $item->whitelist;
+                    abort_if(! $wl, 400, 'Whitelist untuk item ini tidak ditemukan.');
+                    $wl->total_topup += (float) $item->nominal;
+                    $wl->nominal_terakhir_topup = (float) $item->nominal;
+                    $wl->save();
+                }
             }
 
-            // Set status ke 'menunggu_pembayaran' hanya jika semua item sudah diisi VA
             $pendingCount = $proposal->items()->where('payment_status', 'pending')->count();
             if ($pendingCount === 0) {
-                $proposal->update(['status' => 'menunggu_pembayaran']);
+                $proposal->update(['status' => 'payment_in_progress']);
                 $allVaSubmitted = true;
             }
         });
@@ -408,10 +527,36 @@ class TopUpController extends Controller
         abort_unless($proposal->isMenungguPembayaran(), 400, 'Pengajuan belum dalam tahap pembayaran VA.');
         abort_if($proposal->isVaPaid(), 400, 'VA sudah ditandai dibayar.');
 
-        $proposal->update([
-            'va_paid_at' => now(),
-            'va_paid_by' => $user->id,
-        ]);
+        $account = $this->topUpAccount();
+        $category = $this->topUpCategory();
+
+        DB::transaction(function () use ($proposal, $user, $account, $category) {
+            $proposal->update([
+                'va_paid_at' => now(),
+                'va_paid_by' => $user->id,
+            ]);
+
+            foreach ($proposal->paymentBatches()->whereNull('bank_transfer_id')->orderBy('batch_no')->get() as $batch) {
+                $bankTransfer = BankTransfer::create([
+                    'account_id' => $account->id,
+                    'category_id' => $category->id,
+                    'type' => 'out',
+                    'amount' => $batch->nominal,
+                    'description' => 'Top up proposal #'.$proposal->id.' batch #'.$batch->batch_no,
+                    'transaction_date' => now(),
+                    'created_by' => $user->id,
+                    'status' => 'approved',
+                    'source_type' => 'top_up_payment_batch',
+                    'source_id' => $batch->id,
+                ]);
+
+                app(FinanceService::class)->applyBankTransfer($bankTransfer);
+                $batch->update([
+                    'bank_transfer_id' => $bankTransfer->id,
+                    'status' => 'paid',
+                ]);
+            }
+        });
 
         // Notifikasi ke advertiser: VA sudah dibayar, silakan input sisa saldo
         $this->notifyUser(
@@ -436,7 +581,7 @@ class TopUpController extends Controller
         abort_unless($proposal->isMenungguPembayaran(), 400, 'Pengajuan belum dalam tahap pembayaran VA.');
         abort_unless($proposal->isVaPaid(), 400, 'VA belum dibayar oleh Super Admin.');
 
-        $proposal->load('items.whitelist');
+        $proposal->load('items.whitelist', 'paymentBatches.items.whitelist');
 
         return view('topup.confirm', compact('proposal'));
     }
@@ -486,6 +631,42 @@ class TopUpController extends Controller
 
         return redirect()->route('topup.show', $proposal)
             ->with('success', 'Sisa saldo berhasil dilaporkan. Status pengajuan: Selesai.');
+    }
+
+    private function topUpAccount(): Account
+    {
+        $cfg = config('finance.topup');
+
+        if (!empty($cfg['account_id'])) {
+            return Account::whereKey($cfg['account_id'])->where('status', 'active')->firstOrFail();
+        }
+
+        if (!empty($cfg['account_name'])) {
+            $account = Account::where('name', $cfg['account_name'])->where('status', 'active')->first();
+            if ($account) {
+                return $account;
+            }
+        }
+
+        return Account::aktif()->orderBy('id')->firstOrFail();
+    }
+
+    private function topUpCategory(): TransactionCategory
+    {
+        $cfg = config('finance.topup');
+
+        if (!empty($cfg['category_id'])) {
+            return TransactionCategory::whereKey($cfg['category_id'])->where('type', 'out')->firstOrFail();
+        }
+
+        if (!empty($cfg['category_name'])) {
+            $category = TransactionCategory::where('name', $cfg['category_name'])->where('type', 'out')->first();
+            if ($category) {
+                return $category;
+            }
+        }
+
+        return TransactionCategory::where('type', 'out')->orderBy('id')->firstOrFail();
     }
 
     // ─── Helper: Notifikasi ────────────────────────────────────

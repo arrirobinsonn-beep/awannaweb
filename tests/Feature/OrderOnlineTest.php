@@ -2211,6 +2211,18 @@ class OrderOnlineTest extends TestCase
         $purchase = Purchase::where('product_variant_id', $variant->id)->latest('id')->first();
         $this->assertNotNull($purchase);
         $this->assertSame((int) $invB->id, (int) $purchase->inventory_id);
+        $this->assertSame('pending', $purchase->status);
+        // Stok BELUM masuk karena masih pending
+        $this->assertSame(0, $stock->stockOf($variant->id, $invB->id));
+
+        // Approve pembelian → stok masuk
+        $user->assignRole('admin');
+        $this->actingAs($user)
+            ->patch(route('approval.purchase.approve', $purchase))
+            ->assertRedirect();
+
+        $purchase = $purchase->fresh();
+        $this->assertSame('approved', $purchase->status);
         $this->assertSame(10, $stock->stockOf($variant->id, $invB->id));
         $this->assertSame(0, $stock->stockOf($variant->id, $invA->id)); // gudang utama TIDAK terisi
 

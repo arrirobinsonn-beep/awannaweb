@@ -12,8 +12,10 @@ class TopUpProposalItem extends Model
 
     protected $fillable = [
         'proposal_id',
+        'payment_batch_id',
         'whitelist_id',
         'nominal',
+        'approved_nominal',
         'va_number',
         'payment_status',
         'paid_at',
@@ -22,6 +24,7 @@ class TopUpProposalItem extends Model
 
     protected $casts = [
         'nominal' => 'decimal:2',
+        'approved_nominal' => 'decimal:2',
         'payment_status' => 'string',
         'paid_at' => 'datetime',
         'sisa_saldo_dilaporkan' => 'decimal:2',
@@ -32,6 +35,11 @@ class TopUpProposalItem extends Model
     public function proposal(): BelongsTo
     {
         return $this->belongsTo(TopUpProposal::class, 'proposal_id');
+    }
+
+    public function paymentBatch(): BelongsTo
+    {
+        return $this->belongsTo(TopUpPaymentBatch::class, 'payment_batch_id');
     }
 
     public function whitelist(): BelongsTo

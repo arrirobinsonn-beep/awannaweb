@@ -381,18 +381,27 @@
             @if($u->hasRole(['owner','super_admin','mentor','admin','cs']))
             <a href="{{ route('orders.index') }}"
                class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
-               data-page-link data-tip="Upload Data Mentah & Export Template">
+               data-page-link data-tip="Pengiriman">
                 <span class="nav-icon">📥</span>
-                <span class="sidebar-label">Data Mentah</span>
+                <span class="sidebar-label">Pengiriman</span>
             </a>
             @endif
 
-            @if($u->hasRole(['owner','super_admin','mentor','advertiser','keuangan']))
+            @if($u->hasRole(['owner','super_admin','mentor','advertiser']))
             <a href="{{ route('topup.index') }}"
                class="nav-item {{ request()->routeIs('topup.*') ? 'active' : '' }}"
                data-page-link data-tip="Top Up">
                 <span class="nav-icon">💰</span>
                 <span class="sidebar-label">Top Up</span>
+            </a>
+            @endif
+
+            @if($u->hasRole(['super_admin','keuangan']))
+            <a href="{{ route('approval.index') }}"
+               class="nav-item {{ request()->routeIs('approval.*') ? 'active' : '' }}"
+               data-page-link data-tip="Review & approve pengajuan">
+                <span class="nav-icon">📋</span>
+                <span class="sidebar-label">Pengajuan</span>
             </a>
             @endif
 
@@ -518,9 +527,9 @@
 
             <a href="{{ route('orders.index') }}"
                class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
-               data-page-link data-tip="Upload Data Mentah & Export Template">
+               data-page-link data-tip="Pengiriman">
                 <span class="nav-icon">🚚</span>
-                <span class="sidebar-label">Data Mentah</span>
+                <span class="sidebar-label">Pengiriman</span>
             </a>
 
             <a href="{{ route('order-batch.index') }}"

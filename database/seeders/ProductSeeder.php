@@ -222,12 +222,12 @@ class ProductSeeder extends Seeder
      * Gudang UTAMA (`is_primary`) HANYA untuk Barang Inti (core) — Barang Pasti
      * & Additional tidak pernah punya label gudang utama.
      */
-    protected function syncInventoryMembership(Product $product, int $inventoryId): void
+    protected function syncInventoryMembership(Product $product, ?int $inventoryId): void
     {
         $isConsumable = $product->goods_type === Product::GOODS_CONSUMABLE;
         $ids = $isConsumable
             ? Inventory::orderBy('id')->pluck('id')->all()
-            : [$inventoryId];
+            : array_filter([$inventoryId]);
         $ids = array_values(array_unique(array_map('intval', $ids)));
         $hasPrimary = $product->goods_type === Product::GOODS_CORE;
 

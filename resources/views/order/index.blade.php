@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Data Mentah Order Online')
-@section('page-title', 'Data Mentah Order Online')
+@section('title', 'Pengiriman')
+@section('page-title', 'Pengiriman')
 @section('page-subtitle', 'Upload data mentah → export template Excel (FLIK / SiCepat / SPX)')
 
 @push('styles')
@@ -137,13 +137,81 @@
 </div>
 @endif
 
+{{-- Summary cards (dashboard style) --}}
+@php
+    $STATUS_LABELS = \App\Models\ShippingOrder::STATUS_LABELS;
+    $statusIcons = ['real' => '✅', 'tembakan' => '🎯', 'belum_diproses' => '⏳', 'cancel' => '❌', 'duplikat' => '⚠️'];
+    $aggIcons = [
+        'waiting_pickup' => '📦', 'in_transit' => '🚚', 'delivered' => '✅',
+        'returning' => '↩️', 'returned' => '🔄', 'problem' => '⚠️',
+    ];
+    $aggLabels = [
+        'waiting_pickup' => 'Waiting Pickup', 'in_transit' => 'In Transit', 'delivered' => 'Delivered',
+        'returning' => 'Returning', 'returned' => 'Returned', 'problem' => 'Problem',
+    ];
+@endphp
+
+{{-- Baris 1: Total --}}
+<div class="grid-stats" style="margin-bottom:12px;">
+    <div class="stat-card stat-card-1" data-reveal>
+        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">Total Pengiriman</div>
+        <div style="font-size:2rem;font-weight:900;" data-counter="{{ $summaryTotal }}">{{ $summaryTotal }}</div>
+        <div style="font-size:.72rem;opacity:.8;margin-top:4px;">📋 order (filter aktif)</div>
+        <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">📋</div>
+    </div>
+</div>
+
+{{-- Baris 2: Per Courier --}}
+<div class="grid-stats" style="margin-bottom:12px;">
+    @php $ci = 1; @endphp
+    @foreach($summaryByCourier as $cName => $cCount)
+        <div class="stat-card stat-card-{{ $ci }}" data-reveal>
+            <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">{{ $cName ?: '-' }}</div>
+            <div style="font-size:2rem;font-weight:900;" data-counter="{{ $cCount }}">{{ $cCount }}</div>
+            <div style="font-size:.72rem;opacity:.8;margin-top:4px;">🚚 courier</div>
+            <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">🚚</div>
+        </div>
+        @php $ci = $ci >= 4 ? 1 : $ci + 1; @endphp
+    @endforeach
+</div>
+
+{{-- Baris 3: Per Status --}}
+<div class="grid-stats" style="margin-bottom:12px;">
+    @php $si = 1; @endphp
+    @foreach($summaryByStatus as $sName => $sCount)
+        <div class="stat-card stat-card-{{ $si }}" data-reveal>
+            <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">{{ $STATUS_LABELS[$sName] ?? $sName }}</div>
+            <div style="font-size:2rem;font-weight:900;" data-counter="{{ $sCount }}">{{ $sCount }}</div>
+            <div style="font-size:.72rem;opacity:.8;margin-top:4px;">{{ $statusIcons[$sName] ?? '📋' }} status</div>
+            <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">{{ $statusIcons[$sName] ?? '📋' }}</div>
+        </div>
+        @php $si = $si >= 4 ? 1 : $si + 1; @endphp
+    @endforeach
+</div>
+
+{{-- Baris 4: Per Aggregator Status --}}
+@if($summaryByAggregator->filter(fn ($v, $k) => $k !== null)->count())
+<div class="grid-stats" style="margin-bottom:16px;">
+    @php $ai = 1; @endphp
+    @foreach($summaryByAggregator->filter(fn ($v, $k) => $k !== null) as $aName => $aCount)
+        <div class="stat-card stat-card-{{ $ai }}" data-reveal>
+            <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;opacity:.75;margin-bottom:8px;">{{ $aggLabels[$aName] ?? $aName }}</div>
+            <div style="font-size:2rem;font-weight:900;" data-counter="{{ $aCount }}">{{ $aCount }}</div>
+            <div style="font-size:.72rem;opacity:.8;margin-top:4px;">{{ $aggIcons[$aName] ?? '📡' }} aggregator</div>
+            <div style="position:absolute;right:14px;top:14px;font-size:2.5rem;opacity:.15;pointer-events:none;">{{ $aggIcons[$aName] ?? '📡' }}</div>
+        </div>
+        @php $ai = $ai >= 4 ? 1 : $ai + 1; @endphp
+    @endforeach
+</div>
+@endif
+
 {{-- Filter bar + Orders table --}}
 <div class="clay-card" style="padding:0;overflow:hidden;">
     {{-- Header: Export buttons (when batch selected) --}}
     @if($selectedBatch && !$isCs)
     <div style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;border-bottom:1px solid rgba(0,0,0,.06);">
         <div>
-            <h2 style="margin:0;font-size:1rem;font-weight:800;">{{ $selectedBatch->original_filename }}</h2>
+            <h2 style="margin:0;font-size:1rem;font-weight:800;">🚚 {{ $selectedBatch->original_filename }}</h2>
             <div style="font-size:.72rem;color:#9ca3af;">{{ $selectedBatch->created_at?->copy()->timezone('Asia/Jakarta')->format('d/m/Y H:i') }}{{ $selectedBatch->sender ? ' ('.$selectedBatch->sender.')' : '' }} • Total {{ $selectedBatch->total_rows }} • Sukses {{ $selectedBatch->success_rows }}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">

@@ -49,6 +49,23 @@ class OrderOnlineController extends Controller
 
         $orders = $ordersQuery->paginate(25)->withQueryString();
 
+        // ── Summary cards: aggregate counts per courier & status (follows filters) ──
+        $summaryQuery = clone $ordersQuery;
+        $summaryQuery->reorder(); // clear ORDER BY before GROUP BY
+        $summaryQuery->selectRaw('courier, status, aggregator_status, COUNT(*) as cnt');
+        $summaryRows = $summaryQuery->groupBy('courier', 'status', 'aggregator_status')->get();
+
+        $summaryByCourier = $summaryRows->groupBy('courier')
+            ->map(fn ($rows) => $rows->sum('cnt'))
+            ->sortDesc();
+        $summaryByStatus = $summaryRows->groupBy('status')
+            ->map(fn ($rows) => $rows->sum('cnt'))
+            ->sortDesc();
+        $summaryByAggregator = $summaryRows->groupBy('aggregator_status')
+            ->map(fn ($rows) => $rows->sum('cnt'))
+            ->sortDesc();
+        $summaryTotal = $summaryRows->sum('cnt');
+
         // Batch list untuk dropdown filter (hanya batch yang punya order)
         $batches = OrderOnlineImportBatch::query()
             ->withCount('shippingOrders')
@@ -94,7 +111,7 @@ class OrderOnlineController extends Controller
 
         $isCs = auth()->user()->hasRole('cs');
 
-        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions', 'isCs'));
+        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions', 'isCs', 'summaryByCourier', 'summaryByStatus', 'summaryByAggregator', 'summaryTotal'));
     }
 
     public function show(ShippingOrder $shippingOrder): View

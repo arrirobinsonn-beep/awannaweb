@@ -30,7 +30,7 @@ class BankTransfer extends Model
     protected $fillable = [
         'account_id', 'category_id', 'product_id', 'order_online_id', 'type', 'amount', 'description',
         'transaction_date', 'created_by', 'image_url', 'status', 'rejection_note',
-        'confirmed_by', 'confirmed_at',
+        'confirmed_by', 'confirmed_at', 'source_type', 'source_id',
     ];
 
     protected $casts = [

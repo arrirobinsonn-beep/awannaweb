@@ -126,6 +126,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/top-up/{proposal}', [TopUpController::class, 'show'])->name('topup.show');
         Route::patch('/top-up/{proposal}/approve', [TopUpController::class, 'approve'])->name('topup.approve');
         Route::patch('/top-up/{proposal}/decline', [TopUpController::class, 'decline'])->name('topup.decline');
+        Route::patch('/top-up/{proposal}/revise', [TopUpController::class, 'revise'])->name('topup.revise');
         Route::get('/top-up/{proposal}/pay', [TopUpController::class, 'paymentForm'])->name('topup.payment');
         Route::post('/top-up/{proposal}/pay', [TopUpController::class, 'paymentStore'])->name('topup.payment.store');
         Route::patch('/top-up/{proposal}/va-paid', [TopUpController::class, 'markVaPaid'])->name('topup.va-paid');
@@ -208,10 +209,15 @@ Route::middleware('auth')->group(function () {
         Route::get('/order-batches', [OrderOnlineBatchController::class, 'index'])->name('order-batch.index');
         Route::delete('/order-batches/{batch}', [OrderOnlineBatchController::class, 'destroy'])->name('order-batch.destroy');
 
-        // Purchase (Barang Masuk) & Stock Movement (Jurnal Stok)
+        // Purchase (Barang Masuk)
         Route::get('/barang-masuk', [PurchaseController::class, 'index'])->name('purchase.index');
         Route::post('/barang-masuk', [PurchaseController::class, 'store'])->name('purchase.store');
         Route::delete('/barang-masuk/{purchase}', [PurchaseController::class, 'destroy'])->name('purchase.destroy');
+
+        // ── Approval (Unified: Top Up + Pembelian) ──
+        Route::get('/approval', [PurchaseController::class, 'approvalIndex'])->name('approval.index');
+        Route::patch('/approval/purchase/{purchase}/approve', [PurchaseController::class, 'approvePurchase'])->name('approval.purchase.approve');
+        Route::patch('/approval/purchase/{purchase}/reject', [PurchaseController::class, 'rejectPurchase'])->name('approval.purchase.reject');
 
         // Jurnal Stok
         Route::get('/jurnal-stok', [StockMovementController::class, 'index'])->name('stock-movement.index');

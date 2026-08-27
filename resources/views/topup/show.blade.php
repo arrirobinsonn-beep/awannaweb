@@ -6,7 +6,7 @@
 @section('content')
 @php $user = auth()->user(); @endphp
 
-<div style="max-width:720px;">
+<div style="max-width:860px;">
 
     {{-- Header Status --}}
     <div class="clay-card" style="padding:20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;" data-reveal>
@@ -19,8 +19,8 @@
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
             @php
-                $smMap = ['pending'=>'clay-badge-yellow','approved'=>'clay-badge-green','declined'=>'clay-badge-red','menunggu_pembayaran'=>'clay-badge-blue','completed'=>'clay-badge-green'];
-                $smLbl = ['pending'=>'Menunggu','approved'=>'Disetujui','declined'=>'Ditolak','menunggu_pembayaran'=>'⏳ Menunggu Pembayaran VA','completed'=>'✅ Selesai'];
+                $smMap = ['pending'=>'clay-badge-yellow','approved'=>'clay-badge-green','revision_requested'=>'clay-badge-red','payment_in_progress'=>'clay-badge-blue','completed'=>'clay-badge-green'];
+                $smLbl = ['pending'=>'Menunggu','approved'=>'Disetujui','revision_requested'=>'Perlu Revisi','payment_in_progress'=>'⏳ Menunggu Pembayaran VA','completed'=>'✅ Selesai'];
             @endphp
             <span class="clay-badge {{ $smMap[$proposal->status] ?? 'clay-badge-gray' }}" style="font-size:.8rem;">
                 {{ $smLbl[$proposal->status] ?? $proposal->status }}
@@ -31,7 +31,34 @@
         </div>
     </div>
 
-    {{-- Info Performa --}}
+    {{-- Ringkasan Review --}}
+    @if($proposal->payment_mode || $proposal->suggested_total_nominal || $proposal->reviews->isNotEmpty())
+    <div class="clay-card" style="padding:18px;margin-bottom:16px;" data-reveal>
+        <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;margin-bottom:10px;">🧾 Ringkasan Review</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+            <div class="clay-card-sm" style="padding:12px;background:#FFF5F5;">
+                <div style="font-size:.68rem;color:#6b7280;">Mode Pembayaran</div>
+                <div style="font-weight:800;font-size:.9rem;color:var(--color-primary);">{{ ['shared_va' => '1 VA untuk banyak WL', 'single_va_per_wl' => '1 WL 1 VA'][$proposal->payment_mode] ?? 'Belum dipilih' }}</div>
+            </div>
+            <div class="clay-card-sm" style="padding:12px;background:#F0FFFE;">
+                <div style="font-size:.68rem;color:#6b7280;">Saran Nominal</div>
+                <div style="font-weight:800;font-size:.9rem;color:var(--color-secondary);">{{ $proposal->suggested_total_nominal ? 'Rp '.number_format($proposal->suggested_total_nominal,0,',','.') : '-' }}</div>
+            </div>
+            <div class="clay-card-sm" style="padding:12px;background:#F5F0FF;">
+                <div style="font-size:.68rem;color:#6b7280;">Reviewer Terakhir</div>
+                <div style="font-weight:800;font-size:.9rem;color:var(--color-purple);">{{ $proposal->reviews->sortByDesc("created_at")->first()?->reviewer?->display_name ?? $proposal->approver?->display_name ?? "-" }}</div>
+            </div>
+        </div>
+        @if($proposal->reviews->isNotEmpty())
+        <div style="margin-top:12px;font-size:.78rem;color:#6b7280;">
+            Review terakhir: {{ ucfirst(str_replace('_', ' ', $proposal->reviews->last()->decision)) }}
+            @if($proposal->reviews->last()->note)
+                · {{ $proposal->reviews->last()->note }}
+            @endif
+        </div>
+        @endif
+    </div>
+    @endif
     @if($proposal->today_lead !== null || $proposal->previous_topup_total > 0)
     <div class="clay-card" style="padding:18px;margin-bottom:16px;" data-reveal>
         <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;margin-bottom:10px;">📊 Data Referensi</div>
@@ -85,16 +112,23 @@
     <div class="clay-alert clay-alert-warning" style="margin-bottom:16px;" data-reveal>
         <span>📝</span>
         <div style="flex:1;font-size:.83rem;">
-            <strong>Alasan ditolak:</strong> {{ $proposal->decline_note }}
+            <strong>Catatan revisi:</strong> {{ $proposal->decline_note }}
         </div>
     </div>
     @endif
 
     {{-- Daftar Whitelist --}}
     <div class="clay-card" style="padding:20px;margin-bottom:16px;" data-reveal>
-        <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;margin-bottom:14px;">
-            📋 Rencana Top Up ({{ $proposal->items->count() }} whitelist)
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+            <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;">📋 Rencana Top Up ({{ $proposal->items->count() }} whitelist)</div>
+            <div style="font-size:.72rem;color:#6b7280;">Batch pembayaran: {{ $proposal->paymentBatches->count() }} · {{ $proposal->payment_mode === 'shared_va' ? '1 VA untuk banyak WL' : ($proposal->payment_mode === 'single_va_per_wl' ? '1 WL 1 VA' : 'BELUM DIPILIH') }}</div>
         </div>
+
+        @if($user->hasRole('advertiser') && $proposal->status === 'revision_requested')
+        <form method="POST" action="{{ route('topup.revise', $proposal) }}">
+            @csrf @method('PATCH')
+        @endif
+
         <div style="display:flex;flex-direction:column;gap:10px;">
             @foreach($proposal->items as $item)
             @php $wl = $item->whitelist; @endphp
@@ -105,16 +139,23 @@
                     <div style="font-size:.7rem;color:#9ca3af;">{{ ucfirst($wl->platform??'') }} · {{ $wl->kode??'' }}</div>
                 </div>
                 <div style="text-align:right;min-width:120px;">
-                    <div style="font-weight:800;font-size:.9rem;color:var(--color-primary);">
-                        Rp {{ number_format($item->nominal,0,',','.') }}
-                    </div>
+                    @if($user->hasRole('advertiser') && $proposal->status === 'revision_requested')
+                        <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
+                            <span style="font-weight:800;font-size:.9rem;color:var(--color-primary);">Rp</span>
+                            <input type="number" name="items[{{ $item->id }}]" value="{{ $item->nominal }}" required min="0" class="clay-input" style="width:120px;padding:4px 8px;font-size:.9rem;font-weight:700;color:var(--color-primary);">
+                        </div>
+                    @else
+                        <div style="font-weight:800;font-size:.9rem;color:var(--color-primary);">
+                            Rp {{ number_format($item->approved_nominal ?? $item->nominal,0,',','.') }}
+                        </div>
+                    @endif
                     <div style="font-size:.7rem;color:#9ca3af;">
                         @if($item->isPaid())
                             ✅ Dibayar • {{ $item->paid_at?->format('d M Y') }}
                             @if($item->va_number)
                             <br>🏦 VA: {{ $item->va_number }}
                             @if(!$user->hasRole('advertiser'))
-                            <button onclick="navigator.clipboard.writeText('{{ $item->va_number }}');this.textContent='✅ Tersalin!';setTimeout(()=>this.textContent='📋 Salin',2000)"
+                            <button type="button" onclick="navigator.clipboard.writeText('{{ $item->va_number }}');this.textContent='✅ Tersalin!';setTimeout(()=>this.textContent='📋 Salin',2000)"
                                     style="background:none;border:1.5px solid #d1d5db;cursor:pointer;font-size:.68rem;padding:1px 8px;border-radius:6px;margin-left:4px;">
                                 📋 Salin VA
                             </button>
@@ -141,10 +182,19 @@
                 Rp {{ number_format($proposal->total_nominal,0,',','.') }}
             </span>
         </div>
+
+        @if($user->hasRole('advertiser') && $proposal->status === 'revision_requested')
+            <div style="margin-top:16px;text-align:right;">
+                <button type="submit" class="clay-btn clay-btn-primary" onclick="return confirm('Kirim ulang pengajuan dengan nominal baru?')">
+                    Kirim Ulang Pengajuan
+                </button>
+            </div>
+        </form>
+        @endif
     </div>
 
-    {{-- Approve/Decline (Super Admin only) --}}
-    @if($user->hasRole(['owner','super_admin','admin']) && $proposal->isPending())
+    {{-- Approve/Decline (Super Admin, Admin, Keuangan only) --}}
+    @if($user->hasRole(['owner','super_admin','admin','keuangan']) && $proposal->isPending())
     <div class="clay-card" style="padding:20px;margin-bottom:16px;" data-reveal>
         <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;margin-bottom:14px;">
             ✅ Review & Approval
@@ -153,6 +203,19 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
             <form method="POST" action="{{ route('topup.approve', $proposal) }}" style="display:inline;">
                 @csrf @method('PATCH')
+                <div style="width:100%;margin-bottom:10px;">
+                    <label style="display:block;font-size:.8rem;font-weight:700;color:#374151;margin-bottom:6px;">Pilih pola VA</label>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <label style="padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:7px;border:1px solid rgba(0,0,0,.08);border-radius:10px;">
+                            <input type="radio" name="payment_mode" value="shared_va" required>
+                            <span style="font-size:.78rem;">1 VA untuk banyak WL</span>
+                        </label>
+                        <label style="padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:7px;border:1px solid rgba(0,0,0,.08);border-radius:10px;">
+                            <input type="radio" name="payment_mode" value="single_va_per_wl">
+                            <span style="font-size:.78rem;">1 WL 1 VA</span>
+                        </label>
+                    </div>
+                </div>
                 <button type="submit" class="clay-btn clay-btn-secondary"
                         onclick="return confirm('Setujui pengajuan top up Rp {{ number_format($proposal->total_nominal,0,',','.') }} ini?')">
                     ✅ Setujui
@@ -165,7 +228,7 @@
             @csrf @method('PATCH')
             <div style="margin-bottom:10px;">
                 <label style="display:block;font-size:.8rem;font-weight:700;color:#374151;margin-bottom:4px;">
-                    📝 Alasan Penolakan
+                    📝 Catatan Revisi
                 </label>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
                     <button type="button" class="clay-btn clay-btn-outline" style="padding:5px 12px;font-size:.72rem;"
@@ -178,14 +241,14 @@
                     </button>
                 </div>
                 <textarea id="decline-note" name="decline_note" rows="2" required
-                          placeholder="Tulis alasan penolakan..."
+                          placeholder="Tulis arahan revisi..."
                           class="clay-input @error('decline_note') border-red-400 @enderror"
                           style="resize:none;font-size:.83rem;">{{ old('decline_note') }}</textarea>
                 @error('decline_note')<p style="color:#ef4444;font-size:.72rem;margin-top:4px;">{{ $message }}</p>@enderror
             </div>
             <button type="submit" class="clay-btn clay-btn-danger"
-                    onclick="return confirm('Tolak pengajuan ini?')">
-                ❌ Tolak Pengajuan
+                    onclick="return confirm('Minta revisi pengajuan ini?')">
+                ↩️ Minta Revisi
             </button>
         </form>
     </div>
@@ -195,13 +258,13 @@
     @if($user->hasRole('advertiser') && $proposal->isApproved() && !$proposal->isFullyPaid())
     <div style="display:flex;gap:10px;margin-bottom:16px;" data-reveal>
         <a href="{{ route('topup.payment', $proposal) }}" class="clay-btn clay-btn-primary" style="flex:1;justify-content:center;font-size:.9rem;padding:14px;" data-page-link>
-            💳 Input Nomor VA
+            💳 Input Nomor VA per Batch
         </a>
     </div>
     @endif
 
     {{-- Super admin: lihat info VA + tombol tandai VA sudah dibayar --}}
-    @if(!$user->hasRole('advertiser') && $proposal->isMenungguPembayaran())
+    @if(!$user->hasRole('advertiser') && $proposal->paymentBatches->isNotEmpty())
     <div class="clay-card" style="padding:18px;margin-bottom:16px;" data-reveal>
         <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;margin-bottom:10px;">🏦 Informasi VA Top Up</div>
 
@@ -216,22 +279,29 @@
             </div>
         @endif
 
-        @foreach($proposal->items as $item)
-        @if($item->va_number)
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(0,0,0,.05);">
-            <div>
-                <div style="font-weight:600;font-size:.85rem;">{{ $item->whitelist?->nama ?? '-' }}</div>
-                <div style="font-size:.72rem;color:#9ca3af;">Rp {{ number_format($item->nominal,0,',','.') }}</div>
+        @foreach($proposal->paymentBatches as $batch)
+        <div style="border:1px solid rgba(0,0,0,.06);border-radius:12px;padding:12px 14px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                <div>
+                    <div style="font-weight:700;font-size:.85rem;">Batch #{{ $batch->batch_no }}</div>
+                    <div style="font-size:.72rem;color:#9ca3af;">{{ ucfirst(str_replace('_',' ',$batch->payment_mode)) }} · Rp {{ number_format($batch->nominal,0,',','.') }}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-family:monospace;font-weight:700;color:var(--color-primary);font-size:.9rem;">{{ $batch->va_number ?? '—' }}</span>
+                    @if($batch->va_number)
+                    <button onclick="navigator.clipboard.writeText('{{ $batch->va_number }}');this.textContent='✅ Tersalin!';setTimeout(()=>this.textContent='📋 Salin VA',2000)"
+                            class="clay-btn clay-btn-outline" style="padding:5px 12px;font-size:.72rem;">
+                        📋 Salin VA
+                    </button>
+                    @endif
+                </div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-family:monospace;font-weight:700;color:var(--color-primary);font-size:.9rem;">{{ $item->va_number }}</span>
-                <button onclick="navigator.clipboard.writeText('{{ $item->va_number }}');this.textContent='✅ Tersalin!';setTimeout(()=>this.textContent='📋 Salin VA',2000)"
-                        class="clay-btn clay-btn-outline" style="padding:5px 12px;font-size:.72rem;">
-                    📋 Salin VA
-                </button>
+            <div style="margin-top:8px;font-size:.72rem;color:#6b7280;">
+                @foreach($batch->items as $item)
+                    <span style="display:inline-block;margin-right:8px;">• {{ $item->whitelist?->nama ?? '-' }} (Rp {{ number_format($item->nominal,0,',','.') }})</span>
+                @endforeach
             </div>
         </div>
-        @endif
         @endforeach
 
         {{-- Tombol Tandai VA Dibayar (Super Admin, sekali klik) --}}
@@ -278,6 +348,12 @@
     @endif
 
     {{-- Kembali --}}
-    <a href="{{ route('topup.index') }}" class="clay-btn clay-btn-outline" data-page-link>← Kembali</a>
+    <div style="margin-top:20px;">
+        @if($user->hasRole(['super_admin', 'keuangan']))
+            <a href="{{ route('approval.index') }}" class="clay-btn clay-btn-outline" data-page-link>← Kembali</a>
+        @else
+            <a href="{{ route('topup.index') }}" class="clay-btn clay-btn-outline" data-page-link>← Kembali</a>
+        @endif
+    </div>
 </div>
 @endsection

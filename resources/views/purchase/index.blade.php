@@ -17,8 +17,8 @@
 
 {{-- Form barang masuk --}}
 <div class="clay-card" style="padding:20px 24px;margin-bottom:20px;" data-reveal>
-    <h2 style="margin:0 0 4px;font-size:1.05rem;font-weight:800;">➕ Tambah Barang Masuk</h2>
-    <div style="font-size:.75rem;color:#9ca3af;margin-bottom:14px;">Stok & HPP produk diperbarui otomatis (HPP rata-rata tertimbang).</div>
+    <h2 style="margin:0 0 4px;font-size:1.05rem;font-weight:800;">➕ Ajukan Pembelian</h2>
+    <div style="font-size:.75rem;color:#9ca3af;margin-bottom:14px;">Pengajuan akan dikirim ke tim keuangan untuk disetujui. Stok & HPP diperbarui setelah disetujui.</div>
 
     <form method="POST" action="{{ route('purchase.store') }}">
         @csrf
@@ -44,7 +44,7 @@
                         <optgroup label="{{ $p->name }}" data-primary-wh="{{ $p->primaryInventoryId() ?? '' }}">
                             @foreach($p->variants as $v)
                                 <option value="{{ $v->id }}" @selected(old('product_variant_id') == $v->id)>
-                                    {{ $v->nama }} {{ (float)$v->power > 0 ? '(+'.number_format($v->power,2,',','.').')' : '' }} — stok {{ $v->stock }}
+                                    {{ $v->name }} {{ (float)$v->power > 0 ? '(+'.number_format($v->power,2,',','.').')' : '' }} — stok {{ $v->stock }}
                                 </option>
                             @endforeach
                         </optgroup>
@@ -79,7 +79,7 @@
             </div>
         </div>
         <div style="margin-top:16px;">
-            <button type="submit" class="clay-btn clay-btn-primary">💾 Simpan Barang Masuk</button>
+            <button type="submit" class="clay-btn clay-btn-primary">📤 Kirim Pengajuan</button>
         </div>
     </form>
 </div>
@@ -92,7 +92,7 @@
             @foreach($products as $p)
                 <optgroup label="{{ $p->name }}">
                     @foreach($p->variants as $v)
-                        <option value="{{ $v->id }}" @selected(request('variant_id') == $v->id)>{{ $v->nama }} {{ (float)$v->power > 0 ? '(+'.number_format($v->power,2,',','.').')' : '' }}</option>
+                        <option value="{{ $v->id }}" @selected(request('variant_id') == $v->id)>{{ $v->name }} {{ (float)$v->power > 0 ? '(+'.number_format($v->power,2,',','.').')' : '' }}</option>
                     @endforeach
                 </optgroup>
             @endforeach
@@ -115,6 +115,12 @@
                 <option value="{{ $b }}" @selected(request('bulan') === $b)>{{ $b }}</option>
             @endforeach
         </select>
+        <select name="status" class="clay-input">
+            <option value="">Semua Status</option>
+            <option value="pending" @selected(request('status') === 'pending')">⏳ Menunggu</option>
+            <option value="approved" @selected(request('status') === 'approved')">✅ Disetujui</option>
+            <option value="rejected" @selected(request('status') === 'rejected')">❌ Ditolak</option>
+        </select>
         <button class="clay-btn clay-btn-primary" type="submit">🔍 Filter</button>
         <a href="{{ route('purchase.index') }}" class="clay-btn">Reset</a>
     </form>
@@ -123,7 +129,7 @@
 {{-- Tabel riwayat --}}
 <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
     <div class="table-scroll">
-        <table class="clay-table" style="min-width:900px;">
+        <table class="clay-table" style="min-width:1000px;">
             <thead>
                 <tr>
                     <th>Tanggal</th>
@@ -132,20 +138,28 @@
                     <th>Supplier</th>
                     <th>Qty</th>
                     <th>Harga Satuan</th>
-                    <th>Ongkir</th>
                     <th>Total</th>
+                    <th style="text-align:center;">Status</th>
                     <th>Keterangan</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($purchases as $pu)
-                    @php $total = $pu->quantity * $pu->unit_price + $pu->shipping_cost; @endphp
-                    <tr>
+                    @php
+                        $total = $pu->quantity * $pu->unit_price + $pu->shipping_cost;
+                        $puStatusMap = [
+                            'pending'  => ['class' => 'clay-badge-yellow', 'label' => '⏳ Menunggu'],
+                            'approved' => ['class' => 'clay-badge-green',  'label' => '✅ Disetujui'],
+                            'rejected' => ['class' => 'clay-badge-red',    'label' => '❌ Ditolak'],
+                        ];
+                        $ps = $puStatusMap[$pu->status] ?? ['class' => 'clay-badge-gray', 'label' => $pu->status];
+                    @endphp
+                    <tr style="{{ $pu->status === 'pending' ? 'background:#fffbeb;' : ($pu->status === 'rejected' ? 'opacity:.7;' : '') }}">
                         <td class="sel-nowrap">{{ $pu->date->format('d/m/Y') }}</td>
                         <td style="font-weight:600;">
                             {{ $pu->variant?->product?->name ?? '-' }}
-                            <div style="font-size:.72rem;color:#9ca3af;">{{ $pu->variant?->nama }} {{ (float)($pu->variant?->power ?? 0) > 0 ? '(+'.number_format($pu->variant->power,2,',','.').')' : '' }}</div>
+                            <div style="font-size:.72rem;color:#9ca3af;">{{ $pu->variant?->name }} {{ (float)($pu->variant?->power ?? 0) > 0 ? '(+'.number_format($pu->variant->power,2,',','.').')' : '' }}</div>
                         </td>
                         <td>
                             @if($pu->inventory)
@@ -157,12 +171,19 @@
                         <td>{{ $pu->supplier->nama_supplier ?? '-' }}</td>
                         <td>{{ number_format($pu->quantity,0,',','.') }}</td>
                         <td>Rp {{ number_format((float)$pu->unit_price,0,',','.') }}</td>
-                        <td>Rp {{ number_format((float)$pu->shipping_cost,0,',','.') }}</td>
                         <td style="font-weight:700;">Rp {{ number_format($total,0,',','.') }}</td>
+                        <td style="text-align:center;">
+                            <span class="clay-badge {{ $ps['class'] }}" style="font-size:.7rem;">{{ $ps['label'] }}</span>
+                            @if($pu->rejection_note)
+                            <div style="font-size:.68rem;color:#991b1b;margin-top:3px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ e($pu->rejection_note) }}">
+                                {{ Str::limit($pu->rejection_note, 35) }}
+                            </div>
+                            @endif
+                        </td>
                         <td style="font-size:.8rem;">{{ $pu->note ?? '-' }}</td>
                         <td>
                             <form method="POST" action="{{ route('purchase.destroy',$pu) }}"
-                                  onsubmit="return confirm('Hapus pembelian ini? Stok & HPP akan dikembalikan.')">
+                                  onsubmit="return confirm('Hapus pembelian ini?{{ $pu->status === 'approved' ? ' Stok & HPP akan dikembalikan.' : '' }}')">
                                 @csrf @method('DELETE')
                                 <button class="clay-btn clay-btn-sm clay-btn-danger">Hapus</button>
                             </form>
@@ -188,7 +209,6 @@
 @push('scripts')
 <script>
 // Pilih varian → isi otomatis GUDANG TUJUAN dengan gudang utama produknya
-// (Barang Inti punya gudang utama; Barang Pasti/Additional tidak → tetap pilih manual).
 document.getElementById('purchase-variant').addEventListener('change', function() {
     var sel = this;
     var opt = sel.options[sel.selectedIndex];

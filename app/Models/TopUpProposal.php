@@ -14,15 +14,19 @@ class TopUpProposal extends Model
     protected $fillable = [
         'user_id',
         'status',
+        'payment_mode',
         'previous_topup_total',
         'today_lead',
         'today_paid',
         'today_spending',
         'total_nominal',
+        'suggested_total_nominal',
         'approver_id',
         'decline_note',
         'approved_at',
         'declined_at',
+        'reviewed_by',
+        'reviewed_at',
         'va_paid_at',
         'va_paid_by',
         'completed_at',
@@ -32,8 +36,10 @@ class TopUpProposal extends Model
         'previous_topup_total' => 'decimal:2',
         'today_spending' => 'decimal:2',
         'total_nominal' => 'decimal:2',
+        'suggested_total_nominal' => 'decimal:2',
         'approved_at' => 'datetime',
         'declined_at' => 'datetime',
+        'reviewed_at' => 'datetime',
         'completed_at' => 'datetime',
         'va_paid_at' => 'datetime',
         'today_lead' => 'integer',
@@ -64,12 +70,22 @@ class TopUpProposal extends Model
         return $this->hasMany(TopUpProposalItem::class, 'proposal_id');
     }
 
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(TopUpProposalReview::class, 'proposal_id');
+    }
+
+    public function paymentBatches(): HasMany
+    {
+        return $this->hasMany(TopUpPaymentBatch::class, 'proposal_id');
+    }
+
     // ─── Helper ────────────────────────────────────────────────
 
     /** Apakah proposal sudah bisa dibayar (approved) */
     public function isApproved(): bool
     {
-        return $this->status === 'approved';
+        return in_array($this->status, ['approved', 'payment_in_progress'], true);
     }
 
     public function isPending(): bool
@@ -79,12 +95,12 @@ class TopUpProposal extends Model
 
     public function isDeclined(): bool
     {
-        return $this->status === 'declined';
+        return $this->status === 'rejected' || $this->status === 'declined';
     }
 
     public function isMenungguPembayaran(): bool
     {
-        return $this->status === 'menunggu_pembayaran';
+        return $this->status === 'payment_in_progress' || $this->status === 'menunggu_pembayaran';
     }
 
     /** Apakah Super Admin sudah mengkonfirmasi VA dibayar? */
