@@ -3,12 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\Purchase;
+use App\Models\Shipment;
 use App\Models\ShippingOrder;
 use App\Models\SpendingHarian;
 use App\Models\StockMovement;
 use App\Models\Supplier;
+use App\Models\TopUpProposal;
 use App\Models\User;
 use App\Models\Whitelist;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
@@ -28,12 +32,17 @@ class DashboardController extends Controller
     }
 
     // ─── General (owner / super_admin / mentor / admin / cs) ───
+    // Hanya data OPERASIONAL: order, stok, kurir, pengiriman, pembelian
 
     private function dashboardGeneral($user): View
     {
-        $today = now()->format('Y-m-d');
+        $today      = now()->format('Y-m-d');
+        $startMonth = now()->startOfMonth()->format('Y-m-d');
 
-        // ── Kartu operasional "hari ini" (query agregat, anti N+1) ──
+        // ═══════════════════════════════════════════════════════
+        // 1) OPERASIONAL HARI INI
+        // ═══════════════════════════════════════════════════════
+
         $stokHariIni = StockMovement::where('date', $today)
             ->selectRaw("SUM(CASE WHEN type='in' THEN quantity ELSE 0 END) as masuk, SUM(CASE WHEN type='out' THEN quantity ELSE 0 END) as keluar")
             ->first();
@@ -49,49 +58,123 @@ class DashboardController extends Controller
 
         $opsHariIni = [
             'keluar' => (int) ($stokHariIni->keluar ?? 0),
-            'masuk' => (int) ($stokHariIni->masuk ?? 0),
-            'resi' => (int) ($orderHariIni->resi ?? 0),
-            'cod' => (int) ($orderHariIni->cod ?? 0),
+            'masuk'  => (int) ($stokHariIni->masuk ?? 0),
+            'total'  => (int) ($orderHariIni->total ?? 0),
+            'resi'   => (int) ($orderHariIni->resi ?? 0),
+            'cod'    => (int) ($orderHariIni->cod ?? 0),
             'bank_transfer' => (int) ($orderHariIni->bank_transfer ?? 0),
         ];
 
+        // ═══════════════════════════════════════════════════════
+        // 2) REVENUE BULAN INI (order processed)
+        // ═══════════════════════════════════════════════════════
+
+        $revenueBulan = ShippingOrder::processed()
+            ->where('created_at', '>=', $startMonth)
+            ->where('created_at', '<', now()->addDay()->format('Y-m-d'))
+            ->selectRaw('SUM(amount) as total, COUNT(*) as jumlah')
+            ->first();
+
+        // ═══════════════════════════════════════════════════════
+        // 3) PENDING APPROVALS
+        // ═══════════════════════════════════════════════════════
+
+        $pendingTopUp = TopUpProposal::where('status', 'pending')->count();
+        $pendingPurchase = Purchase::pending()->count();
+        $pendingApproval = $pendingTopUp + $pendingPurchase;
+
+        // ═══════════════════════════════════════════════════════
+        // 4) MASTER STATS
+        // ═══════════════════════════════════════════════════════
+
         $stats = [
             'total_supplier' => Supplier::aktif()->count(),
-            'total_produk' => Product::aktif()->count(),
-            'total_user' => User::where('is_active', true)->count(),
-            'total_whitelist' => Whitelist::aktif()->count(),
+            'total_produk'   => Product::aktif()->count(),
         ];
 
-        $spendingHariIni = SpendingHarian::whereDate('tanggal', $today)
-            ->selectRaw('SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
-            ->first();
+        // ═══════════════════════════════════════════════════════
+        // 5) CHART DATA — Revenue Harian 30 Hari
+        // ═══════════════════════════════════════════════════════
 
-        $spendingBulanIni = SpendingHarian::whereYear('tanggal', now()->year)
-            ->whereMonth('tanggal', now()->month)
-            ->selectRaw('SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
-            ->first();
-
-        $chartSpending = SpendingHarian::selectRaw('DATE(tanggal) as tanggal, SUM(spending) as total_spending')
-            ->where('tanggal', '>=', now()->subDays(13)->format('Y-m-d'))
+        $chartRevenue30 = ShippingOrder::processed()
+            ->selectRaw('DATE(created_at) as tanggal, SUM(amount) as total')
+            ->where('created_at', '>=', now()->subDays(29)->format('Y-m-d'))
             ->groupBy('tanggal')->orderBy('tanggal')->get();
 
-        $topAdvertiser = SpendingHarian::with('user')
-            ->whereYear('tanggal', now()->year)->whereMonth('tanggal', now()->month)
-            ->selectRaw('user_id,
-                             SUM(spending) as total_spending,
-                             SUM(`lead`) as total_lead,
-                             SUM(paid) as total_paid')
-            ->groupBy('user_id')->orderByDesc('total_spending')->limit(5)->get();
+        // ═══════════════════════════════════════════════════════
+        // 6) CHART DATA — Order per Courier (pie)
+        // ═══════════════════════════════════════════════════════
 
-        $spendingPerWhitelist = SpendingHarian::with('whitelist')
-            ->whereYear('tanggal', now()->year)->whereMonth('tanggal', now()->month)
-            ->selectRaw('whitelist_id, SUM(spending) as total_spending, SUM(`lead`) as total_lead, SUM(paid) as total_paid')
-            ->groupBy('whitelist_id')->orderByDesc('total_spending')->limit(6)->get();
+        $orderPerCourier = ShippingOrder::processed()
+            ->where('created_at', '>=', $startMonth)
+            ->where('created_at', '<', now()->addDay()->format('Y-m-d'))
+            ->selectRaw('courier, COUNT(*) as jumlah')
+            ->groupBy('courier')->orderByDesc('jumlah')->get();
+
+        // ═══════════════════════════════════════════════════════
+        // 7) CHART DATA — Order per Payment Method (pie)
+        // ═══════════════════════════════════════════════════════
+
+        $orderPerPayment = ShippingOrder::processed()
+            ->where('created_at', '>=', $startMonth)
+            ->where('created_at', '<', now()->addDay()->format('Y-m-d'))
+            ->selectRaw('payment_method, COUNT(*) as jumlah')
+            ->groupBy('payment_method')->orderByDesc('jumlah')->get();
+
+        // ═══════════════════════════════════════════════════════
+        // 8) CHART DATA — Stok In/Out 14 Hari
+        // ═══════════════════════════════════════════════════════
+
+        $chartStock14 = StockMovement::where('date', '>=', now()->subDays(13)->format('Y-m-d'))
+            ->selectRaw('date,
+                SUM(CASE WHEN type=\'in\' THEN quantity ELSE 0 END) as masuk,
+                SUM(CASE WHEN type=\'out\' THEN quantity ELSE 0 END) as keluar')
+            ->groupBy('date')->orderBy('date')->get();
+
+        // ═══════════════════════════════════════════════════════
+        // 9) RECENT ORDERS (7 hari terakhir)
+        // ═══════════════════════════════════════════════════════
+
+        $recentOrders = ShippingOrder::with('importBatch')
+            ->where('created_at', '>=', now()->subDays(7)->format('Y-m-d'))
+            ->latest('created_at')->limit(8)->get();
+
+        // ═══════════════════════════════════════════════════════
+        // 10) PENGIRIMAN TERAKHIR (7 hari)
+        // ═══════════════════════════════════════════════════════
+
+        $recentShipments = Shipment::where('created_at', '>=', now()->subDays(7)->format('Y-m-d'))
+            ->latest('created_at')->limit(8)->get();
+
+        // ═══════════════════════════════════════════════════════
+        // 11) PEMBELIAN TERAKHIR
+        // ═══════════════════════════════════════════════════════
+
+        $recentPurchases = Purchase::with(['variant.product', 'creator'])
+            ->latest()->limit(6)->get();
+
+        // ═══════════════════════════════════════════════════════
+        // 12) PRODUK STOK MENIPIS
+        // ═══════════════════════════════════════════════════════
+
+        $lowStockProducts = Product::aktif()
+            ->where('min_stock', '>', 0)
+            ->with('variants')
+            ->get()
+            ->filter(function ($p) {
+                $totalStok = $p->variants->sum('stock');
+                return $totalStok <= $p->min_stock;
+            })
+            ->values();
 
         return view('dashboard.general', compact(
-            'stats', 'spendingHariIni', 'spendingBulanIni',
-            'chartSpending', 'topAdvertiser', 'spendingPerWhitelist',
-            'opsHariIni'
+            'stats', 'opsHariIni', 'revenueBulan',
+            'pendingApproval',
+            'chartRevenue30',
+            'chartStock14',
+            'orderPerCourier', 'orderPerPayment',
+            'recentOrders', 'recentShipments',
+            'recentPurchases', 'lowStockProducts'
         ));
     }
 
@@ -150,9 +233,9 @@ class DashboardController extends Controller
         $topAdvertiser = SpendingHarian::with('user')
             ->whereYear('tanggal', now()->year)->whereMonth('tanggal', now()->month)
             ->selectRaw('user_id,
-                             SUM(spending) as total_spending,
-                             SUM(`lead`) as total_lead,
-                             SUM(paid) as total_paid')
+                SUM(spending) as total_spending,
+                SUM(`lead`) as total_lead,
+                SUM(paid) as total_paid')
             ->groupBy('user_id')->orderByDesc('total_spending')->limit(5)->get();
 
         return view('dashboard.keuangan', compact(
