@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             TrackingStatusRuleSeeder::class, // 8c. Rules status aggregator → status sistem
             TrackingHeaderMappingSeeder::class, // 8d. Mapping header CSV dashboard → kolom DB (dari training/templateTracking)
             ExportTemplateMappingSeeder::class, // 9. Mapping export template (FLIK/SiCepat/SPX)
+            TransactionCategorySeeder::class, // 10. Kategori transaksi (Top Up, Pembelian, dll)
         ]);
     }
 }

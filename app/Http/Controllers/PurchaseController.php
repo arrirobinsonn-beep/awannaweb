@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Account;
+use App\Models\BankTransfer;
 use App\Models\Inventory;
 use App\Models\Notification;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\Supplier;
+use App\Models\TransactionCategory;
 use App\Models\TopUpProposal;
 use App\Models\User;
+use App\Services\FinanceService;
 use App\Services\StockService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -42,11 +46,9 @@ class PurchaseController extends Controller
             $query->where('date', 'like', $request->bulan.'-%');
         }
 
-        // Filter status: admin lihat semua, non-admin lihat yang approved saja
+        // Filter status: semua user lihat semua data
         if ($request->filled('status')) {
             $query->where('status', $request->status);
-        } elseif (!$user->hasRole(['owner', 'super_admin'])) {
-            $query->approved();
         }
 
         $purchases = $query->orderByDesc('date')->orderByDesc('id')->paginate(25)->withQueryString();
@@ -108,7 +110,7 @@ class PurchaseController extends Controller
             auth()->id()
         );
 
-        return redirect()->route('approval.index')
+        return redirect()->route('purchase.index')
             ->with('success', 'Pengajuan pembelian berhasil dikirim. Menunggu persetujuan.');
     }
 
@@ -117,7 +119,7 @@ class PurchaseController extends Controller
     public function approvalIndex(Request $request): View
     {
         $user = Auth::user();
-        abort_unless($user->hasRole(['super_admin', 'keuangan']), 403);
+        abort_unless($user->hasRole(['owner', 'super_admin', 'keuangan']), 403);
 
         // ── Top Up Proposals ──
         if ($user->hasRole(['super_admin', 'keuangan'])) {
@@ -175,44 +177,56 @@ class PurchaseController extends Controller
 
         $purchaseProposals = $purchaseQuery->paginate(20, ['*'], 'purchase_page');
 
+        $accounts = Account::aktif()->orderBy('name')->get();
+
         return view('approval.index', compact(
             'topUpProposals', 'advertisers', 'activeTab', 'summaryPerAdv',
-            'purchaseProposals', 'purchaseStatus'
+            'purchaseProposals', 'purchaseStatus', 'accounts'
         ));
     }
 
     // ─── Approve Purchase ───────────────────────────────────────
 
-    public function approvePurchase(Purchase $purchase): RedirectResponse
+    public function approvePurchase(Request $request, Purchase $purchase): RedirectResponse
     {
         $user = Auth::user();
         abort_unless($user->hasRole(['owner', 'super_admin', 'admin', 'keuangan']), 403);
         abort_unless($purchase->isPending(), 400, 'Pembelian sudah diproses.');
 
-        DB::transaction(function () use ($purchase, $user) {
+        $request->validate([
+            'source_account_id' => ['required', 'exists:accounts,id'],
+        ]);
+
+        $total = $purchase->quantity * $purchase->unit_price + $purchase->shipping_cost;
+        $productName = $purchase->variant?->product?->name ?? 'Barang';
+        $variantName = $purchase->variant?->name ?? '';
+        $description = now()->format('d/m/Y').' - Pembelian - '.$productName.($variantName ? ' '.$variantName : '');
+
+        DB::transaction(function () use ($purchase, $user, $request, $total, $description) {
+            // Approve: ubah status + simpan sumber dana
             $purchase->update([
                 'status' => 'approved',
                 'approved_by' => $user->id,
                 'approved_at' => now(),
+                'source_account_id' => $request->source_account_id,
             ]);
 
-            // Record stock + update HPP
-            $variant = $purchase->variant;
-            $product = $variant->product;
-            $hpp = $this->stock->hppRataRata($product, $purchase->quantity, $purchase->unit_price, $purchase->shipping_cost);
-            $product->update(['purchase_price' => $hpp]);
+            // Buat transaksi keluar (bank_transfer out)
+            $category = TransactionCategory::where('name', 'Pembelian Barang')->where('type', 'out')->first();
+            $bankTransfer = BankTransfer::create([
+                'account_id' => $request->source_account_id,
+                'category_id' => $category?->id,
+                'type' => 'out',
+                'amount' => $total,
+                'description' => $description,
+                'transaction_date' => now(),
+                'created_by' => $user->id,
+                'status' => 'approved',
+                'source_type' => 'purchase',
+                'source_id' => $purchase->id,
+            ]);
 
-            $this->stock->recordIn(
-                $variant->id,
-                $purchase->date->format('Y-m-d'),
-                $purchase->quantity,
-                $purchase->unit_price,
-                'purchase',
-                $purchase->id,
-                'Pembelian '.($purchase->supplier?->nama_supplier ?? '-').' → '.($purchase->inventory?->name ?? '-'),
-                $user->id,
-                (int) $purchase->inventory_id,
-            );
+            app(FinanceService::class)->applyBankTransfer($bankTransfer);
         });
 
         // Notify creator
@@ -220,13 +234,13 @@ class PurchaseController extends Controller
             $purchase->created_by,
             'purchase_approved',
             '✅ Pengajuan Pembelian Disetujui',
-            'Pengajuan pembelian Rp '.number_format($purchase->quantity * $purchase->unit_price + $purchase->shipping_cost, 0, ',', '.').' telah disetujui oleh '.$user->display_name.'. Stok sudah masuk.',
-            ['url' => route('purchase.index')],
+            'Pengajuan pembelian Rp '.number_format($total, 0, ',', '.').' telah disetujui oleh '.$user->display_name.'. Transaksi keluar sudah dicatat.',
+            ['url' => route('approval.index')],
             $user->id
         );
 
         return redirect()->route('approval.index')
-            ->with('success', 'Pengajuan pembelian disetujui. Stok & HPP diperbarui.');
+            ->with('success', 'Pengajuan disetujui & transaksi keluar Rp '.number_format($total, 0, ',', '.').' sudah dicatat.');
     }
 
     // ─── Reject Purchase ────────────────────────────────────────
@@ -262,7 +276,73 @@ class PurchaseController extends Controller
             ->with('success', 'Pengajuan pembelian ditolak.');
     }
 
-    // ─── Hapus (hanya pending) ──────────────────────────────────
+    // ─── Verifikasi Barang Datang (admin/owner) ─────────────────
+
+    public function verifyArrival(Request $request, Purchase $purchase): RedirectResponse
+    {
+        $user = Auth::user();
+        abort_unless($user->hasRole(['owner', 'super_admin', 'admin']), 403);
+        abort_unless($purchase->needsVerification(), 400, 'Pembelian tidak dalam status perlu verifikasi.');
+
+        $data = $request->validate([
+            'actual_quantity' => ['required', 'integer', 'min:1'],
+            'actual_unit_price' => ['nullable', 'numeric', 'min:0'],
+            'receive_note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $actualQty = (int) $data['actual_quantity'];
+        $actualPrice = isset($data['actual_unit_price']) && $data['actual_unit_price'] !== ''
+            ? (float) $data['actual_unit_price']
+            : $purchase->unit_price;
+        $shippingCost = (float) $purchase->shipping_cost;
+
+        DB::transaction(function () use ($purchase, $user, $actualQty, $actualPrice, $shippingCost, $data) {
+            $purchase->update([
+                'status' => 'received',
+                'received_by' => $user->id,
+                'received_at' => now(),
+                'receive_note' => $data['receive_note'] ?? null,
+                // Update qty & harga sesuai data aktual
+                'quantity' => $actualQty,
+                'unit_price' => $actualPrice,
+            ]);
+
+            // Record stock + update HPP (pakai qty aktual)
+            $variant = $purchase->variant;
+            $product = $variant->product;
+            $hpp = $this->stock->hppRataRata($product, $actualQty, $actualPrice, $shippingCost);
+            $product->update(['purchase_price' => $hpp]);
+
+            $this->stock->recordIn(
+                $variant->id,
+                $purchase->date->format('Y-m-d'),
+                $actualQty,
+                $actualPrice,
+                'purchase',
+                $purchase->id,
+                'Barang diterima: '.($purchase->supplier?->nama_supplier ?? '-').
+                    ' → '.($purchase->inventory?->name ?? '-').
+                    ($data['receive_note'] ? ' — '.$data['receive_note'] : ''),
+                $user->id,
+                (int) $purchase->inventory_id,
+            );
+        });
+
+        // Notify creator
+        $this->notifyUser(
+            $purchase->created_by,
+            'purchase_received',
+            '📦 Barang Pembelian Diterima',
+            'Barang pembelian Rp '.number_format($actualQty * $actualPrice + $shippingCost, 0, ',', '.').' telah diterima/diverifikasi oleh '.$user->display_name.'. Stok sudah masuk.',
+            ['url' => route('purchase.index')],
+            $user->id
+        );
+
+        return redirect()->back()
+            ->with('success', 'Barang diterima & stok sudah masuk. Qty aktual: '.$actualQty.', Harga: Rp '.number_format($actualPrice, 0, ',', '.').'.');
+    }
+
+    // ─── Hapus ──────────────────────────────────────────────────
 
     public function destroy(int $id): RedirectResponse
     {
@@ -272,11 +352,11 @@ class PurchaseController extends Controller
             // Pending: cukup hapus (belum ada stok)
             $purchase->delete();
 
-            return redirect()->route('approval.index')
+            return redirect()->route('purchase.index')
                 ->with('success', 'Pengajuan pembelian dihapus.');
         }
 
-        // Approved: balikin stok
+        // Approved/Received: balikin stok (jika sudah ada jurnal)
         $productId = $purchase->variant?->product_id;
 
         $this->stock->reverseReference('purchase', $purchase->id);

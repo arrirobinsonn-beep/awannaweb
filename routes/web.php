@@ -212,12 +212,14 @@ Route::middleware('auth')->group(function () {
         // Purchase (Barang Masuk)
         Route::get('/barang-masuk', [PurchaseController::class, 'index'])->name('purchase.index');
         Route::post('/barang-masuk', [PurchaseController::class, 'store'])->name('purchase.store');
+        Route::patch('/barang-masuk/{purchase}/verify', [PurchaseController::class, 'verifyArrival'])->name('purchase.verify');
         Route::delete('/barang-masuk/{purchase}', [PurchaseController::class, 'destroy'])->name('purchase.destroy');
 
         // ── Approval (Unified: Top Up + Pembelian) ──
         Route::get('/approval', [PurchaseController::class, 'approvalIndex'])->name('approval.index');
         Route::patch('/approval/purchase/{purchase}/approve', [PurchaseController::class, 'approvePurchase'])->name('approval.purchase.approve');
         Route::patch('/approval/purchase/{purchase}/reject', [PurchaseController::class, 'rejectPurchase'])->name('approval.purchase.reject');
+        Route::patch('/approval/purchase/{purchase}/verify', [PurchaseController::class, 'verifyArrival'])->name('approval.purchase.verify');
 
         // Jurnal Stok
         Route::get('/jurnal-stok', [StockMovementController::class, 'index'])->name('stock-movement.index');

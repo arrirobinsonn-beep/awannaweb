@@ -201,9 +201,13 @@
         </div>
 
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
-            <form method="POST" action="{{ route('topup.approve', $proposal) }}" style="display:inline;">
+            <form method="POST" action="{{ route('topup.approve', $proposal) }}" style="display:inline;" id="topupApproveForm">
                 @csrf @method('PATCH')
+                <input type="hidden" name="source_account_id" id="topupSourceAccount" value="">
                 <div style="width:100%;margin-bottom:10px;">
+                    <div id="topupAccountWarning" style="display:none;font-size:.75rem;color:#dc2626;font-weight:600;background:#fef2f2;padding:6px 10px;border-radius:8px;margin-bottom:8px;">
+                        ⚠️ Pilih sumber dana di halaman <a href="{{ route('approval.index') }}" style="text-decoration:underline;">Pengajuan</a> terlebih dahulu
+                    </div>
                     <label style="display:block;font-size:.8rem;font-weight:700;color:#374151;margin-bottom:6px;">Pilih pola VA</label>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                         <label style="padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:7px;border:1px solid rgba(0,0,0,.08);border-radius:10px;">
@@ -217,7 +221,7 @@
                     </div>
                 </div>
                 <button type="submit" class="clay-btn clay-btn-secondary"
-                        onclick="return confirm('Setujui pengajuan top up Rp {{ number_format($proposal->total_nominal,0,',','.') }} ini?')">
+                        onclick="return confirmTopupApprove()">
                     ✅ Setujui
                 </button>
             </form>
@@ -357,3 +361,28 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+(function() {
+    var saved = localStorage.getItem('approval_source_account');
+    var input = document.getElementById('topupSourceAccount');
+    var warn = document.getElementById('topupAccountWarning');
+    if (saved && input) {
+        input.value = saved;
+    }
+    if (warn && !saved) {
+        warn.style.display = 'block';
+    }
+
+    window.confirmTopupApprove = function() {
+        var accId = document.getElementById('topupSourceAccount').value;
+        if (!accId) {
+            alert('⚠️ Pilih sumber dana di halaman Pengajuan terlebih dahulu!');
+            return false;
+        }
+        return confirm('Setujui pengajuan top up Rp {{ number_format($proposal->total_nominal,0,',','.') }} ini?\n\nSaldo akan dikurangi dari akun yang dipilih.');
+    };
+})();
+</script>
+@endpush

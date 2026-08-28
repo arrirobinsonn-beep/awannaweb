@@ -66,6 +66,31 @@ class OrderOnlineController extends Controller
             ->sortDesc();
         $summaryTotal = $summaryRows->sum('cnt');
 
+        // ── Chart Data ──
+        $chartQuery = clone $ordersQuery;
+        $chartQuery->reorder();
+        $chartQuery->selectRaw("DATE(created_at) as date, status, COUNT(*) as cnt");
+        $chartRows = $chartQuery->groupBy('date', 'status')->get();
+
+        $chartData = collect();
+        $dates = $chartRows->pluck('date')->unique()->sort()->values();
+
+        foreach ($dates as $date) {
+            $rowsForDate = $chartRows->where('date', $date);
+            $total = $rowsForDate->sum('cnt');
+            $real = $rowsForDate->where('status', 'real')->sum('cnt');
+            $tembakan = $rowsForDate->where('status', 'tembakan')->sum('cnt');
+            $lead = $total - ($real + $tembakan);
+
+            $chartData->push([
+                'date' => \Carbon\Carbon::parse($date)->format('d M'),
+                'total' => $total,
+                'real' => $real,
+                'tembakan' => $tembakan,
+                'lead' => $lead,
+            ]);
+        }
+
         // Batch list untuk dropdown filter (hanya batch yang punya order)
         $batches = OrderOnlineImportBatch::query()
             ->withCount('shippingOrders')
@@ -111,7 +136,7 @@ class OrderOnlineController extends Controller
 
         $isCs = auth()->user()->hasRole('cs');
 
-        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions', 'isCs', 'summaryByCourier', 'summaryByStatus', 'summaryByAggregator', 'summaryTotal'));
+        return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions', 'isCs', 'summaryByCourier', 'summaryByStatus', 'summaryByAggregator', 'summaryTotal', 'chartData'));
     }
 
     public function show(ShippingOrder $shippingOrder): View

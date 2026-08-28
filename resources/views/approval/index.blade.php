@@ -7,6 +7,7 @@
 @php
     $u = auth()->user();
     $isAdmin = $u->hasRole(['super_admin','keuangan']);
+    $canVerify = $u->hasRole(['owner','super_admin','admin']);
 @endphp
 
 @if(session('success'))
@@ -18,7 +19,7 @@
 @php
     $pendingTopUp = \App\Models\TopUpProposal::where('status','pending')->count();
     $pendingPurchase = \App\Models\Purchase::where('status','pending')->count();
-    // Auto-switch ke tab yang ada pending
+    $needsVerification = \App\Models\Purchase::where('status','approved')->count();
     $defaultTab = ($pendingPurchase > 0 && $pendingTopUp === 0) ? 'purchase' : 'topup';
 @endphp
 
@@ -30,7 +31,28 @@
     </div>
     <div style="font-size:.78rem;color:#6b7280;line-height:1.6;">
         <strong>💰 Top Up:</strong> Advertiser ajukan → Anda acc/tolak → Advertiser input VA → Anda tandai VA dibayar → Selesai.<br>
-        <strong>📥 Pembelian:</strong> Admin ajukan via halaman Barang Masuk → Anda acc (stok masuk) atau tolak (isi alasan).
+        <strong>📥 Pembelian:</strong> Admin ajukan → Anda acc (Menunggu) → Admin verifikasi barang datang (isi qty aktual & harga) → Stok masuk.
+    </div>
+</div>
+
+{{-- ═══ SUMBER DANA ═══ --}}
+<div style="background:linear-gradient(135deg,#f0fdf4,#fff);border:1.5px solid rgba(16,185,129,.2);border-radius:14px;padding:14px 18px;margin-bottom:20px;" data-reveal>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:1.1rem;">🏦</span>
+            <span style="font-weight:700;font-size:.85rem;color:#1e1b2e;">Sumber Dana</span>
+        </div>
+        <div style="flex:1;min-width:200px;max-width:360px;">
+            <select id="sourceAccount" class="clay-input" style="width:100%;" onchange="updateApproveButtons()">
+                <option value="">— Pilih Akun Sumber Dana —</option>
+                @foreach($accounts as $acc)
+                    <option value="{{ $acc->id }}">{{ $acc->name }} ({{ $acc->type_label }}) — Rp {{ number_format((float)$acc->current_balance,0,',','.') }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div id="sourceAccountWarning" style="display:none;font-size:.75rem;color:#dc2626;font-weight:600;background:#fef2f2;padding:4px 10px;border-radius:8px;">
+            ⚠️ Pilih sumber dana terlebih dahulu untuk bisa menyetujui pengajuan
+        </div>
     </div>
 </div>
 
@@ -50,8 +72,8 @@
             class="approval-tab {{ $defaultTab === 'purchase' ? 'active' : '' }}"
             style="padding:10px 20px;border-radius:12px;border:2px solid {{ $defaultTab === 'purchase' ? 'var(--color-primary)' : '#e5e7eb' }};background:{{ $defaultTab === 'purchase' ? 'var(--color-primary)' : '#f9fafb' }};color:{{ $defaultTab === 'purchase' ? '#fff' : '#6b7280' }};font-weight:{{ $defaultTab === 'purchase' ? '700' : '600' }};font-size:.85rem;cursor:pointer;font-family:inherit;transition:all .2s;">
         📥 Pembelian Barang
-        @if($pendingPurchase > 0)
-        <span style="background:{{ $defaultTab === 'purchase' ? 'rgba(255,255,255,.3)' : 'rgba(255,107,107,.12)' }};color:{{ $defaultTab === 'purchase' ? '#fff' : 'var(--color-primary)' }};padding:1px 8px;border-radius:999px;font-size:.7rem;margin-left:6px;">{{ $pendingPurchase }} pending</span>
+        @if($pendingPurchase > 0 || $needsVerification > 0)
+        <span style="background:{{ $defaultTab === 'purchase' ? 'rgba(255,255,255,.3)' : 'rgba(255,107,107,.12)' }};color:{{ $defaultTab === 'purchase' ? '#fff' : 'var(--color-primary)' }};padding:1px 8px;border-radius:999px;font-size:.7rem;margin-left:6px;">{{ $pendingPurchase + $needsVerification }} perlu diproses</span>
         @endif
     </button>
 </div>
@@ -143,11 +165,11 @@
                     </td>
                     <td style="text-align:right;">
                         @if($p->status === 'pending' && $isAdmin)
-                            <a href="{{ route('topup.show',$p) }}" class="clay-btn clay-btn-primary" style="padding:5px 12px;font-size:.72rem;" data-page-link>
+                            <a href="{{ route('topup.show',$p) }}" class="clay-btn clay-btn-primary" style="padding:5px 12px;font-size:.72rem;">
                                 🔍 Review
                             </a>
                         @else
-                            <a href="{{ route('topup.show',$p) }}" class="clay-btn clay-btn-outline" style="padding:5px 12px;font-size:.72rem;" data-page-link>
+                            <a href="{{ route('topup.show',$p) }}" class="clay-btn clay-btn-outline" style="padding:5px 12px;font-size:.72rem;">
                                 👁 Detail
                             </a>
                         @endif
@@ -192,8 +214,12 @@
             ⏳ Menunggu Acc
         </a>
         <a href="{{ route('approval.index', ['tab' => 'purchase', 'purchase_status' => 'approved']) }}"
-           style="padding:7px 14px;border-radius:10px;border:1.5px solid {{ ($purchaseStatus ?? '') === 'approved' ? '#10b981' : '#e5e7eb' }};background:{{ ($purchaseStatus ?? '') === 'approved' ? '#d1fae5' : '#fff' }};color:{{ ($purchaseStatus ?? '') === 'approved' ? '#065f46' : '#6b7280' }};font-weight:600;font-size:.78rem;text-decoration:none;font-family:inherit;transition:all .15s;">
-            ✅ Disetujui
+           style="padding:7px 14px;border-radius:10px;border:1.5px solid {{ ($purchaseStatus ?? '') === 'approved' ? '#3b82f6' : '#e5e7eb' }};background:{{ ($purchaseStatus ?? '') === 'approved' ? '#dbeafe' : '#fff' }};color:{{ ($purchaseStatus ?? '') === 'approved' ? '#1e40af' : '#6b7280' }};font-weight:600;font-size:.78rem;text-decoration:none;font-family:inherit;transition:all .15s;">
+            📦 Perlu Verifikasi
+        </a>
+        <a href="{{ route('approval.index', ['tab' => 'purchase', 'purchase_status' => 'received']) }}"
+           style="padding:7px 14px;border-radius:10px;border:1.5px solid {{ ($purchaseStatus ?? '') === 'received' ? '#10b981' : '#e5e7eb' }};background:{{ ($purchaseStatus ?? '') === 'received' ? '#d1fae5' : '#fff' }};color:{{ ($purchaseStatus ?? '') === 'received' ? '#065f46' : '#6b7280' }};font-weight:600;font-size:.78rem;text-decoration:none;font-family:inherit;transition:all .15s;">
+            ✅ Diterima
         </a>
         <a href="{{ route('approval.index', ['tab' => 'purchase', 'purchase_status' => 'rejected']) }}"
            style="padding:7px 14px;border-radius:10px;border:1.5px solid {{ ($purchaseStatus ?? '') === 'rejected' ? '#ef4444' : '#e5e7eb' }};background:{{ ($purchaseStatus ?? '') === 'rejected' ? '#fee2e2' : '#fff' }};color:{{ ($purchaseStatus ?? '') === 'rejected' ? '#991b1b' : '#6b7280' }};font-weight:600;font-size:.78rem;text-decoration:none;font-family:inherit;transition:all .15s;">
@@ -203,7 +229,7 @@
 
     <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
         <div class="table-scroll">
-            <table class="clay-table" style="min-width:1000px;">
+            <table class="clay-table" style="min-width:1100px;">
                 <thead>
                     <tr>
                         <th>Tanggal</th>
@@ -222,13 +248,14 @@
                 @php
                     $total = $pu->quantity * $pu->unit_price + $pu->shipping_cost;
                     $puStatus = [
-                        'pending'  => ['class' => 'clay-badge-yellow', 'label' => '⏳ Menunggu'],
-                        'approved' => ['class' => 'clay-badge-green',  'label' => '✅ Disetujui'],
+                        'pending'  => ['class' => 'clay-badge-yellow', 'label' => '⏳ Menunggu Acc'],
+                        'approved' => ['class' => 'clay-badge-blue',   'label' => '📦 Perlu Verifikasi'],
                         'rejected' => ['class' => 'clay-badge-red',    'label' => '❌ Ditolak'],
+                        'received' => ['class' => 'clay-badge-green',  'label' => '✅ Diterima'],
                     ];
                     $ps = $puStatus[$pu->status] ?? ['class' => 'clay-badge-gray', 'label' => $pu->status];
                 @endphp
-                <tr style="{{ $pu->status === 'pending' ? 'background:#fffbeb;' : ($pu->status === 'rejected' ? 'opacity:.7;' : '') }}">
+                <tr style="{{ $pu->status === 'pending' ? 'background:#fffbeb;' : ($pu->status === 'approved' ? 'background:#eff6ff;' : ($pu->status === 'rejected' ? 'opacity:.7;' : '')) }}">
                     <td class="sel-nowrap">{{ $pu->date->format('d/m/Y') }}</td>
                     <td>
                         <div style="display:flex;align-items:center;gap:6px;">
@@ -257,11 +284,17 @@
                             ❌ {{ Str::limit($pu->rejection_note, 40) }}
                         </div>
                         @endif
+                        @if($pu->status === 'received' && $pu->receive_note)
+                        <div style="font-size:.68rem;color:#065f46;margin-top:3px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{{ e($pu->receive_note) }}">
+                            📝 {{ Str::limit($pu->receive_note, 40) }}
+                        </div>
+                        @endif
                     </td>
                     <td style="text-align:right;">
+                        {{-- PENDING: Tombol Acc / Tolak --}}
                         @if($pu->status === 'pending' && $isAdmin)
                             <div style="display:flex;gap:6px;justify-content:flex-end;">
-                                <button type="button" class="clay-btn clay-btn-primary" style="padding:5px 10px;font-size:.72rem;"
+                                <button type="button" class="clay-btn clay-btn-primary pm-approve-btn" style="padding:5px 10px;font-size:.72rem;opacity:.5;"
                                         onclick="approvePurchase({{ $pu->id }}, 'Rp {{ number_format($total,0,',','.') }}')">
                                     ✅ Acc
                                 </button>
@@ -270,8 +303,24 @@
                                     ❌ Tolak
                                 </button>
                             </div>
+
+                        {{-- APPROVED: Tombol Verifikasi Barang Datang --}}
+                        @elseif($pu->status === 'approved' && $canVerify)
+                            <button type="button" class="clay-btn clay-btn-primary" style="padding:5px 10px;font-size:.72rem;background:#2563eb;"
+                                    onclick="openVerifyModal({{ $pu->id }}, '{{ e($pu->variant?->product?->name ?? '-') }} {{ e($pu->variant?->name ?? '-') }}', {{ $pu->quantity }}, {{ (float)$pu->unit_price }}, 'Rp {{ number_format($total,0,',','.') }}')">
+                                📦 Verifikasi Barang Datang
+                            </button>
+
+                        {{-- RECEIVED: Info --}}
+                        @elseif($pu->status === 'received')
+                            <div style="font-size:.72rem;color:#065f46;font-weight:600;">
+                                {{ $pu->receiver?->display_name ?? '-' }}
+                                <div style="font-size:.65rem;color:#9ca3af;">{{ $pu->received_at?->format('d/m/Y H:i') ?? '' }}</div>
+                            </div>
+
                         @elseif($pu->status === 'approved')
-                            <span style="font-size:.72rem;color:var(--color-green);font-weight:600;">{{ $pu->approver?->display_name ?? '-' }}</span>
+                            <span style="font-size:.72rem;color:#3b82f6;font-weight:600;">Menunggu verifikasi</span>
+
                         @elseif($pu->status === 'rejected')
                             <span style="font-size:.72rem;color:#9ca3af;">{{ $pu->approver?->display_name ?? '-' }}</span>
                         @endif
@@ -284,6 +333,8 @@
                         @if(($purchaseStatus ?? '') === 'pending')
                             <p style="color:#9ca3af;">Tidak ada pengajuan yang menunggu acc.</p>
                             <p style="font-size:.78rem;color:#9ca3af;">Pengajuan baru muncul setelah admin mengajukan pembelian via halaman Barang Masuk.</p>
+                        @elseif(($purchaseStatus ?? '') === 'approved')
+                            <p style="color:#9ca3af;">Tidak ada pembelian yang perlu diverifikasi.</p>
                         @else
                             <p style="color:#9ca3af;">Belum ada pengajuan pembelian.</p>
                         @endif
@@ -331,6 +382,59 @@
     </div>
 </div>
 
+{{-- ═══════════════════════════════════════════════════════════════════════
+     MODAL: Verifikasi Barang Datang
+     ═══════════════════════════════════════════════════════════════════════ --}}
+<div id="verifyModal" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;padding:16px;">
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);" onclick="closeVerifyModal()"></div>
+    <div style="position:relative;background:#fff;border-radius:20px;width:100%;max-width:520px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #e5e7eb;">
+            <div>
+                <h3 style="margin:0;font-size:1rem;font-weight:800;">📦 Verifikasi Barang Datang</h3>
+                <div style="font-size:.75rem;color:#6b7280;margin-top:2px;">Isi data barang aktual yang diterima</div>
+            </div>
+            <button onclick="closeVerifyModal()" style="width:32px;height:32px;border-radius:50%;border:none;background:#f3f4f6;cursor:pointer;font-size:1.1rem;">✕</button>
+        </div>
+        <form id="verifyForm" method="POST" style="padding:20px 24px;">
+            @csrf
+            @method('PATCH')
+            <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:12px 16px;margin-bottom:16px;">
+                <div style="font-size:.72rem;color:#0369a1;font-weight:600;margin-bottom:4px;">📋 Data Pengajuan</div>
+                <div id="verifyProductName" style="font-weight:700;font-size:.9rem;color:#1e1b2e;"></div>
+                <div style="font-size:.78rem;color:#6b7280;margin-top:2px;">Total pengajuan: <span id="verifyOriginalTotal" style="font-weight:700;color:var(--color-primary);"></span></div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                <div>
+                    <label style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px;color:#374151;">Qty Aktual (diterima) *</label>
+                    <input type="number" name="actual_quantity" id="verifyQty" required min="1" class="clay-input" style="width:100%;box-sizing:border-box;" placeholder="Jumlah barang yang benar-benar datang">
+                </div>
+                <div>
+                    <label style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px;color:#374151;">Harga Satuan Aktual</label>
+                    <input type="number" name="actual_unit_price" id="verifyPrice" min="0" step="0.01" class="clay-input" style="width:100%;box-sizing:border-box;" placeholder="Kosongkan jika sama dengan pengajuan">
+                    <div style="font-size:.65rem;color:#9ca3af;margin-top:2px;">Kosongkan = pakai harga pengajuan</div>
+                </div>
+            </div>
+
+            <div style="margin-bottom:16px;">
+                <label style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px;color:#374151;">Catatan Penerimaan</label>
+                <textarea name="receive_note" rows="3" maxlength="500" class="clay-input" style="width:100%;box-sizing:border-box;resize:vertical;" placeholder="Contoh: Barang lengkap, kemasan baik, dll."></textarea>
+            </div>
+
+            <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:16px;">
+                <div style="font-size:.72rem;color:#92400e;line-height:1.5;">
+                    ⚠️ <strong>Setelah diverifikasi:</strong> Stok & HPP akan diperbarui otomatis sesuai qty aktual yang diisi.
+                </div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" onclick="closeVerifyModal()" class="clay-btn clay-btn-outline" style="padding:8px 14px;font-size:.82rem;">Batal</button>
+                <button type="submit" class="clay-btn clay-btn-primary" style="padding:8px 16px;font-size:.82rem;background:#2563eb;">📦 Konfirmasi Barang Diterima</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <style>
 .approval-tab { transition: all .2s; }
 .approval-tab:not(.active):hover { border-color: #d1d5db; background: #f3f4f6; }
@@ -364,17 +468,48 @@
         });
     };
 
+    // ─── Source Account Guard ───
+    window.updateApproveButtons = function() {
+        var acc = document.getElementById('sourceAccount').value;
+        var warn = document.getElementById('sourceAccountWarning');
+        var btns = document.querySelectorAll('.pm-approve-btn');
+        warn.style.display = acc ? 'none' : 'block';
+        btns.forEach(function(btn) { btn.disabled = !acc; btn.style.opacity = acc ? '1' : '.5'; });
+    };
+
+    // ─── Approve Purchase ───
     window.approvePurchase = function(id, amount) {
-        if (!confirm('✅ Setujui pembelian ' + amount + '?\n\nStok & HPP akan diperbarui otomatis.')) return;
+        var accId = document.getElementById('sourceAccount').value;
+        if (!accId) { alert('⚠️ Pilih sumber dana terlebih dahulu!'); return; }
+        if (!confirm('✅ Setujui pembelian ' + amount + '?\n\nSaldo akan dikurangi dari akun yang dipilih.\nStok belum masuk — menunggu verifikasi barang.')) return;
         var form = document.createElement('form');
         form.method = 'POST';
         form.action = '/approval/purchase/' + id + '/approve';
         form.innerHTML = '<input type="hidden" name="_token" value="{{ csrf_token() }}">'
-            + '<input type="hidden" name="_method" value="PATCH">';
+            + '<input type="hidden" name="_method" value="PATCH">'
+            + '<input type="hidden" name="source_account_id" value="' + accId + '">';
         document.body.appendChild(form);
         form.submit();
     };
 
+    // Persist source account to localStorage
+    document.getElementById('sourceAccount').addEventListener('change', function() {
+        localStorage.setItem('approval_source_account', this.value);
+    });
+
+    // Init on load — restore from localStorage
+    document.addEventListener('DOMContentLoaded', function() {
+        var saved = localStorage.getItem('approval_source_account');
+        if (saved) {
+            var sel = document.getElementById('sourceAccount');
+            if (sel.querySelector('option[value="' + saved + '"]')) {
+                sel.value = saved;
+            }
+        }
+        updateApproveButtons();
+    });
+
+    // ─── Reject Purchase ───
     window.rejectPurchase = function(id, amount) {
         var modal = document.getElementById('rejectModal');
         document.getElementById('rejectDetail').textContent = 'Pembelian ' + amount;
@@ -388,8 +523,30 @@
         document.getElementById('rejectModal').style.display = 'none';
     };
 
+    // ─── Verify Arrival ───
+    window.openVerifyModal = function(id, productName, qty, price, total) {
+        var modal = document.getElementById('verifyModal');
+        document.getElementById('verifyProductName').textContent = productName;
+        document.getElementById('verifyOriginalTotal').textContent = total;
+        document.getElementById('verifyQty').value = qty;
+        document.getElementById('verifyQty').max = qty * 2; // allow slight over
+        document.getElementById('verifyPrice').value = '';
+        var form = document.getElementById('verifyForm');
+        form.action = '/approval/purchase/' + id + '/verify';
+        form.querySelector('[name=receive_note]').value = '';
+        modal.style.display = 'flex';
+    };
+
+    window.closeVerifyModal = function() {
+        document.getElementById('verifyModal').style.display = 'none';
+    };
+
+    // Escape key menutup modal
     document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') closeRejectModal();
+        if (e.key === 'Escape') {
+            closeRejectModal();
+            closeVerifyModal();
+        }
     });
 })();
 </script>

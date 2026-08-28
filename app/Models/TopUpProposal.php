@@ -30,6 +30,7 @@ class TopUpProposal extends Model
         'va_paid_at',
         'va_paid_by',
         'completed_at',
+        'source_account_id',
     ];
 
     protected $casts = [
@@ -78,6 +79,11 @@ class TopUpProposal extends Model
     public function paymentBatches(): HasMany
     {
         return $this->hasMany(TopUpPaymentBatch::class, 'proposal_id');
+    }
+
+    public function sourceAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'source_account_id');
     }
 
     // ─── Helper ────────────────────────────────────────────────

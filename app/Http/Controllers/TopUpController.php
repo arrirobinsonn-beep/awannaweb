@@ -288,9 +288,13 @@ class TopUpController extends Controller
 
         $data = $request->validate([
             'payment_mode' => ['required', 'in:shared_va,single_va_per_wl'],
+            'source_account_id' => ['required', 'exists:accounts,id'],
         ]);
 
-        DB::transaction(function () use ($proposal, $approver, $data) {
+        $userName = $proposal->user?->display_name ?? 'Advertiser';
+        $description = now()->format('d/m/Y').' - Top Up - '.$userName;
+
+        DB::transaction(function () use ($proposal, $approver, $data, $description) {
             $proposal->update([
                 'status' => 'approved',
                 'payment_mode' => $data['payment_mode'],
@@ -300,6 +304,7 @@ class TopUpController extends Controller
                 'approved_at' => now(),
                 'decline_note' => null,
                 'suggested_total_nominal' => null,
+                'source_account_id' => $data['source_account_id'],
             ]);
 
             TopUpProposalReview::create([
@@ -308,6 +313,23 @@ class TopUpController extends Controller
                 'decision' => 'approved',
                 'note' => 'Disetujui dengan mode '.$data['payment_mode'].'.',
             ]);
+
+            // Buat transaksi keluar (bank_transfer out)
+            $category = TransactionCategory::where('name', 'Top Up')->where('type', 'out')->first();
+            $bankTransfer = BankTransfer::create([
+                'account_id' => $data['source_account_id'],
+                'category_id' => $category?->id,
+                'type' => 'out',
+                'amount' => $proposal->total_nominal,
+                'description' => $description,
+                'transaction_date' => now(),
+                'created_by' => $approver->id,
+                'status' => 'approved',
+                'source_type' => 'top_up_proposal',
+                'source_id' => $proposal->id,
+            ]);
+
+            app(FinanceService::class)->applyBankTransfer($bankTransfer);
 
             $items = $proposal->items()->orderBy('id')->get();
             if ($data['payment_mode'] === 'shared_va') {
@@ -337,13 +359,13 @@ class TopUpController extends Controller
             $proposal->user_id,
             'proposal_approved',
             '✅ Pengajuan Top Up Disetujui',
-            'Pengajuan top up Rp '.number_format($proposal->total_nominal, 0, ',', '.')." telah disetujui oleh {$approver->display_name}. Silakan lanjut ke pembayaran.",
+            'Pengajuan top up Rp '.number_format($proposal->total_nominal, 0, ',', '.')." telah disetujui oleh {$approver->display_name}. Transaksi keluar sudah dicatat.",
             ['proposal_id' => $proposal->id, 'url' => route('topup.show', $proposal)],
             $approver->id
         );
 
         return redirect()->route('topup.show', $proposal)
-            ->with('success', 'Pengajuan top up disetujui.');
+            ->with('success', 'Pengajuan disetujui & transaksi keluar Rp '.number_format($proposal->total_nominal, 0, ',', '.').' sudah dicatat.');
     }
 
     // ─── Decline ───────────────────────────────────────────────

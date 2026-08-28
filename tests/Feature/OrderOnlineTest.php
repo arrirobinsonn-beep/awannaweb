@@ -2215,14 +2215,27 @@ class OrderOnlineTest extends TestCase
         // Stok BELUM masuk karena masih pending
         $this->assertSame(0, $stock->stockOf($variant->id, $invB->id));
 
-        // Approve pembelian → stok masuk
+        // Approve pembelian → stok BELUM masuk (perlu verifikasi)
         $user->assignRole('admin');
+        $testAccount = \App\Models\Account::create(['name' => 'Test '.uniqid(), 'type' => 'bank', 'current_balance' => 10000000, 'status' => 'active']);
         $this->actingAs($user)
-            ->patch(route('approval.purchase.approve', $purchase))
+            ->patch(route('approval.purchase.approve', $purchase), ['source_account_id' => $testAccount->id])
             ->assertRedirect();
 
         $purchase = $purchase->fresh();
         $this->assertSame('approved', $purchase->status);
+        $this->assertSame(0, $stock->stockOf($variant->id, $invB->id)); // belum masuk
+
+        // Verifikasi barang datang → stok masuk
+        $this->actingAs($user)
+            ->patch(route('approval.purchase.verify', $purchase), [
+                'actual_quantity' => 10,
+                'receive_note' => 'Barang lengkap',
+            ])
+            ->assertRedirect();
+
+        $purchase = $purchase->fresh();
+        $this->assertSame('received', $purchase->status);
         $this->assertSame(10, $stock->stockOf($variant->id, $invB->id));
         $this->assertSame(0, $stock->stockOf($variant->id, $invA->id)); // gudang utama TIDAK terisi
 

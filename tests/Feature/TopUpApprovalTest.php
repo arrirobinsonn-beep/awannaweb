@@ -69,15 +69,27 @@ class TopUpApprovalTest extends TestCase
         return $proposal;
     }
 
+    private function makeAccount(): Account
+    {
+        return Account::create([
+            'name' => 'Test Account '.uniqid(),
+            'type' => 'bank',
+            'current_balance' => 10000000,
+            'status' => 'active',
+        ]);
+    }
+
     public function test_approve_creates_batches_and_review_history(): void
     {
         [$adv, $wl] = $this->makeAdvertiserWithWhitelist();
         $approver = $this->makeUser('keuangan', 'Finance '.uniqid());
         $proposal = $this->makeProposal($adv, $wl, 750000);
+        $account = $this->makeAccount();
 
         $this->actingAs($approver)
             ->patch(route('topup.approve', $proposal), [
                 'payment_mode' => 'shared_va',
+                'source_account_id' => $account->id,
             ])
             ->assertRedirect(route('topup.show', $proposal));
 
@@ -130,9 +142,11 @@ class TopUpApprovalTest extends TestCase
         [$adv, $wl] = $this->makeAdvertiserWithWhitelist();
         $approver = $this->makeUser('keuangan', 'Finance '.uniqid());
         $proposal = $this->makeProposal($adv, $wl, 600000);
+        $account = $this->makeAccount();
 
         $this->actingAs($approver)->patch(route('topup.approve', $proposal), [
             'payment_mode' => 'shared_va',
+            'source_account_id' => $account->id,
         ]);
 
         $proposal = $proposal->fresh(['paymentBatches', 'items']);
@@ -160,9 +174,11 @@ class TopUpApprovalTest extends TestCase
         [$adv, $wl] = $this->makeAdvertiserWithWhitelist();
         $approver = $this->makeUser('keuangan', 'Finance '.uniqid());
         $proposal = $this->makeProposal($adv, $wl, 400000);
+        $account = $this->makeAccount();
 
         $this->actingAs($approver)->patch(route('topup.approve', $proposal), [
             'payment_mode' => 'shared_va',
+            'source_account_id' => $account->id,
         ]);
 
         $account = Account::create([

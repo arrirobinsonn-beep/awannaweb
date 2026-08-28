@@ -11,11 +11,12 @@ class Purchase extends Model
 {
     use HasFactory;
 
-    public const STATUSES = ['pending', 'approved', 'rejected'];
+    public const STATUSES = ['pending', 'approved', 'rejected', 'received'];
     public const STATUS_LABELS = [
         'pending'  => 'Menunggu',
         'approved' => 'Disetujui',
         'rejected' => 'Ditolak',
+        'received' => 'Barang Diterima',
     ];
 
     protected $fillable = [
@@ -32,6 +33,10 @@ class Purchase extends Model
         'approved_by',
         'approved_at',
         'rejection_note',
+        'received_at',
+        'received_by',
+        'receive_note',
+        'source_account_id',
     ];
 
     protected $casts = [
@@ -40,6 +45,7 @@ class Purchase extends Model
         'unit_price' => 'decimal:2',
         'shipping_cost' => 'decimal:2',
         'approved_at' => 'datetime',
+        'received_at' => 'datetime',
     ];
 
     // ─── Relasi ────────────────────────────────────────────────
@@ -69,6 +75,16 @@ class Purchase extends Model
         return $this->belongsTo(User::class, 'approved_by');
     }
 
+    public function receiver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function sourceAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'source_account_id');
+    }
+
     // ─── Helper ────────────────────────────────────────────────
 
     public function isPending(): bool
@@ -86,6 +102,17 @@ class Purchase extends Model
         return $this->status === 'rejected';
     }
 
+    public function isReceived(): bool
+    {
+        return $this->status === 'received';
+    }
+
+    /** Sudah disetujui tapi belum diverifikasi barangnya. */
+    public function needsVerification(): bool
+    {
+        return $this->status === 'approved';
+    }
+
     // ─── Scope ─────────────────────────────────────────────────
 
     public function scopePending(Builder $query): Builder
@@ -96,6 +123,11 @@ class Purchase extends Model
     public function scopeApproved(Builder $query): Builder
     {
         return $query->where('status', 'approved');
+    }
+
+    public function scopeReceived(Builder $query): Builder
+    {
+        return $query->where('status', 'received');
     }
 
     public function scopeByStatus(Builder $query, ?string $status): Builder

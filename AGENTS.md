@@ -1114,12 +1114,20 @@ Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier
 
 # Fitur Belum Selesai / Ide ke Depan
 
-## 📌 Sesi Berikutnya (setelah 19 Agustus): Lanjutan Sektor Keuangan
+## 📌 Sesi Berikutnya (setelah 27 Agustus): Lanjutan Sektor Keuangan
 
 Modul dasar keuangan (fitur U) SELESAI: akun, kategori, transfer antar akun, bukti transfer + approval. Sisa yang bisa dikerjakan berikutnya:
 
-- **Dashboard keuangan masih 500** (`DashboardController` role keuangan tidak mengirim `$topAdvertiser` — kartu "top whitelist" error) — bug pre-existing yang belum diperbaiki.
-- **`SpendingHarianController::approve()` no-op** — action approve spending belum benar-benar mengubah status (perlu diverifikasi + test).
+- ✅ **FIXED (27 Agustus)**: `SpendingHarian::approve()` no-op — sudah diperbaiki:
+  - Tambah kolom `status` (default `pending`) ke tabel `spending_harians` via migration `2026_08_27_120350`
+  - Tambah `status` ke `$fillable` di model `SpendingHarian`
+  - Tambah badge Status + tombol Approve per baris di `spending/index-general.blade.php`
+  - Route `PATCH spending/{spending}/approve` → set `status = 'approved'`
+
+- ✅ **FIXED (27 Agustus)**: Halaman `/orders` — cards rapih (sistem mini-stat) + grafik tren harian interaktif Chart.js (drag-to-scroll, toggle legend, 4 dataset: Total/Real/Tembakan/Lead). Courier cards: filter null key, tiap courier punya warna + ikon berbeda.
+
+- **Dashboard keuangan** — sudah dicek: `dashboardKeuangan()` sudah kirim `$topAdvertiser`, semua blade compile OK. Jika masih 500 saat login, cek error log aktual.
+
 - **Top-up belum punya test** — `TopUpController` (proposal → approve → bayar → va-paid → confirm) belum ter-cover suite.
 - Pertanyaan yang belum dijawab user: apakah saldo akun boleh negatif (rekening vs cash), kolom bank/atas nama di `accounts`, dan apakah reject perlu alur CS upload ulang (edit bukti yang ditolak).
 
