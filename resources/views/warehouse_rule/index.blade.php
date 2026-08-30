@@ -52,44 +52,7 @@
         font-size: .7rem; color: #6d28d9; font-weight: 700;
     }
 
-    /* ── Modal edit (pola cr-modal) ──────────────── */
-    .wr-modal {
-        position: fixed; inset: 0; z-index: 9999;
-        display: none; align-items: center; justify-content: center; padding: 16px;
-    }
-    .wr-modal.active { display: flex; }
-    .wr-modal .wr-backdrop {
-        position: absolute; inset: 0;
-        background: rgba(15,23,42,.55); backdrop-filter: blur(2px);
-    }
-    .wr-modal .wr-container {
-        position: relative; background: #fff; border-radius: 18px;
-        width: 100%; max-width: 420px; overflow: hidden;
-        display: flex; flex-direction: column;
-        box-shadow: 0 25px 60px rgba(0,0,0,.25);
-        animation: wrIn .22s ease;
-    }
-    @keyframes wrIn {
-        from { opacity: 0; transform: translateY(10px) scale(.98); }
-        to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .wr-modal .wr-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
-        background: linear-gradient(135deg, #FFF5F5, #fff);
-    }
-    .wr-modal .wr-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
-    .wr-modal .wr-close {
-        background: #f3f4f6; border: none; border-radius: 8px;
-        width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280;
-        transition: background .15s;
-    }
-    .wr-modal .wr-close:hover { background: #e5e7eb; }
-    .wr-modal .wr-body { padding: 16px 20px; }
-    .wr-modal .wr-footer {
-        display: flex; justify-content: flex-end; gap: 10px;
-        padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
-    }
+    /* Modal edit — styles centralized in clay.css (clay-modal) */
 
     @media (max-width: 479px) {
         .wr-table-wrap { overflow-x: auto; }
@@ -210,12 +173,12 @@
 </div>
 
 {{-- ── Modal Edit ─────────────────────────────────────────────── --}}
-<div class="wr-modal" id="wr-modal" role="dialog" aria-modal="true" aria-labelledby="wr-modal-title">
-    <div class="wr-backdrop" onclick="closeWrEdit()"></div>
-    <div class="wr-container">
-        <div class="wr-header">
+<div class="clay-modal" id="wr-modal" role="dialog" aria-modal="true" aria-labelledby="wr-modal-title">
+    <div class="clay-modal-backdrop" onclick="closeWrEdit()"></div>
+    <div class="clay-modal-container">
+        <div class="clay-modal-header">
             <h2 id="wr-modal-title">✏️ Edit Aturan</h2>
-            <button class="wr-close" onclick="closeWrEdit()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeWrEdit()" type="button">✕</button>
         </div>
         <form method="POST" id="wr-edit-form" class="wr-form">
             @csrf @method('PUT')
@@ -239,7 +202,7 @@
                     </label>
                 </div>
             </div>
-            <div class="wr-footer">
+            <div class="clay-modal-footer">
                 <button type="button" class="clay-btn clay-btn-outline" onclick="closeWrEdit()">Batal</button>
                 <button type="submit" class="clay-btn clay-btn-primary">💾 Simpan</button>
             </div>

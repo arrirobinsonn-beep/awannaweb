@@ -68,29 +68,7 @@
     .ts-del-btn:hover { text-decoration: underline; }
     .ts-aksi { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 
-    /* ── Modal edit ─────────────────────────────── */
-    .ts-modal { position: fixed; inset: 0; z-index: 9999; display: none; align-items: center; justify-content: center; padding: 16px; }
-    .ts-modal.active { display: flex; }
-    .ts-modal .ts-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.55); backdrop-filter: blur(2px); }
-    .ts-modal .ts-container {
-        position: relative; background: #fff; border-radius: 18px; width: 100%; max-width: 480px;
-        overflow: hidden; display: flex; flex-direction: column;
-        box-shadow: 0 25px 60px rgba(0,0,0,.25); animation: tsIn .22s ease;
-    }
-    @keyframes tsIn {
-        from { opacity: 0; transform: translateY(10px) scale(.98); }
-        to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .ts-modal .ts-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
-        background: linear-gradient(135deg, #FFF5F5, #fff);
-    }
-    .ts-modal .ts-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
-    .ts-modal .ts-close { background: #f3f4f6; border: none; border-radius: 8px; width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280; transition: background .15s; }
-    .ts-modal .ts-close:hover { background: #e5e7eb; }
-    .ts-modal .ts-body { padding: 16px 20px; }
-    .ts-modal .ts-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06); }
+    /* Modal edit — styles centralized in clay.css (clay-modal) */
 
     @media (max-width: 767px) {
         .table-scroll { overflow-x: auto; }
@@ -375,12 +353,12 @@
 </div>
 
 {{-- ── Modal Edit aturan status ─────────────────────────────────── --}}
-<div class="ts-modal" id="ts-modal" role="dialog" aria-modal="true" aria-labelledby="ts-modal-title">
-    <div class="ts-backdrop" onclick="closeTsEdit()"></div>
-    <div class="ts-container">
-        <div class="ts-header">
+<div class="clay-modal" id="ts-modal" role="dialog" aria-modal="true" aria-labelledby="ts-modal-title">
+    <div class="clay-modal-backdrop" onclick="closeTsEdit()"></div>
+    <div class="clay-modal-container">
+        <div class="clay-modal-header">
             <h2 id="ts-modal-title">✏️ Edit Aturan</h2>
-            <button class="ts-close" onclick="closeTsEdit()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeTsEdit()" type="button">✕</button>
         </div>
         <form method="POST" id="ts-edit-form" class="ts-form">
             @csrf @method('PUT')
@@ -437,7 +415,7 @@
                     </label>
                 </div>
             </div>
-            <div class="ts-footer">
+            <div class="clay-modal-footer">
                 <button type="button" class="clay-btn clay-btn-outline" onclick="closeTsEdit()">Batal</button>
                 <button type="submit" class="clay-btn clay-btn-primary">💾 Simpan</button>
             </div>

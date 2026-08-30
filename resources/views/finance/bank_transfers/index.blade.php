@@ -71,36 +71,10 @@
     .bt-filter-bar select, .bt-filter-bar .clay-btn { font-size: .75rem; padding: 6px 10px; }
     .bt-filter-bar select { border: 1.5px solid #e5e7eb; border-radius: 10px; background: #fff; color: #374151; }
 
-    /* Modal reject (pola cr-modal) */
-    .bt-modal {
-        position: fixed; inset: 0; z-index: 9999;
-        display: none; align-items: center; justify-content: center; padding: 16px;
-    }
-    .bt-modal.active { display: flex; }
-    .bt-modal .bt-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.55); backdrop-filter: blur(2px); }
-    .bt-modal .bt-container {
-        position: relative; background: #fff; border-radius: 18px;
-        width: 100%; max-width: 760px; max-height: 92vh;
-        display: flex; flex-direction: column;
-        box-shadow: 0 25px 60px rgba(0,0,0,.25);
-        animation: btIn .22s ease;
-    }
-    @keyframes btIn {
-        from { opacity: 0; transform: translateY(10px) scale(.98); }
-        to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .bt-modal .bt-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
-        background: linear-gradient(135deg, #FFF5F5, #fff);
-    }
-    .bt-modal .bt-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
-    .bt-modal .bt-close { background: #f3f4f6; border: none; border-radius: 8px; width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280; }
+    /* Modal reject — styles centralized in clay.css (clay-modal) */
+    .bt-modal .bt-container { max-width: 760px; max-height: 92vh; }
     .bt-modal .bt-body { padding: 16px 20px; overflow-y: auto; }
-    .bt-modal .bt-footer {
-        display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap;
-        padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
-    }
+    .bt-modal .bt-footer { flex-wrap: wrap; }
 
     @media (max-width: 479px) {
         .bt-table-wrap { overflow-x: auto; }

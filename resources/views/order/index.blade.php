@@ -30,25 +30,15 @@
 .st-completed       { background:#dcfce7; color:#15803d; }
 .st-failed          { background:#fee2e2; color:#b91c1c; }
 
-/* ── Dropzone ── */
-.dropzone {
-    border: 2px dashed #d1d5db; border-radius: 14px;
-    padding: 30px 20px; text-align: center;
-    transition: all .25s ease; cursor: pointer; background: #fafafa;
-}
-.dropzone:hover, .dropzone.drag-over { border-color: var(--color-primary, #FF6B6B); background: #fef2f2; }
-.dropzone.has-file  { border-color: #059669; background: #f0fdf4; }
-.dropzone-icon      { font-size: 2rem; margin-bottom: 4px; display: block; }
-.dropzone-title     { font-weight: 700; font-size: .9rem; color: #374151; }
-.dropzone-hint      { font-size: .72rem; color: #9ca3af; margin-top: 2px; }
-.dropzone-file      { font-size: .78rem; color: #059669; font-weight: 600; margin-top: 6px; }
+/* ── Dropzone, Mini stat, Accent colors — centralized in clay.css ── */
+.clay-dropzone { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; }
 .courier-edit-form  { display:flex; gap:4px; align-items:center; }
 .courier-edit-form select { padding:2px 4px; font-size:.72rem; border:1px solid #d1d5db; border-radius:6px; }
 
 /* ── Upload grid 2 kolom ── */
 .upload-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-bottom:20px; }
 .upload-grid .clay-card { display:flex; flex-direction:column; }
-.upload-grid .dropzone  { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.upload-grid .clay-dropzone  { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; }
 @media (max-width: 900px) { .upload-grid { grid-template-columns:1fr; } }
 
 /* ── Summary cards layout ── */
@@ -58,38 +48,6 @@
     color:#9ca3af; letter-spacing:.06em; margin-bottom:8px;
 }
 .summary-row { display:flex; flex-wrap:wrap; gap:10px; }
-
-/* ── Mini stat card ── */
-.mini-stat {
-    background:#fff; border-radius:14px; padding:14px 18px;
-    display:flex; flex-direction:column; min-width:130px; flex:1;
-    box-shadow:0 2px 8px rgba(0,0,0,.06); position:relative; overflow:hidden;
-    border: 1px solid rgba(0,0,0,.05);
-    transition: box-shadow .2s;
-}
-.mini-stat:hover { box-shadow:0 4px 16px rgba(0,0,0,.1); }
-.mini-stat-icon  { font-size:1.6rem; opacity:.12; position:absolute; right:12px; top:50%; transform:translateY(-50%); pointer-events:none; }
-.mini-stat-label { font-size:.64rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:#9ca3af; margin-bottom:6px; white-space:nowrap; }
-.mini-stat-value { font-size:1.65rem; font-weight:900; line-height:1; }
-.mini-stat-sub   { font-size:.64rem; color:#9ca3af; margin-top:4px; }
-
-/* ── Warna accent per card ── */
-.ms-total        { border-left:4px solid #6366f1; }
-.ms-total .mini-stat-value { color:#6366f1; }
-.ms-real         { border-left:4px solid #10b981; }
-.ms-real .mini-stat-value { color:#10b981; }
-.ms-tembakan     { border-left:4px solid #3b82f6; }
-.ms-tembakan .mini-stat-value { color:#3b82f6; }
-.ms-lead         { border-left:4px solid #f59e0b; }
-.ms-lead .mini-stat-value { color:#f59e0b; }
-.ms-cancel       { border-left:4px solid #a78bfa; }
-.ms-cancel .mini-stat-value { color:#a78bfa; }
-.ms-duplikat     { border-left:4px solid #ef4444; }
-.ms-duplikat .mini-stat-value { color:#ef4444; }
-.ms-courier      { border-left:4px solid #0ea5e9; }
-.ms-courier .mini-stat-value { color:#0ea5e9; }
-.ms-agg          { border-left:4px solid #14b8a6; }
-.ms-agg .mini-stat-value  { color:#14b8a6; }
 
 /* ── Chart wrapper ── */
 .chart-card {
@@ -133,11 +91,11 @@
       <div style="font-size:.68rem;color:#9ca3af;margin-top:3px;">Dipakai sebagai "Kode Warehouse" pada export FLIK.</div>
     </div>
 
-    <div class="dropzone" id="csv-dropzone">
-      <span class="dropzone-icon" id="csv-icon">📂</span>
-      <div class="dropzone-title">Klik atau tarik file CSV ke sini</div>
-      <div class="dropzone-hint" id="csv-hint">.csv — maks 10MB. Kolom order_id, product, name, phone, address, provinsi, dst.</div>
-      <div class="dropzone-file" id="csv-filename" style="display:none;"></div>
+    <div class="clay-dropzone" id="csv-dropzone">
+      <span class="clay-dropzone-icon" id="csv-icon">📂</span>
+      <div class="clay-dropzone-title">Klik atau tarik file CSV ke sini</div>
+      <div class="clay-dropzone-hint" id="csv-hint">.csv — maks 10MB. Kolom order_id, product, name, phone, address, provinsi, dst.</div>
+      <div class="clay-dropzone-file" id="csv-filename" style="display:none;"></div>
     </div>
     <input type="file" id="csv-file" accept=".csv,text/csv,text/plain" style="display:none;">
 
@@ -157,11 +115,11 @@
       </div>
     </div>
 
-    <div class="dropzone" id="track-dropzone">
-      <span class="dropzone-icon" id="track-icon">📡</span>
-      <div class="dropzone-title">Klik atau tarik file dashboard aggregator ke sini</div>
-      <div class="dropzone-hint" id="track-hint">.csv / .xlsx — maks 10MB. Sumber (FLIK/SiCepat/SPX) dideteksi otomatis.</div>
-      <div class="dropzone-file" id="track-filename" style="display:none;"></div>
+    <div class="clay-dropzone" id="track-dropzone">
+      <span class="clay-dropzone-icon" id="track-icon">📡</span>
+      <div class="clay-dropzone-title">Klik atau tarik file dashboard aggregator ke sini</div>
+      <div class="clay-dropzone-hint" id="track-hint">.csv / .xlsx — maks 10MB. Sumber (FLIK/SiCepat/SPX) dideteksi otomatis.</div>
+      <div class="clay-dropzone-file" id="track-filename" style="display:none;"></div>
     </div>
     <input type="file" id="track-file" accept=".csv,.xlsx,.xls,text/csv,text/plain" style="display:none;">
 

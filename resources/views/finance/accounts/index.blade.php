@@ -42,36 +42,7 @@
     .fn-del-btn { background: none; border: none; color: #dc2626; font-weight: 700; font-size: .76rem; cursor: pointer; padding: 2px 6px; }
     .fn-del-btn:hover { text-decoration: underline; }
 
-    /* Modal edit (pola cr-modal) */
-    .fn-modal {
-        position: fixed; inset: 0; z-index: 9999;
-        display: none; align-items: center; justify-content: center; padding: 16px;
-    }
-    .fn-modal.active { display: flex; }
-    .fn-modal .fn-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.55); backdrop-filter: blur(2px); }
-    .fn-modal .fn-container {
-        position: relative; background: #fff; border-radius: 18px;
-        width: 100%; max-width: 420px; overflow: hidden;
-        display: flex; flex-direction: column;
-        box-shadow: 0 25px 60px rgba(0,0,0,.25);
-        animation: fnIn .22s ease;
-    }
-    @keyframes fnIn {
-        from { opacity: 0; transform: translateY(10px) scale(.98); }
-        to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .fn-modal .fn-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
-        background: linear-gradient(135deg, #FFF5F5, #fff);
-    }
-    .fn-modal .fn-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
-    .fn-modal .fn-close { background: #f3f4f6; border: none; border-radius: 8px; width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280; }
-    .fn-modal .fn-body { padding: 16px 20px; }
-    .fn-modal .fn-footer {
-        display: flex; justify-content: flex-end; gap: 10px;
-        padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
-    }
+    /* Modal edit — styles centralized in clay.css (clay-modal) */
     @media (max-width: 479px) {
         .fn-table-wrap { overflow-x: auto; }
         .fn-table-wrap .clay-table { min-width: 620px; }
@@ -200,12 +171,12 @@
 </div>
 
 {{-- ── Modal Edit ─────────────────────────────────────────────── --}}
-<div class="fn-modal" id="fn-modal" role="dialog" aria-modal="true" aria-labelledby="fn-modal-title">
-    <div class="fn-backdrop" onclick="closeFnEdit()"></div>
-    <div class="fn-container">
-        <div class="fn-header">
+<div class="clay-modal" id="fn-modal" role="dialog" aria-modal="true" aria-labelledby="fn-modal-title">
+    <div class="clay-modal-backdrop" onclick="closeFnEdit()"></div>
+    <div class="clay-modal-container">
+        <div class="clay-modal-header">
             <h2 id="fn-modal-title">✏️ Edit Akun</h2>
-            <button class="fn-close" onclick="closeFnEdit()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeFnEdit()" type="button">✕</button>
         </div>
         <form method="POST" id="fn-edit-form" class="fn-form">
             @csrf @method('PUT')
@@ -239,7 +210,7 @@
                     </label>
                 </div>
             </div>
-            <div class="fn-footer">
+            <div class="clay-modal-footer">
                 <button type="button" class="clay-btn clay-btn-outline" onclick="closeFnEdit()">Batal</button>
                 <button type="submit" class="clay-btn clay-btn-primary">💾 Simpan</button>
             </div>

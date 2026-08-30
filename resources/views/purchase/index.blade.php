@@ -323,11 +323,11 @@
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                 <div>
                     <label class="pm-label">Qty Aktual *</label>
-                    <input type="number" name="actual_quantity" id="verifyQty" required min="1" class="clay-input" style="width:100%;box-sizing:border-box;">
+                    <input type="number" name="actual_quantity" id="verifyQty" required min="1" class="clay-input">
                 </div>
                 <div>
                     <label class="pm-label">Harga Satuan Aktual</label>
-                    <input type="number" name="actual_unit_price" id="verifyPrice" min="0" step="0.01" class="clay-input" style="width:100%;box-sizing:border-box;" placeholder="Kosongkan = sama">
+                    <input type="number" name="actual_unit_price" id="verifyPrice" min="0" step="0.01" class="clay-input" placeholder="Kosongkan = sama">
                 </div>
             </div>
             <div style="margin-bottom:16px;">

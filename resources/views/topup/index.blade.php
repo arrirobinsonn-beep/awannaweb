@@ -207,15 +207,15 @@
                     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
                         <div style="padding:12px;border-radius:12px;background:#f9fafb;">
                             <label style="display:block;font-size:.68rem;font-weight:700;color:#6b7280;margin-bottom:4px;">Spending (Rp) *</label>
-                            <input type="number" name="today_spending" style="width:100%;box-sizing:border-box;font-size:.83rem;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;" placeholder="0" min="0" step="1000" required oninput="calcCPA()">
+                            <input type="number" name="today_spending" class="clay-input" placeholder="0" min="0" step="1000" required oninput="calcCPA()">
                         </div>
                         <div style="padding:12px;border-radius:12px;background:#f9fafb;">
                             <label style="display:block;font-size:.68rem;font-weight:700;color:#6b7280;margin-bottom:4px;">Lead *</label>
-                            <input type="number" name="today_lead" style="width:100%;box-sizing:border-box;font-size:.83rem;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;" placeholder="0" min="0" required oninput="calcCPA()">
+                            <input type="number" name="today_lead" class="clay-input" placeholder="0" min="0" required oninput="calcCPA()">
                         </div>
                         <div style="padding:12px;border-radius:12px;background:#f9fafb;">
                             <label style="display:block;font-size:.68rem;font-weight:700;color:#6b7280;margin-bottom:4px;">Paid *</label>
-                            <input type="number" name="today_paid" style="width:100%;box-sizing:border-box;font-size:.83rem;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;" placeholder="0" min="0" required oninput="calcCPA()">
+                            <input type="number" name="today_paid" class="clay-input" placeholder="0" min="0" required oninput="calcCPA()">
                         </div>
                     </div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
@@ -417,7 +417,7 @@
             var wl = selectedWl[i];
             html += '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:#f9fafb;border:1px solid #e5e7eb;">';
             html += '<div style="flex:1;min-width:150px;"><strong style="font-size:.85rem;display:block;">' + esc(wl.nama) + '</strong><small style="font-size:.68rem;color:#9ca3af;">' + esc(wl.platform) + ' · ' + esc(wl.kode) + '</small></div>';
-            html += '<input type="number" class="tu-nominal-input clay-input" style="width:160px;flex-shrink:0;font-size:.85rem;padding:7px 10px;" min="0" step="1000" placeholder="0" data-wl-id="' + wl.id + '" oninput="calcTotal()">';
+            html += '<input type="number" class="tu-nominal-input clay-input" style="width:160px;flex-shrink:0;" min="0" step="1000" placeholder="0" data-wl-id="' + wl.id + '" oninput="calcTotal()">';
             html += '</div>';
             hidden += '<input type="hidden" name="items[' + wl.id + '][whitelist_id]" value="' + wl.id + '">';
             hidden += '<input type="hidden" name="items[' + wl.id + '][sisa_saldo]" class="tu-hidden-saldo" data-wl-id="' + wl.id + '" value="0">';

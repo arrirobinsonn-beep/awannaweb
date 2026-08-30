@@ -72,44 +72,7 @@
         font-size: .7rem; color: #6d28d9; font-weight: 700;
     }
 
-    /* ── Modal edit (pola be-modal) ──────────────── */
-    .cr-modal {
-        position: fixed; inset: 0; z-index: 9999;
-        display: none; align-items: center; justify-content: center; padding: 16px;
-    }
-    .cr-modal.active { display: flex; }
-    .cr-modal .cr-backdrop {
-        position: absolute; inset: 0;
-        background: rgba(15,23,42,.55); backdrop-filter: blur(2px);
-    }
-    .cr-modal .cr-container {
-        position: relative; background: #fff; border-radius: 18px;
-        width: 100%; max-width: 460px; overflow: hidden;
-        display: flex; flex-direction: column;
-        box-shadow: 0 25px 60px rgba(0,0,0,.25);
-        animation: crIn .22s ease;
-    }
-    @keyframes crIn {
-        from { opacity: 0; transform: translateY(10px) scale(.98); }
-        to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .cr-modal .cr-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
-        background: linear-gradient(135deg, #FFF5F5, #fff);
-    }
-    .cr-modal .cr-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
-    .cr-modal .cr-close {
-        background: #f3f4f6; border: none; border-radius: 8px;
-        width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280;
-        transition: background .15s;
-    }
-    .cr-modal .cr-close:hover { background: #e5e7eb; }
-    .cr-modal .cr-body { padding: 16px 20px; }
-    .cr-modal .cr-footer {
-        display: flex; justify-content: flex-end; gap: 10px;
-        padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
-    }
+    /* Modal edit — styles centralized in clay.css (clay-modal) */
 
     @media (max-width: 479px) {
         .cr-table-wrap { overflow-x: auto; }
@@ -305,12 +268,12 @@
 </div>
 
 {{-- ── Modal Edit ─────────────────────────────────────────────── --}}
-<div class="cr-modal" id="cr-modal" role="dialog" aria-modal="true" aria-labelledby="cr-modal-title">
-    <div class="cr-backdrop" onclick="closeCrEdit()"></div>
-    <div class="cr-container">
-        <div class="cr-header">
+<div class="clay-modal" id="cr-modal" role="dialog" aria-modal="true" aria-labelledby="cr-modal-title">
+    <div class="clay-modal-backdrop" onclick="closeCrEdit()"></div>
+    <div class="clay-modal-container">
+        <div class="clay-modal-header">
             <h2 id="cr-modal-title">✏️ Edit Aturan</h2>
-            <button class="cr-close" onclick="closeCrEdit()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeCrEdit()" type="button">✕</button>
         </div>
         <form method="POST" id="cr-edit-form" class="cr-form">
             @csrf @method('PUT')
@@ -353,7 +316,7 @@
                     </label>
                 </div>
             </div>
-            <div class="cr-footer">
+            <div class="clay-modal-footer">
                 <button type="button" class="clay-btn clay-btn-outline" onclick="closeCrEdit()">Batal</button>
                 <button type="submit" class="clay-btn clay-btn-primary">💾 Simpan</button>
             </div>

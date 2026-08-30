@@ -407,11 +407,11 @@
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                 <div>
                     <label style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px;color:#374151;">Qty Aktual (diterima) *</label>
-                    <input type="number" name="actual_quantity" id="verifyQty" required min="1" class="clay-input" style="width:100%;box-sizing:border-box;" placeholder="Jumlah barang yang benar-benar datang">
+                    <input type="number" name="actual_quantity" id="verifyQty" required min="1" class="clay-input" placeholder="Jumlah barang yang benar-benar datang">
                 </div>
                 <div>
                     <label style="display:block;font-size:.75rem;font-weight:700;margin-bottom:4px;color:#374151;">Harga Satuan Aktual</label>
-                    <input type="number" name="actual_unit_price" id="verifyPrice" min="0" step="0.01" class="clay-input" style="width:100%;box-sizing:border-box;" placeholder="Kosongkan jika sama dengan pengajuan">
+                    <input type="number" name="actual_unit_price" id="verifyPrice" min="0" step="0.01" class="clay-input" placeholder="Kosongkan jika sama dengan pengajuan">
                     <div style="font-size:.65rem;color:#9ca3af;margin-top:2px;">Kosongkan = pakai harga pengajuan</div>
                 </div>
             </div>

@@ -122,6 +122,163 @@ body {
     .stat-card { padding:14px; }
 }
 
+/* ─── Clay Toggle (switch) ──────────────────────────────── */
+.clay-toggle {
+    position: relative; display: inline-block;
+    width: 36px; height: 20px; vertical-align: middle; cursor: pointer;
+}
+.clay-toggle input {
+    position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer;
+}
+.clay-toggle .clay-toggle-slider {
+    position: absolute; inset: 0; background: #d1d5db; border-radius: 999px;
+    transition: background .18s;
+}
+.clay-toggle .clay-toggle-slider::before {
+    content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+    transition: transform .18s;
+}
+.clay-toggle input:checked + .clay-toggle-slider { background: var(--color-primary, #FF6B6B); }
+.clay-toggle input:checked + .clay-toggle-slider::before { transform: translateX(16px); }
+.clay-toggle-sm { transform: scale(.85); transform-origin: center; }
+
+/* ─── Clay Modal ────────────────────────────────────────── */
+.clay-modal {
+    position: fixed; inset: 0; z-index: 9999;
+    display: none; align-items: center; justify-content: center; padding: 16px;
+}
+.clay-modal.active { display: flex; }
+.clay-modal .clay-modal-backdrop {
+    position: absolute; inset: 0;
+    background: rgba(15,23,42,.55); backdrop-filter: blur(2px);
+}
+.clay-modal .clay-modal-container {
+    position: relative; background: #fff; border-radius: 18px;
+    width: 100%; max-width: 520px; overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 25px 60px rgba(0,0,0,.25);
+    animation: clayModalIn .22s ease;
+}
+@keyframes clayModalIn {
+    from { opacity: 0; transform: translateY(10px) scale(.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.clay-modal .clay-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
+    background: linear-gradient(135deg, #FFF5F5, #fff);
+}
+.clay-modal .clay-modal-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
+.clay-modal .clay-modal-close {
+    background: #f3f4f6; border: none; border-radius: 8px;
+    width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280;
+    transition: background .15s;
+}
+.clay-modal .clay-modal-close:hover { background: #e5e7eb; }
+.clay-modal .clay-modal-body {
+    padding: 18px 20px; max-height: 62vh; overflow-y: auto;
+}
+.clay-modal .clay-modal-body label {
+    display: block; font-size: .72rem; font-weight: 700; color: #6b7280; margin-bottom: 4px;
+}
+.clay-modal .clay-modal-body .clay-input { font-size: .85rem; padding: 7px 10px; }
+.clay-modal .clay-modal-footer {
+    display: flex; justify-content: flex-end; gap: 10px;
+    padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
+}
+
+/* ─── Clay Dropzone ─────────────────────────────────────── */
+.clay-dropzone {
+    border: 2px dashed #d1d5db; border-radius: 14px;
+    padding: 30px 20px; text-align: center;
+    transition: all .25s ease; cursor: pointer; background: #fafafa;
+}
+.clay-dropzone:hover, .clay-dropzone.drag-over {
+    border-color: var(--color-primary, #FF6B6B); background: #fef2f2;
+}
+.clay-dropzone.has-file { border-color: #059669; background: #f0fdf4; }
+.clay-dropzone-icon  { font-size: 2rem; margin-bottom: 4px; display: block; }
+.clay-dropzone-title { font-weight: 700; font-size: .9rem; color: #374151; }
+.clay-dropzone-hint  { font-size: .72rem; color: #9ca3af; margin-top: 2px; }
+.clay-dropzone-file  { font-size: .78rem; color: #059669; font-weight: 600; margin-top: 6px; }
+
+/* ─── Mini Stat Card ────────────────────────────────────── */
+.mini-stat {
+    background: #fff; border-radius: 14px; padding: 14px 18px;
+    display: flex; flex-direction: column; min-width: 130px; flex: 1;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06); position: relative; overflow: hidden;
+    border: 1px solid rgba(0,0,0,.05);
+    transition: box-shadow .2s;
+}
+.mini-stat:hover { box-shadow: 0 4px 16px rgba(0,0,0,.1); }
+.mini-stat-icon  { font-size: 1.6rem; opacity: .12; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.mini-stat-label { font-size: .64rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; margin-bottom: 6px; white-space: nowrap; }
+.mini-stat-value { font-size: 1.65rem; font-weight: 900; line-height: 1; }
+.mini-stat-sub   { font-size: .64rem; color: #9ca3af; margin-top: 4px; }
+.ms-total        { border-left: 4px solid #6366f1; }
+.ms-total .mini-stat-value { color: #6366f1; }
+.ms-real         { border-left: 4px solid #10b981; }
+.ms-real .mini-stat-value { color: #10b981; }
+.ms-tembakan     { border-left: 4px solid #3b82f6; }
+.ms-tembakan .mini-stat-value { color: #3b82f6; }
+.ms-lead         { border-left: 4px solid #f59e0b; }
+.ms-lead .mini-stat-value { color: #f59e0b; }
+.ms-cancel       { border-left: 4px solid #a78bfa; }
+.ms-cancel .mini-stat-value { color: #a78bfa; }
+.ms-duplikat     { border-left: 4px solid #ef4444; }
+.ms-duplikat .mini-stat-value { color: #ef4444; }
+.ms-courier      { border-left: 4px solid #0ea5e9; }
+.ms-courier .mini-stat-value { color: #0ea5e9; }
+.ms-agg          { border-left: 4px solid #14b8a6; }
+.ms-agg .mini-stat-value  { color: #14b8a6; }
+
+/* ─── Clay Button Small ─────────────────────────────────── */
+.clay-btn-sm { padding: 5px 12px; font-size: .78rem; border-radius: 8px; }
+
+/* ─── Field Label (form) ────────────────────────────────── */
+.field-label { display: block; font-size: .72rem; font-weight: 700; color: #374151; margin-bottom: 4px; }
+
+/* ─── Table Scroll Indicator (mobile) ───────────────────── */
+.table-scroll-wrap {
+    position: relative;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.table-scroll-wrap::after {
+    content: '';
+    position: sticky;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 40px;
+    flex-shrink: 0;
+    background: linear-gradient(to right, transparent, rgba(255,255,255,0.95));
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
+    transition: opacity .2s;
+}
+.table-scroll-wrap.scrollable::after {
+    opacity: 1;
+}
+@media (min-width: 768px) {
+    .table-scroll-wrap::after { display: none; }
+}
+
+/* ─── Icon component ────────────────────────────────────── */
+.icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+}
+.icon-sm { width: 1rem; height: 1rem; }
+.icon-lg { width: 1.5rem; height: 1.5rem; }
+.icon-xl { width: 2rem; height: 2rem; }
+
 /* ─── filter bar mobile ──────────────────────────────────── */
 @media (max-width:600px) {
     .topbar-date, .topbar-subtitle { display:none; }
