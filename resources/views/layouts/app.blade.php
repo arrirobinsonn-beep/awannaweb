@@ -369,6 +369,11 @@
                         <span id="regional-alarm-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">!</span>
                     </a>
                     @endif
+                    @if($u->hasRole(['owner','super_admin','admin','advertiser']))
+                    <a href="{{ route('topup.index') }}" class="nav-item {{ request()->routeIs('topup.*') ? 'active' : '' }}" data-page-link>
+                        <span class="nav-icon"><x-icon name="banknotes" /></span><span class="sidebar-label">Top Up</span>
+                    </a>
+                    @endif
                     @if($u->hasRole(['super_admin','keuangan']))
                     <a href="{{ route('approval.index') }}" class="nav-item {{ request()->routeIs('approval.*') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="document-text" /></span><span class="sidebar-label">Pengajuan</span>
@@ -498,9 +503,6 @@
                         <span class="nav-icon"><x-icon name="map-pin" /></span><span class="sidebar-label">Mapping Tim CS</span>
                     </a>
                     @endif
-                    <a href="{{ route('topup.index') }}" class="nav-item {{ request()->routeIs('topup.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="banknotes" /></span><span class="sidebar-label">Top Up</span>
-                    </a>
                     <a href="{{ route('mobile-device.index') }}" class="nav-item {{ request()->routeIs('mobile-device.*') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="device-phone-mobile" /></span><span class="sidebar-label">Mobile Devices</span>
                     </a>
