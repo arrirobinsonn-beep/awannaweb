@@ -1034,4 +1034,43 @@ Fitur gudang/stok/kiriman lama dihapus total. Yang tersisa: `Product`, `Supplier
 
 ---
 
+## U. ✅ Iklan Produk Testing — Status iklan testing/running + CPA terpisah (20 Agustus 2026)
+
+### Deskripsi
+Produk kini punya **status iklan** (`ad_status`): **testing** (fase uji coba) atau **running** (sudah aktif diiklankan). Saat admin menambahkan produk baru, status iklan default-nya `testing` — admin/SuperAdmin/mentor bisa mengubahnya ke `running` via toggle di halaman Produk. Spending iklan produk testing **tidak dimasukkan ke perhitungan CPA Lead/Paid** (hanya spending yang ditampilkan, tanpa CPA).
+
+### Skema
+- `products.ad_status` varchar(10) default `testing`, index — enum `testing`/`running`
+- Kolom `status` (active/inactive) TIDAK berubah — tetap untuk enable/disable produk
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_08_20_000000_add_ad_status_to_products_table.php` | + `ad_status` default `testing`; backfill existing → `running` |
+| `app/Models/Product.php` | constants `AD_STATUS_TESTING`/`AD_STATUS_RUNNING`, `AD_STATUSES`, `AD_STATUS_LABELS`; `scopeAdStatus()`, `isTesting()`, `isRunning()`; `$fillable` + `ad_status` |
+| `app/Http/Controllers/ProductController.php` | `validateProduct()` + `ad_status` in:testing,running; default `testing` saat create; `toggleAdStatus()` flip testing↔running |
+| `app/Http/Controllers/SpendingHarianController.php` | `indexAdvertiser()` — `computeSummary()` helper; split `$rows` → `$runningRows`/`$testingRows`; 2 summary: `$runningSummary` (Spending+Lead+Paid+CPA) & `$testingSummary` (Spending saja) |
+| `database/seeders/ProductSeeder.php` | + `ad_status = running` saat re-seed (produk existing dianggap sudah melalui fase testing) |
+| `routes/web.php` | `PATCH /product/{product}/toggle-ad-status` (`product.toggle-ad-status`) |
+| `resources/views/product/index.blade.php` | Kolom "Iklan" (toggle + badge 🟢Running/🔬Testing), filter dropdown "Semua Iklan", modal form + field `ad_status` |
+| `resources/views/spending/index-advertiser.blade.php` | Tab 🔵Running / 🔬Testing di atas tabel; kartu summary menampilkan data Running; badge 🔬Testing di Paid Ratio card; tabel Testing terpisah (spending saja, lead/paid/CPA="—") |
+| `resources/views/spending/index-general.blade.php` | Badge 🔬Testing di samping nama produk (CS/admin) |
+| `tests/Feature/SpendingSummaryTest.php` | Product helper + `ad_status => 'running'` |
+| `tests/Feature/SpendingUploadTest.php` | Product helper + `ad_status => 'running'` |
+| `tests/Feature/SpendingBulkUpdateTest.php` | Product helper + `ad_status => 'running'` |
+
+### Endpoint
+- `PATCH /product/{product}/toggle-ad-status` — flip testing↔running (JSON `{success, ad_status}`)
+
+### Penting
+- **Default `testing`** — produk baru HARUS diubah admin ke `running` setelah melalui fase testing. Semua produk existing sudah di-backfill ke `running` (seeder + migrasi).
+- **CPA hanya dari Running** — `$runningSummary` dipakai untuk 4 kartu summary (Spending, Lead/Paid, CPA, Paid Ratio). `$testingSummary` hanya menampilkan total Spending produk testing (lead/paid/CPA = 0).
+- **Chart** hanya menampilkan data produk `running` (testing tidak masuk chart).
+- **Tab Running/Testing** — JavaScript `switchAdTab()` toggle visibility `#adtabcontent-running` dan `#adtabcontent-testing`. Default = Running.
+- **parseUpload** tidak berubah — semua produk (testing & running) tetap ter-cocokkan saat upload file spending.
+- **`Product::AD_STATUS_TESTING`** = `'testing'` — guard di `primaryInventoryId()` tidak terpengaruh (guard pakai `goods_type`, bukan `ad_status`).
+- **Test** memakai `ad_status => 'running'` agar summary tetap menampilkan data. Suite **143 pass** (hanya `ExampleTest` 302 pre-existing).
+
+---
+
 # Fitur Belum Selesai / Ide ke Depan

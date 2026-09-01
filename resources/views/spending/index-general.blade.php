@@ -198,6 +198,9 @@
                                     <span style="font-size:.68rem;color:#9ca3af;">
                                         {{ $prodData['product']->code ?? '' }}
                                     </span>
+                                    @if(($prodData['product']->ad_status ?? 'running') === 'testing')
+                                    <span style="display:inline-block;font-size:.58rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;">🔬 Testing</span>
+                                    @endif
                                 </div>
                                 <div style="font-size:.67rem;color:#9ca3af;margin-top:2px;padding-left:52px;">
                                     {{ count($prodData['whitelists']) }} whitelist mengiklankan produk ini

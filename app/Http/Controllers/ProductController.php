@@ -59,15 +59,23 @@ class ProductController extends Controller
             return $product;
         });
 
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => 'Produk '.$product->name.' berhasil ditambahkan (varian default dibuat).']);
+        }
+
         return redirect()->route('product.index')
             ->with('success', 'Produk '.$product->name.' berhasil ditambahkan (varian default dibuat).');
     }
 
-    public function update(Request $request, Product $product): RedirectResponse
+    public function update(Request $request, Product $product): RedirectResponse|JsonResponse
     {
         $data = $this->validateProduct($request, $product);
 
         $product->update($data);
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => 'Produk '.$product->name.' berhasil diperbarui.']);
+        }
 
         return redirect()->route('product.index')
             ->with('success', 'Produk '.$product->name.' berhasil diperbarui.');
@@ -89,6 +97,17 @@ class ProductController extends Controller
         ]);
 
         return response()->json(['success' => true, 'status' => $product->status]);
+    }
+
+    public function toggleAdStatus(Product $product): JsonResponse
+    {
+        $newStatus = $product->ad_status === Product::AD_STATUS_TESTING
+            ? Product::AD_STATUS_RUNNING
+            : Product::AD_STATUS_TESTING;
+
+        $product->update(['ad_status' => $newStatus]);
+
+        return response()->json(['success' => true, 'ad_status' => $newStatus]);
     }
 
     // ─── Varian Produk ─────────────────────────────────────────────────────
@@ -158,9 +177,18 @@ class ProductController extends Controller
             'selling_price' => ['required', 'numeric', 'min:0'],
             'unit' => ['required', 'string', 'max:30'],
             'status' => ['required', 'in:active,inactive'],
+            'ad_status' => ['nullable', 'in:'.implode(',', Product::AD_STATUSES)],
         ]);
 
         $data['min_stock'] = (int) ($data['min_stock'] ?? 0);
+
+        // Default ad_status: testing (produk baru belum melalui fase testing)
+        if (! $product) {
+            $data['ad_status'] = $data['ad_status'] ?? Product::AD_STATUS_TESTING;
+        } else {
+            // Saat edit: ad_status diambil dari input (bisa diubah admin)
+            $data['ad_status'] = $data['ad_status'] ?? $product->ad_status;
+        }
 
         return $data;
     }

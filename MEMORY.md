@@ -1,3 +1,20 @@
+# MEMORY — 20 Agustus 2026
+
+## Session: Iklan Produk Testing — Status iklan testing/running + CPA terpisah (fitur U)
+
+- **Latar**: user minta mekanisme "Iklan produk testing" — produk baru default status `testing`, admin ubah ke `running` setelah fase testing selesai. Spending produk testing tidak masuk perhitungan CPA Lead/Paid.
+- **Migrasi `2026_08_20_000000`**: kolom `products.ad_status` varchar(10) default `testing` + index. Backfill existing → `running`.
+- **Product model**: constants `AD_STATUS_TESTING`/`AD_STATUS_RUNNING`, `scopeAdStatus()`, `isTesting()`, `isRunning()`.
+- **ProductController**: `validateProduct()` + `ad_status` in validation; default `testing` saat create; `toggleAdStatus()` flip via PATCH route.
+- **SpendingHarianController::indexAdvertiser()**: `computeSummary()` helper; split rows → `$runningRows`/`$testingRows`; 2 summary: `$runningSummary` (Spending+Lead+Paid+CPA) & `$testingSummary` (Spending saja, CPA=0).
+- **View index-advertiser**: tab 🔵Running/🔬Testing di atas tabel (polafolder tabs index-general); kartu summary = Running; badge 🔬Testing di Paid Ratio card; tabel Testing terpisah (spending saja).
+- **View index-general**: badge 🔬Testing di samping nama produk (CS/admin).
+- **View product/index**: kolom "Iklan" toggle + badge; filter "Semua Iklan"; modal form + ad_status field.
+- **Chart**: hanya data produk running (testing tidak masuk chart).
+- **parseUpload**: tidak berubah — semua produk tetap ter-cocokkan.
+- **Seeder**: existing products di-backfill ke `running` (sudah melalui fase testing).
+- **Test**: SpendingSummaryTest/SpendingUploadTest/SpendingBulkUpdateTest + `ad_status => 'running'`. Suite **143 pass** (ExampleTest 302 pre-existing). AGENTS.md section U ditulis.
+
 # MEMORY — 14 Agustus 2026
 
 ## Session: Laporan hanya hitung order yang DIPROSES (cancel/belum_diproses/duplikat/undeliverable dikecualikan)

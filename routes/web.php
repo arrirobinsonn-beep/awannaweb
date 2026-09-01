@@ -158,6 +158,7 @@ Route::middleware('auth')->group(function () {
         Route::put('/product/{product}', [ProductController::class, 'update'])->name('product.update');
         Route::delete('/product/{product}', [ProductController::class, 'destroy'])->name('product.destroy');
         Route::patch('/product/{product}/toggle-status', [ProductController::class, 'toggleStatus'])->name('product.toggle-status');
+        Route::patch('/product/{product}/toggle-ad-status', [ProductController::class, 'toggleAdStatus'])->name('product.toggle-ad-status');
         Route::post('/product/{product}/variants', [ProductController::class, 'variantStore'])->name('product.variant.store');
         Route::put('/product/variants/{variant}', [ProductController::class, 'variantUpdate'])->name('product.variant.update');
         Route::delete('/product/variants/{variant}', [ProductController::class, 'variantDestroy'])->name('product.variant.destroy');

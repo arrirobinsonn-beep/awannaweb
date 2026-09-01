@@ -146,18 +146,14 @@ class SpendingHarianController extends Controller
             ];
         });
 
-        // ─── Ringkasan periode: 4 kartu di atas tabel (mengikuti $dari/$sampai) ──
-        $summary = [
-            'spending' => (float) $rows->sum('spending'),
-            'lead' => (int) $rows->sum('lead'),
-            'paid' => (int) $rows->sum('paid'),
-        ];
-        $summary['paid_ratio'] = $summary['lead'] > 0
-            ? round($summary['paid'] / $summary['lead'] * 100, 0) : 0;
-        $summary['cpa_lead'] = $summary['lead'] > 0
-            ? round($summary['spending'] / $summary['lead'], 0) : 0;
-        $summary['cpa_paid'] = $summary['paid'] > 0
-            ? round($summary['spending'] / $summary['paid'], 0) : 0;
+        // ─── Ringkasan periode: dibagi per ad_status (running / testing) ──
+        // Running = CPA Lead/Paid dihitung; Testing = spending saja (tanpa CPA)
+        $runningRows = $rows->filter(fn ($r) => $r->product?->ad_status === Product::AD_STATUS_RUNNING);
+        $testingRows = $rows->filter(fn ($r) => $r->product?->ad_status === Product::AD_STATUS_TESTING);
+
+        $summary = $this->computeSummary($rows);
+        $runningSummary = $this->computeSummary($runningRows);
+        $testingSummary = $this->computeSummary($testingRows);
 
         // ─── Cek discrepancy: Regional vs Spending ───────────────
         $discrepancy = $this->computeDiscrepancy($user->id, $dari, $sampai);
@@ -249,7 +245,8 @@ class SpendingHarianController extends Controller
         }
 
         return view('spending.index-advertiser', compact(
-            'summaries', 'summary', 'dari', 'sampai', 'myWhitelists', 'user',
+            'summaries', 'summary', 'runningSummary', 'testingSummary',
+            'dari', 'sampai', 'myWhitelists', 'user',
             'hasDiscrepancy', 'discrepancies', 'discrepantDates',
             'csDiscrepancy', 'hasWhitelist', 'dateChangeRestrictions'
         ));
@@ -378,6 +375,26 @@ class SpendingHarianController extends Controller
         return view('spending.index-general', compact(
             'dataPerAdvertiser', 'advertisers', 'activeTab', 'dari', 'sampai'
         ));
+    }
+
+    /**
+     * Hitung ringkasan spending dari koleksi baris SpendingHarian.
+     * Mengembalikan array dengan keys: spending, lead, paid, paid_ratio, cpa_lead, cpa_paid.
+     */
+    private function computeSummary($rows): array
+    {
+        $spending = (float) $rows->sum('spending');
+        $lead = (int) $rows->sum('lead');
+        $paid = (int) $rows->sum('paid');
+
+        return [
+            'spending' => $spending,
+            'lead' => $lead,
+            'paid' => $paid,
+            'paid_ratio' => $lead > 0 ? round($paid / $lead * 100, 0) : 0,
+            'cpa_lead' => $lead > 0 ? round($spending / $lead, 0) : 0,
+            'cpa_paid' => $paid > 0 ? round($spending / $paid, 0) : 0,
+        ];
     }
 
     /**

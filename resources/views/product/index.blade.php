@@ -72,6 +72,11 @@
                     <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Aktif</option>
                     <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
                 </select>
+                <select name="ad_status" class="clay-input" style="width:130px;">
+                    <option value="">Semua Iklan</option>
+                    <option value="running" {{ request('ad_status') === 'running' ? 'selected' : '' }}>🟢 Running</option>
+                    <option value="testing" {{ request('ad_status') === 'testing' ? 'selected' : '' }}>🔬 Testing</option>
+                </select>
                 <button class="clay-btn clay-btn-outline" type="submit">🔍</button>
             </form>
         </div>
@@ -93,6 +98,7 @@
                     <th style="text-align:right;">HPP</th>
                     <th style="text-align:right;">Harga Jual</th>
                     <th style="text-align:center;">Status</th>
+                    <th style="text-align:center;">Iklan</th>
                     <th style="text-align:right;">Aksi</th>
                 </tr>
             </thead>
@@ -142,6 +148,21 @@
                             <span class="clay-toggle-slider"></span>
                         </label>
                     </td>
+                    <td style="text-align:center;">
+                        @if($p->ad_status === 'running')
+                            <label class="clay-toggle" title="Ubah status iklan (Running ↔ Testing)">
+                                <input type="checkbox" checked data-toggle-url="{{ route('product.toggle-ad-status', $p) }}">
+                                <span class="clay-toggle-slider"></span>
+                            </label>
+                            <span style="display:inline-block;font-size:.62rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#d1fae5;color:#065f46;margin-left:4px;">🟢 Running</span>
+                        @else
+                            <label class="clay-toggle" title="Ubah status iklan (Running ↔ Testing)">
+                                <input type="checkbox" data-toggle-url="{{ route('product.toggle-ad-status', $p) }}">
+                                <span class="clay-toggle-slider"></span>
+                            </label>
+                            <span style="display:inline-block;font-size:.62rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;margin-left:4px;">🔬 Testing</span>
+                        @endif
+                    </td>
                     <td style="text-align:right;">
                         <div style="display:flex;justify-content:flex-end;gap:6px;align-items:center;flex-wrap:wrap;">
                             <button type="button" class="clay-btn clay-btn-sm" style="background:#f3f4f6;color:#374151;"
@@ -155,7 +176,7 @@
                                     data-category="{{ $p->category }}" data-goods-type="{{ $p->goods_type }}"
                                     data-min-stock="{{ $p->min_stock }}" data-description="{{ $p->description }}"
                                     data-purchase-price="{{ $p->purchase_price }}" data-selling-price="{{ $p->selling_price }}"
-                                    data-unit="{{ $p->unit }}" data-status="{{ $p->status }}">✏️</button>
+                                    data-unit="{{ $p->unit }}" data-status="{{ $p->status }}" data-ad-status="{{ $p->ad_status }}">✏️</button>
                             <form method="POST" action="{{ route('product.destroy', $p) }}" onsubmit="return confirm('Hapus produk {{ $p->name }} beserta variannya?')">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="clay-btn clay-btn-sm clay-btn-danger" style="padding:5px 10px;font-size:.72rem;" title="Hapus produk">🗑</button>
@@ -166,7 +187,7 @@
 
                 {{-- ── BARIS EXPAND: Varian ─────────────────────── --}}
                 <tr id="{{ $rowId }}" style="display:none;">
-                    <td colspan="10" style="padding:0;background:#fafafa;border-top:2px dashed rgba(255,107,107,.12);">
+                    <td colspan="11" style="padding:0;background:#fafafa;border-top:2px dashed rgba(255,107,107,.12);">
                         <div style="display:flex;align-items:center;gap:10px;padding:12px 20px;background:#fff;border-bottom:1px solid rgba(0,0,0,.05);">
                             <span style="background:var(--color-secondary);color:#fff;font-size:.65rem;font-weight:700;padding:2px 8px;border-radius:999px;">🔖 Varian</span>
                             <span style="font-size:.75rem;color:#6b7280;font-weight:600;">{{ $p->variants->count() }} varian</span>
@@ -223,7 +244,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="10" style="text-align:center;padding:48px;color:#9ca3af;">Belum ada produk. Klik <strong>＋ Tambah Produk</strong> untuk membuat produk pertama.</td></tr>
+                <tr><td colspan="11" style="text-align:center;padding:48px;color:#9ca3af;">Belum ada produk. Klik <strong>＋ Tambah Produk</strong> untuk membuat produk pertama.</td></tr>
                 @endforelse
             </tbody>
         </table>
@@ -285,6 +306,14 @@
                         <option value="active">Aktif</option>
                         <option value="inactive">Nonaktif</option>
                     </select>
+                </div>
+                <div>
+                    <label>Status Iklan</label>
+                    <select id="pm-ad-status" class="clay-input">
+                        <option value="testing">🔬 Testing</option>
+                        <option value="running">🟢 Running</option>
+                    </select>
+                    <div style="font-size:.65rem;color:#9ca3af;margin-top:2px;">Testing = produk fase uji; Running = sudah aktif diiklankan.</div>
                 </div>
                 <div style="grid-column: span 2;">
                     <label>Deskripsi</label>
@@ -404,6 +433,7 @@ function toggleVarian(id) {
             f('pm-minstock').value = btn.dataset.minStock || '0';
             f('pm-deskripsi').value = btn.dataset.description || '';
             f('pm-status').value = btn.dataset.status || 'active';
+            f('pm-ad-status').value = btn.dataset.adStatus || 'running';
         } else {
             pm.method = 'POST';
             pm.url = '{{ route('product.store') }}';
@@ -418,6 +448,7 @@ function toggleVarian(id) {
             f('pm-minstock').value = '0';
             f('pm-deskripsi').value = '';
             f('pm-status').value = 'active';
+            f('pm-ad-status').value = 'testing';
         }
         mProd.classList.add('active');
         setTimeout(function() { f('pm-kode').focus(); }, 150);
@@ -439,6 +470,7 @@ function toggleVarian(id) {
             min_stock: f('pm-minstock').value || '0',
             description: f('pm-deskripsi').value.trim(),
             status: f('pm-status').value,
+            ad_status: f('pm-ad-status').value,
         };
         post(pm.url, pm.method, body)
             .then(function(json) { if (json.success) { window.location.reload(); } else { alert('Gagal: ' + json.message); btn.disabled = false; btn.innerHTML = '💾 Simpan Produk'; } })
