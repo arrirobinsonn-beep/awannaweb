@@ -94,7 +94,7 @@ class MobileDeviceTest extends TestCase
         ]);
 
         $response->assertOk()
-            ->assertJsonCount(1, 'data');
+            ->assertJsonCount(1, 'datas');
     }
 
     public function test_token_invalid_returns_401(): void
@@ -144,7 +144,7 @@ class MobileDeviceTest extends TestCase
         ]);
 
         $response->assertOk();
-        $ids = collect($response->json('data'))->pluck('id')->toArray();
+        $ids = collect($response->json('datas'))->pluck('id')->toArray();
         $this->assertContains($txA->id, $ids);
         $this->assertNotContains($txB->id, $ids);
     }

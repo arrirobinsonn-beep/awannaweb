@@ -555,7 +555,7 @@ class FinanceTest extends TestCase
         $this->actingAs($cs)->get(route('finance.bank-transfers.index'))->assertSee('Nominal tidak sesuai bukti');
     }
 
-    public function test_approver_out_decreases_balance_immediately(): void
+    public function test_approver_out_decreases_balance_after_approve(): void
     {
         $keu = $this->makeUser('keuangan');
         $account = $this->makeAccount(500000);
@@ -571,6 +571,17 @@ class FinanceTest extends TestCase
         ])->assertRedirect()->assertSessionHas('success');
 
         $bt = BankTransfer::where('account_id', $account->id)->first();
+        $this->assertSame('pending', $bt->status);
+        $this->assertSame('500000.00', (string) $account->fresh()->current_balance); // belum berubah
+
+        // Approve oleh keuangan — pengeluaran langsung approved (skip confirmed)
+        $this->actingAs($keu)
+            ->from(route('finance.bank-transfers.index'))
+            ->post(route('finance.bank-transfers.approve', $bt))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $bt->refresh();
         $this->assertSame('approved', $bt->status);
         $this->assertSame('300000.00', (string) $account->fresh()->current_balance);
     }
@@ -825,6 +836,15 @@ class FinanceTest extends TestCase
         ]);
 
         $bt = BankTransfer::where('account_id', $account->id)->first();
+        $this->assertSame('pending', $bt->status);
+        $this->assertSame('1000000.00', (string) $account->fresh()->current_balance); // belum berubah
+
+        // Approve transaksi masuk (perlu confirm dulu)
+        $bankOwner = $this->makeUser('owner');
+        $bt->account->owners()->attach($bankOwner->id);
+        $this->actingAs($bankOwner)->post(route('finance.bank-transfers.confirm', $bt));
+        $this->actingAs($keu)->post(route('finance.bank-transfers.approve', $bt));
+
         $this->assertSame('1300000.00', (string) $account->fresh()->current_balance);
 
         $this->actingAs($keu)

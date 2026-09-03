@@ -41,7 +41,7 @@ class MobileTransactionController extends Controller
             'transaction_date' => $t->transaction_date->format('Y-m-d H:i'),
             'description' => $t->description,
             'product_name' => $t->product?->name ?? '-',
-            'image_url' => $t->image_url ? route('api.mobile.transactions.image', $t->id) : null,
+            'image_url' => $t->image_url ? route('mobile.transactions.image', $t->id) : null,
             'status' => $t->status,
         ]);
 
@@ -86,7 +86,7 @@ class MobileTransactionController extends Controller
                 'transaction_date' => $transaction->transaction_date->format('Y-m-d H:i'),
                 'description' => $transaction->description,
                 'product_name' => $transaction->product?->name ?? '-',
-                'image_url' => $transaction->image_url ? route('api.mobile.transactions.image', $transaction->id) : null,
+                'image_url' => $transaction->image_url ? route('mobile.transactions.image', $transaction->id) : null,
                 'status' => $transaction->status,
             ],
         ]);

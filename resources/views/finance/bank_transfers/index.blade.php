@@ -492,14 +492,17 @@
                             @endif
                         </td>
                         <td>
-                            @if($isApprover)
+                            @if(auth()->user()->hasRole('cs'))
+                                {{-- CS tidak punya tombol aksi apa pun --}}
+                                <span style="font-size:.68rem;color:#9ca3af;">—</span>
+                            @elseif($isApprover)
                                 @if($bt->isPending() || $bt->isConfirmed())
                                     {{-- Tolak: bisa dari pending atau confirmed --}}
                                     <button type="button" class="bt-act-btn bt-act-reject" id="bt-rej-{{ $bt->id }}"
                                             onclick="openBtReject({{ $bt->id }})">✕ Tolak</button>
                                 @endif
-                                @if($bt->isConfirmed())
-                                    {{-- Setujui: hanya dari confirmed --}}
+                                @if($bt->isConfirmed() || ($bt->isPending() && $bt->type === 'out'))
+                                    {{-- Setujui: confirmed (masuk) atau pending (keluar langsung approve) --}}
                                     <button type="button" class="bt-act-btn bt-act-approve"
                                             onclick="submitBt('{{ route('finance.bank-transfers.approve', $bt) }}', 'Setujui transfer Rp {{ number_format((float) $bt->amount, 0, ',', '.') }}?')">
                                         ✓ Setujui

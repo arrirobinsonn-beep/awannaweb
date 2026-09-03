@@ -487,6 +487,22 @@
             </div>
             @endif
 
+            {{-- ═══ Bukti Transfer (CS) ═══ --}}
+            @if($u->hasRole('cs'))
+            <div class="nav-group" data-group="cs-bukti">
+                <button type="button" class="nav-group-header sidebar-label" data-tip="Bukti Transfer">
+                    <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;"><x-icon name="receipt-refund" class="icon-sm" /> Bukti Transfer</span>
+                    <span class="nav-chev">▾</span>
+                </button>
+                <div class="nav-group-body">
+                    <a href="{{ route('finance.bank-transfers.index') }}" class="nav-item {{ request()->routeIs('finance.bank-transfers.*') ? 'active' : '' }}" data-page-link>
+                        <span class="nav-icon"><x-icon name="receipt-refund" /></span><span class="sidebar-label">Upload & Riwayat</span>
+                        <span class="bt-pending-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">0</span>
+                    </a>
+                </div>
+            </div>
+            @endif
+
             {{-- ═══ Manajemen ═══ --}}
             @if($u->hasRole(['owner','super_admin','admin','keuangan']))
             <div class="nav-group" data-group="manajemen">
