@@ -72,11 +72,12 @@
             background:#fff;overflow:hidden;position:relative;z-index:1;">
 
 
-    {{-- ⚠️ Alarm Banner per Advertiser --}}
+    {{-- ⚠️ Alarm Banner per Advertiser — dua area: Ketidakselarasan & Belum Diisi --}}
     @if($data['has_discrepancy'])
     <div class="clay-alert clay-alert-error" style="margin:12px 16px;" data-reveal>
         <span>🚨</span>
         <div style="flex:1;font-size:.78rem;">
+            @if(count($data['discrepancies']) > 0)
             <strong>Ketidaksesuaian Data!</strong> Lead/Paid Regional tidak sama dengan Spending Harian.
             @if(count($data['discrepancies']) > 5)
             <div style="margin-top:5px;font-size:.68rem;color:#b91c1c;font-weight:600;">
@@ -92,6 +93,30 @@
                 </div>
                 @endforeach
             </div>
+            @endif
+
+            @if(count($data['missing_spending_dates'] ?? []) > 0)
+            @if(count($data['discrepancies']) > 0)
+            <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:8px;padding-top:8px;"></div>
+            @endif
+            <strong>Data Belum Ditambahkan</strong>
+            @if(count($data['missing_spending_dates']) > 5)
+            <div style="margin-top:5px;font-size:.68rem;color:#b91c1c;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($data['missing_spending_dates']) }} tanggal — scroll untuk melihat sisanya
+            </div>
+            @endif
+            <div style="margin-top:3px;max-height:102px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach(array_keys($data['missing_spending_dates']) as $tgl)
+                @php
+                    $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+                @endphp
+                <div style="margin-top:3px;font-size:.74rem;line-height:1.45;">
+                    📅 {{ $tglLbl }} —
+                    Belum mengisi data spending iklan tanggal {{ $tglLbl }}
+                </div>
+                @endforeach
+            </div>
+            @endif
         </div>
     </div>
     @endif
@@ -198,6 +223,9 @@
                                     <span style="font-size:.68rem;color:#9ca3af;">
                                         {{ $prodData['product']->code ?? '' }}
                                     </span>
+                                    @if(($prodData['product']->ad_status ?? 'running') === 'testing')
+                                    <span style="display:inline-block;font-size:.58rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;">🔬 Testing</span>
+                                    @endif
                                 </div>
                                 <div style="font-size:.67rem;color:#9ca3af;margin-top:2px;padding-left:52px;">
                                     {{ count($prodData['whitelists']) }} whitelist mengiklankan produk ini

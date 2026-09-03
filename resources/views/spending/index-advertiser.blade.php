@@ -5,26 +5,54 @@
 
 @section('content')
 
-{{-- ⚠️ Alarm Banner --}}
+{{-- ⚠️ Alarm Banner — dua area: Ketidakselarasan Data & Data Belum Ditambahkan --}}
 @if($hasDiscrepancy)
 <div class="clay-alert clay-alert-error" data-reveal style="margin-bottom:16px;">
-    <span>🚨</span>        <div style="flex:1;font-size:.83rem;">
-            <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
-            @if(count($discrepancies) > 5)
-            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
-                ⬇ Menampilkan 5 dari {{ count($discrepancies) }} tanggal — scroll untuk melihat sisanya
-            </div>
-            @endif
-            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
-                @foreach($discrepancies as $tgl => $d)
-                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
-                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
-                    Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
-                    Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
-                </div>
-                @endforeach
-            </div>
+    <span>🚨</span>
+    <div style="flex:1;font-size:.83rem;">
+        {{-- Area 1: Ketidakselarasan Data (kedua sisi punya data tapi beda) --}}
+        @if(count($discrepancies) > 0)
+        <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
+        @if(count($discrepancies) > 5)
+        <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+            ⬇ Menampilkan 5 dari {{ count($discrepancies) }} tanggal — scroll untuk melihat sisanya
         </div>
+        @endif
+        <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+            @foreach($discrepancies as $tgl => $d)
+            <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+            </div>
+            @endforeach
+        </div>
+        @endif
+
+        {{-- Area 2: Data Belum Ditambahkan (regional ada, spending kosong) --}}
+        @if(count($missingSpendingDates) > 0)
+        @if(count($discrepancies) > 0)
+        <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
+        @endif
+        <strong>Data Belum Ditambahkan</strong>
+        @if(count($missingSpendingDates) > 5)
+        <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+            ⬇ Menampilkan 5 dari {{ count($missingSpendingDates) }} tanggal — scroll untuk melihat sisanya
+        </div>
+        @endif
+        <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+            @foreach(array_keys($missingSpendingDates) as $tgl)
+            @php
+                $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+            @endphp
+            <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                📅 {{ $tglLbl }} —
+                Anda belum mengisi data spending iklan tanggal {{ $tglLbl }}
+            </div>
+            @endforeach
+        </div>
+        @endif
+    </div>
 </div>
 @endif
 
@@ -60,7 +88,10 @@
 
 {{-- ═══════════════ RINGKASAN PERIODE: CHART + 4 KARTU ═══════════════ --}}
 @php
-    $pr = (float) ($summary['paid_ratio'] ?? 0);
+    // Ringkasan: kartu utama pakai runningSummary (Running);
+    // testingSummary (Testing) ditampilkan di badge terpisah.
+    $displaySummary = $runningSummary;
+    $pr = (float) ($displaySummary['paid_ratio'] ?? 0);
     $prFill = $pr >= 75 ? 'linear-gradient(90deg,#22c55e,#16a34a)'
             : ($pr >= 50 ? 'linear-gradient(90deg,#fbbf24,#f59e0b)'
             : 'linear-gradient(90deg,#ef4444,#dc2626)');
@@ -68,85 +99,174 @@
         ? \Carbon\Carbon::parse($dari)->translatedFormat('d M Y')
         : \Carbon\Carbon::parse($dari)->translatedFormat('d M Y').' – '.\Carbon\Carbon::parse($sampai)->translatedFormat('d M Y');
 
-    // Data chart: lead & paid per tanggal (diurutkan asc)
+    // Data chart: 4 garis — Lead/Paid per status iklan (Running & Testing) per tanggal.
+    // Nilai dihitung per produk (bukan total harian) agar tiap garis murni per status.
     $chartDates = $summaries->keys()->sort()->values();
-    $chartLead = $chartDates->map(fn($d) => $summaries[$d]['lead'] ?? 0);
-    $chartPaid = $chartDates->map(fn($d) => $summaries[$d]['paid'] ?? 0);
+    $chartRunLead = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'running')->sum('lead'));
+    $chartRunPaid = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'running')->sum('paid'));
+    $chartTestLead = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing')->sum('lead'));
+    $chartTestPaid = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing')->sum('paid'));
 @endphp
+
+{{-- ═══════════════ TAB: Running / Testing ═══════════════ --}}
+@php
+    // Pisahkan summaries per ad_status untuk tab Running/Testing
+    $runningSummaries = $summaries->map(function ($s) {
+        $filteredProducts = collect($s['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'running');
+        if ($filteredProducts->isEmpty()) return null;
+        $spending = $filteredProducts->sum('spending');
+        $lead = $filteredProducts->sum('lead');
+        $paid = $filteredProducts->sum('paid');
+        return [
+            'tanggal' => $s['tanggal'],
+            'spending' => $spending, 'lead' => $lead, 'paid' => $paid,
+            'paid_ratio' => $lead > 0 ? round($paid / $lead * 100, 0) : 0,
+            'cpa_lead' => $lead > 0 ? round($spending / $lead, 2) : 0,
+            'cpa_paid' => $paid > 0 ? round($spending / $paid, 2) : 0,
+            'by_product' => $filteredProducts->keyBy(fn ($p) => $p['product']->id ?? 0),
+            'total_produk' => $filteredProducts->count(),
+        ];
+    })->filter();
+
+    // CPA Lead/Paid Testing dihitung sendiri di tab ini (untuk evaluasi fase uji),
+    // tapi TIDAK masuk hitungan global: kartu summary & chart tetap Running saja.
+    $testingSummaries = $summaries->map(function ($s) {
+        $filteredProducts = collect($s['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing');
+        if ($filteredProducts->isEmpty()) return null;
+        $spending = $filteredProducts->sum('spending');
+        $lead = $filteredProducts->sum('lead');
+        $paid = $filteredProducts->sum('paid');
+        return [
+            'tanggal' => $s['tanggal'],
+            'spending' => $spending, 'lead' => $lead, 'paid' => $paid,
+            'paid_ratio' => $lead > 0 ? round($paid / $lead * 100, 0) : 0,
+            'cpa_lead' => $lead > 0 ? round($spending / $lead, 2) : 0,
+            'cpa_paid' => $paid > 0 ? round($spending / $paid, 2) : 0,
+            'by_product' => $filteredProducts->keyBy(fn ($p) => $p['product']->id ?? 0),
+            'total_produk' => $filteredProducts->count(),
+        ];
+    })->filter();
+
+    // ── Data kartu summary utk KEDUA tab (JS menukar saat tab berpindah) ──
+    $fmtRp = fn ($n) => 'Rp ' . number_format((float) $n, 0, ',', '.');
+    $gradRatio = fn ($ratio) => $ratio >= 75 ? 'linear-gradient(90deg,#22c55e,#16a34a)'
+        : ($ratio >= 50 ? 'linear-gradient(90deg,#fbbf24,#f59e0b)'
+        : 'linear-gradient(90deg,#ef4444,#dc2626)');
+
+    $cardData = function (array $s, int $days) use ($fmtRp, $gradRatio, $periodeLabel): array {
+        $lead = (int) ($s['lead'] ?? 0);
+        $paid = (int) ($s['paid'] ?? 0);
+
+        return [
+            'spending' => $fmtRp($s['spending'] ?? 0),
+            'lead' => number_format($lead),
+            'paid' => number_format($paid),
+            'conv' => 'Konversi '.($lead > 0 ? round($paid / $lead * 100, 1) : 0).'% dari lead',
+            'cpa_lead' => $fmtRp($s['cpa_lead'] ?? 0),
+            'cpa_paid' => $fmtRp($s['cpa_paid'] ?? 0),
+            'ratio' => number_format((int) ($s['paid_ratio'] ?? 0)).'%',
+            'days' => $days.' hari berisi data · '.$periodeLabel,
+            'fill' => 'width:'.min(100, (float) ($s['paid_ratio'] ?? 0)).'%;background:'.$gradRatio((int) ($s['paid_ratio'] ?? 0)),
+        ];
+    };
+
+    $runCards = $cardData($runningSummary, count($runningSummaries));
+    $testCards = $cardData($testingSummary, count($testingSummaries));
+@endphp
+
 <div class="summary-overview" data-reveal>
 
-    {{-- KIRI: Chart Line Lead & Paid per Tanggal --}}
+{{-- KIRI: Chart Line Lead & Paid per Tanggal --}}
     <div class="chart-card">
         <div class="chart-header">
             <span class="chart-title">📊 Tren Lead & Paid</span>
-            <span class="chart-sub">{{ $periodeLabel }}</span>
+            <span class="chart-sub">{{ $periodeLabel }} · Lead/Paid Running & Testing</span>
         </div>
         <div class="chart-body">
             <canvas id="spendingChart"></canvas>
         </div>
     </div>
 
-    {{-- KANAN: 4 Card Summary (2×2) --}}
+    {{-- KANAN: 4 Card Summary (2×2) — ikut tab aktif (data-run / data-test) --}}
     <div class="summary-grid">
         {{-- 1. Total Spending --}}
-        <div class="summary-card" title="Total pengeluaran iklan · {{ $periodeLabel }}">
+        <div class="summary-card"
+             data-run-title="Total pengeluaran iklan produk Running · {{ $periodeLabel }}"
+             data-test-title="Total pengeluaran iklan produk Testing · {{ $periodeLabel }}">
             <div class="summary-icon sc-primary">💰</div>
             <div class="summary-body">
-                <div class="summary-label">Total Spending</div>
-                <div class="summary-value">Rp {{ number_format($summary['spending'],0,',','.') }}</div>
-                <div class="summary-sub">{{ count($summaries) }} hari berisi data · {{ $periodeLabel }}</div>
+                <div class="summary-label">Total Spending <span class="sc-tab-badge" style="color:#065f46;">🟢 Running</span></div>
+                <div class="summary-value" id="sum-spending" data-run="{{ $runCards['spending'] }}" data-test="{{ $testCards['spending'] }}">Rp {{ number_format($displaySummary['spending'],0,',','.') }}</div>
+                <div class="summary-sub" id="sum-days" data-run="{{ $runCards['days'] }}" data-test="{{ $testCards['days'] }}">{{ $runCards['days'] }}</div>
             </div>
         </div>
 
         {{-- 2. Total Lead / Paid --}}
-        <div class="summary-card" title="Total lead dan pembayaran · {{ $periodeLabel }}">
+        <div class="summary-card"
+             data-run-title="Total lead dan pembayaran produk Running · {{ $periodeLabel }}"
+             data-test-title="Total lead dan pembayaran produk Testing · {{ $periodeLabel }}">
             <div class="summary-icon sc-purple">👥</div>
             <div class="summary-body">
-                <div class="summary-label">Total Lead / Paid</div>
+                <div class="summary-label">Total Lead / Paid <span class="sc-tab-badge" style="color:#065f46;">🟢 Running</span></div>
                 <div class="summary-value">
-                    <span class="sc-lead">{{ number_format($summary['lead']) }}</span>
+                    <span class="sc-lead" id="sum-lead" data-run="{{ $runCards['lead'] }}" data-test="{{ $testCards['lead'] }}">{{ number_format($displaySummary['lead']) }}</span>
                     <span class="sc-sep">/</span>
-                    <span class="sc-paid">{{ number_format($summary['paid']) }}</span>
+                    <span class="sc-paid" id="sum-paid" data-run="{{ $runCards['paid'] }}" data-test="{{ $testCards['paid'] }}">{{ number_format($displaySummary['paid']) }}</span>
                 </div>
-                <div class="summary-sub">Konversi {{ $summary['lead'] > 0 ? round($summary['paid'] / $summary['lead'] * 100, 1) : 0 }}% dari lead</div>
+                <div class="summary-sub" id="sum-conv" data-run="{{ $runCards['conv'] }}" data-test="{{ $testCards['conv'] }}">{{ $runCards['conv'] }}</div>
             </div>
         </div>
 
         {{-- 3. CPA Lead / CPA Paid --}}
-        <div class="summary-card" title="Biaya rata-rata per lead & per paid · {{ $periodeLabel }}">
+        <div class="summary-card"
+             data-run-title="Biaya rata-rata per lead & per paid produk Running · {{ $periodeLabel }}"
+             data-test-title="Biaya rata-rata per lead & per paid produk Testing · {{ $periodeLabel }}">
             <div class="summary-icon sc-teal">📈</div>
             <div class="summary-body">
-                <div class="summary-label">CPA Lead / Paid</div>
+                <div class="summary-label">CPA Lead / Paid <span class="sc-tab-badge" style="color:#065f46;">🟢 Running</span></div>
                 <div class="summary-value">
-                    <span class="sc-lead">Rp {{ number_format($summary['cpa_lead'],0,',','.') }}</span>
+                    <span class="sc-lead" id="sum-cpa-lead" data-run="{{ $runCards['cpa_lead'] }}" data-test="{{ $testCards['cpa_lead'] }}">Rp {{ number_format($displaySummary['cpa_lead'],0,',','.') }}</span>
                     <span class="sc-sep">/</span>
-                    <span class="sc-paid">Rp {{ number_format($summary['cpa_paid'],0,',','.') }}</span>
+                    <span class="sc-paid" id="sum-cpa-paid" data-run="{{ $runCards['cpa_paid'] }}" data-test="{{ $testCards['cpa_paid'] }}">Rp {{ number_format($displaySummary['cpa_paid'],0,',','.') }}</span>
                 </div>
                 <div class="summary-sub">Biaya per lead & per pembayaran</div>
             </div>
         </div>
 
-        {{-- 4. Paid Ratio --}}
-        <div class="summary-card" title="Persentase lead yang berhasil membayar · {{ $periodeLabel }}">
+        {{-- 4. Paid Ratio + badge silang (tab yang tidak aktif) --}}
+        <div class="summary-card"
+             data-run-title="Persentase lead yang berhasil membayar · {{ $periodeLabel }}"
+             data-test-title="Persentase lead yang berhasil membayar · {{ $periodeLabel }}">
             <div class="summary-icon sc-amber">🎯</div>
             <div class="summary-body">
-                <div class="summary-label">Paid Ratio</div>
-                <div class="summary-value">{{ number_format($pr) }}%</div>
+                <div class="summary-label">Paid Ratio <span class="sc-tab-badge" style="color:#065f46;">🟢 Running</span></div>
+                <div class="summary-value" id="sum-ratio" data-run="{{ $runCards['ratio'] }}" data-test="{{ $testCards['ratio'] }}">{{ number_format($pr) }}%</div>
                 <div class="summary-ratio-track">
-                    <div class="summary-ratio-fill" style="width:{{ min(100, $pr) }}%;background:{{ $prFill }};"></div>
+                    <div class="summary-ratio-fill" id="sum-ratio-fill" style="{{ $runCards['fill'] }}"></div>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-{{-- ──────────────────────────────────────────────────────────────
-     Struktur 3 level:
-     Level 1 → Baris tanggal   (klik → expand)
-     Level 2 → Sub-grup produk (di dalam tanggal)
-     Level 3 → Baris whitelist (di dalam produk)
-─────────────────────────────────────────────────────────────── --}}
-<div class="clay-card" style="overflow:hidden;" data-reveal>
+{{-- ═══════════════ TAB Running / Testing ═══════════════ --}}
+<div style="display:flex;gap:0;margin-bottom:-2px;position:relative;z-index:2;" data-reveal>
+    <button onclick="switchAdTab('running')" id="adtab-running"
+            style="padding:9px 18px 11px;border:2px solid rgba(255,107,107,.25);border-bottom:2px solid #fff;border-radius:14px 14px 0 0;background:#fff;font-family:inherit;font-size:.82rem;font-weight:700;color:var(--color-primary,#FF6B6B);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;margin-right:4px;position:relative;z-index:3;">
+        🟢 Running
+        <span style="font-size:.7rem;font-weight:600;padding:1px 7px;border-radius:999px;background:rgba(255,107,107,.12);color:var(--color-primary);">Rp {{ number_format($runningSummary['spending']/1000,0,',','.') }}k</span>
+    </button>
+    <button onclick="switchAdTab('testing')" id="adtab-testing"
+            style="padding:9px 18px 11px;border:2px solid rgba(0,0,0,.08);border-bottom:2px solid rgba(0,0,0,.08);border-radius:14px 14px 0 0;background:#f5f5f5;font-family:inherit;font-size:.82rem;font-weight:500;color:#6b7280;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;margin-right:4px;position:relative;z-index:1;">
+        🔬 Testing
+        @if(($testingSummary['spending'] ?? 0) > 0)
+        <span style="font-size:.7rem;font-weight:600;padding:1px 7px;border-radius:999px;background:rgba(0,0,0,.06);color:#9ca3af;">Rp {{ number_format($testingSummary['spending']/1000,0,',','.') }}k</span>
+        @endif
+    </button>
+</div>
+
+{{-- ═══════════════ TAB CONTENT: Running ═══════════════ --}}
+<div id="adtabcontent-running" class="clay-card" style="overflow:hidden;" data-reveal>
     <div class="table-scroll table-scroll-limit" id="spending-scroll">
         <table class="clay-table">
             <thead>
@@ -163,7 +283,7 @@
                 </tr>
             </thead>
             <tbody>
-            @forelse($summaries as $dateKey => $s)
+            @forelse($runningSummaries as $dateKey => $s)
             @php
                 $lvl1Id = 'lvl1-' . str_replace('-','',$dateKey);
                 $isDisc = isset($discrepantDates[$dateKey]);
@@ -415,6 +535,262 @@
                     <p style="color:#9ca3af;">Belum ada data spending di periode ini</p>
                     <button type="button" class="clay-btn clay-btn-primary"
                        style="margin-top:12px;" onclick="openInputMethodModal()" @if(!$hasWhitelist) data-require-whitelist @endif>＋ Input Spending Pertama</button>
+                </td>
+            </tr>
+            @endforelse
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{{-- ═══════════════ TAB CONTENT: Testing ═══════════════ --}}
+<div id="adtabcontent-testing" class="clay-card" style="overflow:hidden;display:none;" data-reveal>
+    <div class="table-scroll table-scroll-limit">
+        <table class="clay-table">
+            <thead>
+                <tr>
+                    <th style="width:28px;"></th>
+                    <th>Tanggal</th>
+                    <th style="text-align:right;">Total Spending</th>
+                    <th style="text-align:right;">Lead</th>
+                    <th style="text-align:right;">Paid</th>
+                    <th style="text-align:right;">Paid Ratio</th>
+                    <th style="text-align:right;">CPA Lead</th>
+                    <th style="text-align:right;">CPA Paid</th>
+                    <th style="text-align:right;">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+            @forelse($testingSummaries as $dateKey => $s)
+            @php
+                $lvl1Id = 'tlvl1-' . str_replace('-','',$dateKey);
+            @endphp
+            <tr onclick="toggle('{{ $lvl1Id }}')" style="cursor:pointer;background:#fffbeb;"
+                onmouseenter="this.style.background='#fef3c7'"
+                onmouseleave="this.style.background='#fffbeb'">
+                <td style="text-align:center;padding:11px 8px;">
+                    <span id="chev-{{ $lvl1Id }}"
+                          style="display:inline-block;transition:transform .22s;color:#92400e;font-size:.78rem;">▶</span>
+                </td>
+                <td style="font-weight:700;font-size:.9rem;color:#92400e;">
+                    🔬 {{ $s['tanggal']->translatedFormat('l, d M Y') }}
+                    <div style="font-size:.68rem;color:#b45309;font-weight:400;">
+                        {{ $s['total_produk'] }} produk testing
+                    </div>
+                </td>
+                <td style="text-align:right;font-weight:800;color:#d97706;white-space:nowrap;">
+                    Rp {{ number_format($s['spending'],0,',','.') }}
+                </td>
+                <td style="text-align:right;font-weight:700;color:var(--color-purple);">{{ number_format($s['lead']) }}</td>
+                <td style="text-align:right;font-weight:700;color:var(--color-secondary);">{{ number_format($s['paid']) }}</td>
+                <td style="text-align:right;">
+                    <span class="clay-badge {{ $s['paid_ratio']>=75?'clay-badge-green':($s['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}">
+                        {{ round($s['paid_ratio']) }}%
+                    </span>
+                </td>
+                <td style="text-align:right;font-size:.82rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($s['cpa_lead'],0,',','.') }}</td>
+                <td style="text-align:right;font-size:.82rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($s['cpa_paid'],0,',','.') }}</td>
+                <td style="text-align:right;" onclick="event.stopPropagation()">
+                    <a href="{{ route('spending.create') }}?tanggal={{ $dateKey }}"
+                       class="clay-btn clay-btn-primary" style="padding:4px 10px;font-size:.7rem;" data-page-link @if(!$hasWhitelist) data-require-whitelist @endif>＋</a>
+                </td>
+            </tr>
+            <tr id="{{ $lvl1Id }}" style="display:none;">
+                <td colspan="9" style="padding:0;background:#fffbeb;border-top:2px dashed rgba(217,119,6,.15);">
+
+                    @foreach($s['by_product'] as $prodId => $prodData)
+                    @php $lvl2Id = 'tlvl2-' . str_replace('-','',$dateKey) . '-' . $prodId; @endphp
+
+                    {{-- ── LEVEL 2: Sub-grup Produk ─────────────── --}}
+                    <div style="border-bottom:1px solid rgba(0,0,0,.05);background:#fffbeb;">
+
+                        {{-- Header produk (klik → expand whitelist) --}}
+                        <div class="lvl2-header" onclick="toggle('{{ $lvl2Id }}')"
+                             style="display:flex;align-items:center;gap:12px;padding:10px 20px;
+                                    cursor:pointer;transition:background .15s;"
+                             onmouseenter="this.style.background='#fef3c7'"
+                             onmouseleave="this.style.background=''">
+
+                            {{-- Select-all whitelist produk ini (bulk delete) --}}
+                            <label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0;"
+                                   onclick="event.stopPropagation()"
+                                   title="Pilih semua whitelist produk ini untuk dihapus">
+                                <input type="checkbox" class="bd-check-all" data-prod="{{ $dateKey }}-{{ $prodId }}">
+                            </label>
+
+                            <span id="chev-{{ $lvl2Id }}"
+                                  style="display:inline-block;transition:transform .22s;
+                                         color:#d97706;font-size:.75rem;flex-shrink:0;">▶</span>
+
+                            {{-- Label produk --}}
+                            <div style="flex:1;min-width:0;">
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <span style="background:#f59e0b;color:#fff;
+                                                 font-size:.65rem;font-weight:700;padding:2px 8px;
+                                                 border-radius:999px;flex-shrink:0;">🔬 Testing</span>
+                                    <span style="font-weight:700;font-size:.85rem;color:#92400e;">
+                                        {{ $prodData['product']->name ?? 'Tidak Diketahui' }}
+                                    </span>
+                                    <span style="font-size:.68rem;color:#b45309;">
+                                        {{ $prodData['product']->code ?? '' }}
+                                    </span>
+                                </div>
+                                <div class="lvl2-sub" style="font-size:.68rem;color:#b45309;margin-top:2px;margin-left:56px;">
+                                    {{ count($prodData['whitelists']) }} whitelist mengiklankan produk ini
+                                </div>
+                            </div>
+
+                            {{-- Summary produk --}}
+                            <div class="lvl2-summary" style="display:flex;gap:16px;flex-shrink:0;align-items:center;">
+                                <div style="text-align:right;">
+                                    <div style="font-size:.68rem;color:#b45309;">Spending</div>
+                                    <div style="font-weight:700;font-size:.82rem;color:#d97706;white-space:nowrap;">
+                                        Rp {{ number_format($prodData['spending'],0,',','.') }}
+                                    </div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="font-size:.68rem;color:#b45309;">Lead / Paid</div>
+                                    <div style="font-weight:700;font-size:.82rem;">
+                                        <span style="color:var(--color-purple);">{{ $prodData['lead'] }}</span>
+                                        <span style="color:#d1d5db;"> / </span>
+                                        <span style="color:var(--color-secondary);">{{ $prodData['paid'] }}</span>
+                                    </div>
+                                </div>
+                                <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
+                                      style="font-size:.68rem;">
+                                    {{ $prodData['paid_ratio'] }}%
+                                </span>
+                            </div>
+                        </div>
+
+                        {{-- ── LEVEL 3: Baris Whitelist ────────── --}}
+                        <div id="{{ $lvl2Id }}" style="display:none;background:#fff;
+                             border-top:1px dashed rgba(217,119,6,.25);padding:0 0 6px 0;">
+                            <table class="lvl3" style="width:100%;">
+                                <thead>
+                                    <tr style="background:#fffbeb;">
+                                        @foreach(['Whitelist','Spending','Lead','Paid','Paid Ratio','CPA Lead','CPA Paid','Aksi'] as $h)
+                                        <th style="padding:7px {{ in_array($h,['Whitelist']) ? '20px 7px 36px' : '10px' }};
+                                                   font-size:.65rem;font-weight:700;color:#b45309;
+                                                   text-transform:uppercase;letter-spacing:.05em;
+                                                   text-align:{{ in_array($h,['Whitelist','Aksi']) ? ($h==='Whitelist'?'left':'right') : 'right' }};
+                                                   border-bottom:1px solid rgba(217,119,6,.15);">{{ $h }}</th>
+                                        @endforeach
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                @foreach($prodData['whitelists'] as $item)
+                                <tr onmouseenter="this.style.background='#fffbeb'"
+                                    onmouseleave="this.style.background=''">
+                                    <td style="padding:8px 20px 8px 36px;">
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            {{-- Checkbox bulk delete --}}
+                                            <input type="checkbox" class="bd-check"
+                                                   data-id="{{ $item->id }}"
+                                                   data-prod="{{ $dateKey }}-{{ $prodId }}"
+                                                   data-tanggal="{{ $dateKey }}"
+                                                   data-product-id="{{ $prodId }}"
+                                                   data-product-name="{{ $prodData['product']->name ?? '' }}"
+                                                   data-product-code="{{ $prodData['product']->code ?? '' }}"
+                                                   data-whitelist-name="{{ $item->whitelist->nama ?? '' }}"
+                                                   data-whitelist-code="{{ $item->whitelist->kode ?? '' }}"
+                                                   data-spending="{{ $item->spending }}"
+                                                   data-lead="{{ $item->lead }}"
+                                                   data-paid="{{ $item->paid }}"
+                                                   title="Pilih untuk dihapus"
+                                                   style="flex-shrink:0;">
+                                            <div style="min-width:0;">
+                                                <div style="font-weight:600;font-size:.8rem;">
+                                                    {{ $item->whitelist->nama ?? '-' }}
+                                                </div>
+                                                <div style="font-size:.66rem;color:#b45309;">
+                                                    {{ $item->whitelist->kode ?? '' }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;font-weight:700;
+                                               color:#d97706;font-size:.8rem;white-space:nowrap;">
+                                        Rp {{ number_format($item->spending,0,',','.') }}
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;color:var(--color-purple);
+                                               font-weight:700;font-size:.8rem;">{{ $item->lead }}</td>
+                                    <td style="padding:8px 10px;text-align:right;color:var(--color-secondary);
+                                               font-weight:700;font-size:.8rem;">{{ $item->paid }}</td>
+                                    <td style="padding:8px 10px;text-align:right;">
+                                        <span class="clay-badge {{ $item->paid_ratio>=75?'clay-badge-green':($item->paid_ratio>=50?'clay-badge-yellow':'clay-badge-red') }}"
+                                              style="font-size:.65rem;">{{ round($item->paid_ratio) }}%</span>
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
+                                        Rp {{ number_format($item->cpa_lead,0,',','.') }}
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
+                                        Rp {{ number_format($item->cpa_paid,0,',','.') }}
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;">
+                                        <div style="display:flex;justify-content:flex-end;gap:4px;">
+                                            <a href="javascript:void(0)" onclick="event.stopPropagation(); openSpendingEdit(this)"
+                                               class="clay-btn clay-btn-secondary"
+                                               style="padding:3px 8px;font-size:.65rem;"
+                                               title="Edit spending, lead & paid"
+                                               data-url="{{ route('spending.update', $item) }}"
+                                               data-id="{{ $item->id }}"
+                                               data-tanggal="{{ $dateKey }}"
+                                               data-wl-id="{{ $item->whitelist_id }}"
+                                               data-wl-name="{{ $item->whitelist->nama ?? '' }}"
+                                               data-wl-code="{{ $item->whitelist->kode ?? '' }}"
+                                               data-product-id="{{ $item->product_id }}"
+                                               data-product-name="{{ $item->product->name ?? '' }}"
+                                               data-spending="{{ $item->spending }}"
+                                               data-lead="{{ $item->lead }}"
+                                               data-paid="{{ $item->paid }}">✏️</a>
+                                            <form method="POST" action="{{ route('spending.destroy',$item) }}"
+                                                  onsubmit="return confirm('Hapus data ini?')">
+                                                @csrf @method('DELETE')
+                                                <button type="submit" class="clay-btn clay-btn-danger"
+                                                        style="padding:3px 8px;font-size:.65rem;">🗑</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                @endforeach
+
+                                {{-- Total baris produk --}}
+                                <tr style="background:#fffbeb;font-weight:700;">
+                                    <td style="padding:7px 20px 7px 36px;font-size:.75rem;color:#b45309;">
+                                        Total Produk
+                                    </td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.8rem;color:#d97706;white-space:nowrap;">
+                                        Rp {{ number_format($prodData['spending'],0,',','.') }}
+                                    </td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.8rem;color:var(--color-purple);">{{ $prodData['lead'] }}</td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.8rem;color:var(--color-secondary);">{{ $prodData['paid'] }}</td>
+                                    <td style="padding:7px 10px;text-align:right;">
+                                        <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
+                                              style="font-size:.65rem;">{{ $prodData['paid_ratio'] }}%</span>
+                                    </td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
+                                        Rp {{ number_format($prodData['cpa_lead'],0,',','.') }}
+                                    </td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
+                                        Rp {{ number_format($prodData['cpa_paid'],0,',','.') }}
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </div>{{-- end produk block --}}
+                    @endforeach
+
+                </td>
+            </tr>
+            @empty
+            <tr>
+                <td colspan="9" style="text-align:center;padding:48px;">
+                    <div style="font-size:2.5rem;margin-bottom:8px;">🔬</div>
+                    <p style="color:#9ca3af;">Tidak ada data spending produk testing di periode ini</p>
                 </td>
             </tr>
             @endforelse
@@ -832,6 +1208,7 @@
         box-shadow: 0 1px 3px rgba(0,0,0,.04);
         transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
         position: relative; overflow: hidden;
+        min-width: 0;
     }
     .summary-card::after {
         content: ''; position: absolute; right: -18px; top: -18px;
@@ -854,22 +1231,23 @@
     .sc-purple  { background: linear-gradient(135deg,#a78bfa,#8b5cf6); }
     .sc-teal    { background: linear-gradient(135deg,#4ECDC4,#2dd4bf); }
     .sc-amber   { background: linear-gradient(135deg,#f59e0b,#fbbf24); }
-    .summary-body { min-width: 0; }
+    .summary-body { min-width: 0; flex: 1; overflow: hidden; }
     .summary-label {
         font-size: .62rem; font-weight: 800; text-transform: uppercase;
         letter-spacing: .06em; color: #9ca3af;
     }
     .summary-value {
         font-size: 1.18rem; font-weight: 800; color: #1e1b2e;
-        margin-top: 2px; white-space: nowrap; line-height: 1.2;
+        margin-top: 2px; line-height: 1.2;
+        overflow-wrap: break-word; word-break: break-word;
     }
     .summary-value .sc-lead { color: var(--color-purple, #8b5cf6); }
     .summary-value .sc-paid { color: var(--color-secondary, #4ECDC4); }
     .summary-value .sc-sep  { color: #d1d5db; font-weight: 600; margin: 0 2px; }
-    .summary-sub { font-size: .66rem; color: #9ca3af; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .summary-sub { font-size: .66rem; color: #9ca3af; margin-top: 3px; overflow-wrap: break-word; word-break: break-word; }
     .summary-ratio-track {
         height: 6px; border-radius: 999px; background: #f3f4f6;
-        margin-top: 8px; overflow: hidden; max-width: 170px;
+        margin-top: 8px; overflow: hidden; max-width: 170px; flex-shrink: 1; min-width: 60px;
     }
     .summary-ratio-fill {
         height: 100%; border-radius: 999px;
@@ -954,6 +1332,50 @@
 
 @push('scripts')
 <script>
+// ── Tab Running / Testing ──────────────────────────────
+function switchAdTab(tab) {
+    var running = document.getElementById('adtabcontent-running');
+    var testing = document.getElementById('adtabcontent-testing');
+    var btnRun  = document.getElementById('adtab-running');
+    var btnTest = document.getElementById('adtab-testing');
+    if (tab === 'running') {
+        if (running) running.style.display = '';
+        if (testing) testing.style.display = 'none';
+        if (btnRun)  { btnRun.style.background = '#fff'; btnRun.style.color = 'var(--color-primary,#FF6B6B)'; btnRun.style.fontWeight = '700'; btnRun.style.borderColor = 'rgba(255,107,107,.25)'; btnRun.style.borderBottom = '2px solid #fff'; btnRun.style.zIndex = '3'; }
+        if (btnTest) { btnTest.style.background = '#f5f5f5'; btnTest.style.color = '#6b7280'; btnTest.style.fontWeight = '500'; btnTest.style.borderColor = 'rgba(0,0,0,.08)'; btnTest.style.borderBottom = '2px solid rgba(0,0,0,.08)'; btnTest.style.zIndex = '1'; }
+    } else {
+        if (running) running.style.display = 'none';
+        if (testing) testing.style.display = '';
+        if (btnRun)  { btnRun.style.background = '#f5f5f5'; btnRun.style.color = '#6b7280'; btnRun.style.fontWeight = '500'; btnRun.style.borderColor = 'rgba(0,0,0,.08)'; btnRun.style.borderBottom = '2px solid rgba(0,0,0,.08)'; btnRun.style.zIndex = '1'; }
+        if (btnTest) { btnTest.style.background = '#fff'; btnTest.style.color = '#92400e'; btnTest.style.fontWeight = '700'; btnTest.style.borderColor = 'rgba(245,158,11,.25)'; btnTest.style.borderBottom = '2px solid #fff'; btnTest.style.zIndex = '3'; }
+    }
+    applySummary(tab);
+}
+
+// ── Kartu summary mengikuti tab aktif (Running / Testing) ──
+function applySummary(tab) {
+    var isRun = tab === 'running';
+    var ids = ['sum-spending', 'sum-days', 'sum-lead', 'sum-paid', 'sum-conv', 'sum-cpa-lead', 'sum-cpa-paid', 'sum-ratio'];
+    ids.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = isRun ? el.getAttribute('data-run') : el.getAttribute('data-test');
+    });
+
+    var fill = document.getElementById('sum-ratio-fill');
+    if (fill) fill.setAttribute('style', isRun ? '{{ $runCards['fill'] }}' : '{{ $testCards['fill'] }}');
+
+    document.querySelectorAll('.sc-tab-badge').forEach(function(b) {
+        b.textContent = isRun ? '🟢 Running' : '🔬 Testing';
+        b.style.color = isRun ? '#065f46' : '#92400e';
+    });
+
+    document.querySelectorAll('.summary-card').forEach(function(c) {
+        var t = isRun ? c.getAttribute('data-run-title') : c.getAttribute('data-test-title');
+        if (t) c.title = t;
+    });
+
+}
 var openRows = new Set();
 function toggle(id) {
     var el   = document.getElementById(id);
@@ -965,7 +1387,7 @@ function toggle(id) {
         if (chev) chev.style.transform = 'rotate(0deg)';
         openRows.delete(id);
     } else {
-        el.style.display     = id.startsWith('lvl1') ? 'table-row' : 'block';
+        el.style.display     = (id.startsWith('lvl1') || id.startsWith('tlvl1')) ? 'table-row' : 'block';
         if (chev) chev.style.transform = 'rotate(90deg)';
         openRows.add(id);
     }
@@ -1744,8 +2166,10 @@ function toggle(id) {
     if (!canvas) return;
 
     var labels = @json($chartDates->map(fn($d) => \Carbon\Carbon::parse($d)->translatedFormat('d M')));
-    var leadData = @json($chartLead->toArray());
-    var paidData = @json($chartPaid->toArray());
+    var runLead = @json($chartRunLead->toArray());
+    var runPaid = @json($chartRunPaid->toArray());
+    var testLead = @json($chartTestLead->toArray());
+    var testPaid = @json($chartTestPaid->toArray());
 
     var ctx = canvas.getContext('2d');
     new Chart(ctx, {
@@ -1754,8 +2178,8 @@ function toggle(id) {
             labels: labels,
             datasets: [
                 {
-                    label: 'Lead',
-                    data: leadData,
+                    label: 'Lead (Running)',
+                    data: runLead,
                     borderColor: '#8b5cf6',
                     backgroundColor: 'rgba(139,92,246,0.08)',
                     borderWidth: 2.5,
@@ -1767,8 +2191,8 @@ function toggle(id) {
                     fill: true
                 },
                 {
-                    label: 'Paid',
-                    data: paidData,
+                    label: 'Paid (Running)',
+                    data: runPaid,
                     borderColor: '#4ECDC4',
                     backgroundColor: 'rgba(78,205,196,0.08)',
                     borderWidth: 2.5,
@@ -1778,6 +2202,34 @@ function toggle(id) {
                     pointBorderWidth: 1.5,
                     tension: 0.3,
                     fill: true
+                },
+                {
+                    label: 'Lead (Testing)',
+                    data: testLead,
+                    borderColor: '#f97316',
+                    backgroundColor: 'rgba(249,115,22,0.06)',
+                    borderWidth: 2,
+                    borderDash: [6, 4],
+                    pointRadius: 3,
+                    pointBackgroundColor: '#f97316',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: false
+                },
+                {
+                    label: 'Paid (Testing)',
+                    data: testPaid,
+                    borderColor: '#fbbf24',
+                    backgroundColor: 'rgba(251,191,36,0.06)',
+                    borderWidth: 2,
+                    borderDash: [6, 4],
+                    pointRadius: 3,
+                    pointBackgroundColor: '#fbbf24',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: false
                 }
             ]
         },

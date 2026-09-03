@@ -203,6 +203,11 @@ class ProductSeeder extends Seeder
                 $p->update(['goods_type' => $product['goods_type'] ?? 'core']);
             }
 
+            // Produk existing dianggap sudah running (sudah melalui fase testing)
+            if ((string) $p->ad_status !== Product::AD_STATUS_RUNNING) {
+                $p->update(['ad_status' => Product::AD_STATUS_RUNNING]);
+            }
+
             // Keanggotaan gudang (many-to-many): Barang Pasti → semua gudang;
             // inti/additional → gudang induknya. Gudang UTAMA (is_primary) HANYA
             // untuk Barang Inti (core). Dipanggil SEBELUM seed varian agar opening
