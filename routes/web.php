@@ -1,14 +1,20 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BankStatementController;
+use App\Http\Controllers\BankTransferController;
 use App\Http\Controllers\CourierRuleController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExportMappingController;
+use App\Http\Controllers\FinanceAccountController;
+use App\Http\Controllers\FinanceCategoryController;
+use App\Http\Controllers\FinanceTransferController;
 use App\Http\Controllers\GudangController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OperationalReportController;
+use App\Http\Controllers\OrderOnlineBatchController;
 use App\Http\Controllers\OrderOnlineController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PurchaseController;
@@ -21,6 +27,7 @@ use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TopUpController;
 use App\Http\Controllers\TrackingStatusRuleController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\MobileDeviceController;
 use App\Http\Controllers\WarehouseRuleController;
 use App\Http\Controllers\WhitelistController;
 use Illuminate\Support\Facades\Route;
@@ -77,8 +84,12 @@ Route::middleware('auth')->group(function () {
         Route::patch('/warehouse-rules/{warehouseRule}/toggle', [WarehouseRuleController::class, 'toggle'])->name('warehouse-rule.toggle');
         Route::delete('/warehouse-rules/{warehouseRule}', [WarehouseRuleController::class, 'destroy'])->name('warehouse-rule.destroy');
 
-        // Aturan Status Aggregator (raw status dashboard → status sistem — dinamis dari DB)
+        // Aturan Status Aggregator — per dashboard: mapping header CSV → kolom DB + raw status → status sistem
         Route::get('/tracking-status-rules', [TrackingStatusRuleController::class, 'index'])->name('tracking-status-rule.index');
+        Route::get('/tracking-status-rules/{source}/edit', [TrackingStatusRuleController::class, 'edit'])->name('tracking-status-rule.edit');
+        Route::post('/tracking-status-rules/upload', [TrackingStatusRuleController::class, 'upload'])->name('tracking-status-rule.upload');
+        Route::post('/tracking-status-rules/{source}/mapping', [TrackingStatusRuleController::class, 'saveMapping'])->name('tracking-status-rule.mapping');
+        Route::post('/tracking-status-rules/{source}/config', [TrackingStatusRuleController::class, 'saveConfig'])->name('tracking-status-rule.config');
         Route::post('/tracking-status-rules', [TrackingStatusRuleController::class, 'store'])->name('tracking-status-rule.store');
         Route::put('/tracking-status-rules/{trackingStatusRule}', [TrackingStatusRuleController::class, 'update'])->name('tracking-status-rule.update');
         Route::patch('/tracking-status-rules/{trackingStatusRule}/toggle', [TrackingStatusRuleController::class, 'toggle'])->name('tracking-status-rule.toggle');
@@ -99,11 +110,14 @@ Route::middleware('auth')->group(function () {
 
         // Spending Harian
         Route::resource('spending', SpendingHarianController::class)->names('spending');
+
+
         Route::patch('/spending/{spending}/approve', [SpendingHarianController::class, 'approve'])->name('spending.approve');
         Route::post('/spending/change-date', [SpendingHarianController::class, 'changeDate'])->name('spending.change-date');
         Route::post('/spending/bulk-delete', [SpendingHarianController::class, 'bulkDestroy'])->name('spending.bulk-destroy');
         Route::post('/spending/bulk-update', [SpendingHarianController::class, 'bulkUpdate'])->name('spending.bulk-update');
         Route::post('/spending/parse-upload', [SpendingHarianController::class, 'parseUpload'])->name('spending.parse-upload');
+
 
         // Top Up
         Route::get('/top-up', [TopUpController::class, 'index'])->name('topup.index');
@@ -112,6 +126,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/top-up/{proposal}', [TopUpController::class, 'show'])->name('topup.show');
         Route::patch('/top-up/{proposal}/approve', [TopUpController::class, 'approve'])->name('topup.approve');
         Route::patch('/top-up/{proposal}/decline', [TopUpController::class, 'decline'])->name('topup.decline');
+        Route::patch('/top-up/{proposal}/revise', [TopUpController::class, 'revise'])->name('topup.revise');
         Route::get('/top-up/{proposal}/pay', [TopUpController::class, 'paymentForm'])->name('topup.payment');
         Route::post('/top-up/{proposal}/pay', [TopUpController::class, 'paymentStore'])->name('topup.payment.store');
         Route::patch('/top-up/{proposal}/va-paid', [TopUpController::class, 'markVaPaid'])->name('topup.va-paid');
@@ -191,12 +206,62 @@ Route::middleware('auth')->group(function () {
         Route::get('/orders/{shippingOrder}', [OrderOnlineController::class, 'show'])->name('orders.show');
         Route::get('/orders/{batch}/export/{template}/{courier?}', [OrderOnlineController::class, 'export'])->name('orders.export');
 
-        // Purchase (Barang Masuk) & Stock Movement (Jurnal Stok)
+        // Riwayat Batch Import Order Online
+        Route::get('/order-batches', [OrderOnlineBatchController::class, 'index'])->name('order-batch.index');
+        Route::delete('/order-batches/{batch}', [OrderOnlineBatchController::class, 'destroy'])->name('order-batch.destroy');
+
+        // Purchase (Barang Masuk)
         Route::get('/barang-masuk', [PurchaseController::class, 'index'])->name('purchase.index');
         Route::post('/barang-masuk', [PurchaseController::class, 'store'])->name('purchase.store');
+        Route::patch('/barang-masuk/{purchase}/verify', [PurchaseController::class, 'verifyArrival'])->name('purchase.verify');
         Route::delete('/barang-masuk/{purchase}', [PurchaseController::class, 'destroy'])->name('purchase.destroy');
+
+        // ── Approval (Unified: Top Up + Pembelian) ──
+        Route::get('/approval', [PurchaseController::class, 'approvalIndex'])->name('approval.index');
+        Route::patch('/approval/purchase/{purchase}/approve', [PurchaseController::class, 'approvePurchase'])->name('approval.purchase.approve');
+        Route::patch('/approval/purchase/{purchase}/reject', [PurchaseController::class, 'rejectPurchase'])->name('approval.purchase.reject');
+        Route::patch('/approval/purchase/{purchase}/verify', [PurchaseController::class, 'verifyArrival'])->name('approval.purchase.verify');
 
         // Jurnal Stok
         Route::get('/jurnal-stok', [StockMovementController::class, 'index'])->name('stock-movement.index');
+
+        // ── Mobile Devices (manajemen credential mobile API) ──
+        Route::get('/mobile-devices', [MobileDeviceController::class, 'index'])->name('mobile-device.index');
+        Route::post('/mobile-devices', [MobileDeviceController::class, 'store'])->name('mobile-device.store');
+        Route::put('/mobile-devices/{mobileDevice}', [MobileDeviceController::class, 'update'])->name('mobile-device.update');
+        Route::delete('/mobile-devices/{mobileDevice}', [MobileDeviceController::class, 'destroy'])->name('mobile-device.destroy');
+        Route::patch('/mobile-devices/{mobileDevice}/toggle', [MobileDeviceController::class, 'toggle'])->name('mobile-device.toggle');
+        Route::post('/mobile-devices/{mobileDevice}/regenerate', [MobileDeviceController::class, 'regenerate'])->name('mobile-device.regenerate');
+
+        // ── Keuangan (akun, kategori, transfer antar akun, bukti transfer) ──
+        Route::prefix('keuangan')->name('finance.')->group(function () {
+            Route::resource('akun', FinanceAccountController::class)
+                ->except(['show'])
+                ->parameters(['akun' => 'account'])
+                ->names('accounts');
+            Route::patch('/akun/{account}/toggle', [FinanceAccountController::class, 'toggle'])->name('accounts.toggle');
+
+            Route::resource('kategori', FinanceCategoryController::class)
+                ->except(['show'])
+                ->parameters(['kategori' => 'category'])
+                ->names('categories');
+
+            Route::get('transfer', [FinanceTransferController::class, 'index'])->name('transfers.index');
+            Route::post('transfer', [FinanceTransferController::class, 'store'])->name('transfers.store');
+            Route::delete('transfer/{transfer}', [FinanceTransferController::class, 'destroy'])->name('transfers.destroy');
+
+            Route::get('bukti-transfer', [BankTransferController::class, 'index'])->name('bank-transfers.index');
+            Route::get('rekening-koran', [BankStatementController::class, 'index'])->name('bank-statement.index');
+            Route::get('rekening-koran/pdf', [BankStatementController::class, 'downloadPdf'])->name('bank-statement.pdf');
+            Route::get('bukti-transfer/pending-count', [BankTransferController::class, 'pendingCount'])->name('bank-transfers.pending-count');
+            Route::post('bukti-transfer', [BankTransferController::class, 'store'])->name('bank-transfers.store');
+            Route::post('bukti-transfer/{bankTransfer}/confirm', [BankTransferController::class, 'confirm'])->name('bank-transfers.confirm');
+            Route::post('bukti-transfer/{bankTransfer}/approve', [BankTransferController::class, 'approve'])->name('bank-transfers.approve');
+            Route::post('bukti-transfer/{bankTransfer}/reject', [BankTransferController::class, 'reject'])->name('bank-transfers.reject');
+            Route::delete('bukti-transfer/{bankTransfer}/image', [BankTransferController::class, 'deleteImage'])->name('bank-transfers.delete-image');
+            Route::delete('bukti-transfer/{bankTransfer}', [BankTransferController::class, 'destroy'])->name('bank-transfers.destroy');
+            Route::get('bukti-transfer/{bankTransfer}/image', [BankTransferController::class, 'serveImage'])->name('bank-transfers.image');
+            Route::get('bukti-transfer/{bankTransfer}/download', [BankTransferController::class, 'download'])->name('bank-transfers.download');
+        });
     });
 });

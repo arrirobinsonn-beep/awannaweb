@@ -120,22 +120,7 @@
         gap: 10px; padding: 14px 24px; border-top: 1px solid #e5e7eb; flex-shrink: 0;
     }
 
-    /* ── Dropzone ────────────────────────────────── */
-    .dropzone {
-        border: 2px dashed #d1d5db; border-radius: 14px;
-        padding: 44px 20px; text-align: center;
-        transition: all .25s ease; cursor: pointer; background: #fafafa;
-    }
-    .dropzone:hover, .dropzone.drag-over {
-        border-color: var(--color-primary, #FF6B6B); background: #fef2f2;
-    }
-    .dropzone.has-file {
-        border-color: #059669; background: #f0fdf4;
-    }
-    .dropzone-icon { font-size: 2.8rem; margin-bottom: 6px; display: block; }
-    .dropzone-title { font-weight: 700; font-size: .9rem; color: #374151; }
-    .dropzone-hint  { font-size: .72rem; color: #9ca3af; margin-top: 2px; }
-    .dropzone-file  { font-size: .78rem; color: #059669; font-weight: 600; margin-top: 6px; }
+    /* Dropzone styles — centralized in clay.css (clay-dropzone) */
 
     /* ── Upload error ────────────────────────────── */
     .upload-error {

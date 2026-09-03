@@ -20,6 +20,9 @@ class TrackingStatusRule extends Model
 
     public const PROBLEM_MODES = ['none', 'required'];
 
+    /** Cara mencocokkan KOLOM MASALAH terhadap keyword (problem_match_type). */
+    public const PROBLEM_MATCH_TYPES = ['contains', 'starts_with'];
+
     protected $fillable = [
         'source',
         'raw_status',
@@ -27,6 +30,7 @@ class TrackingStatusRule extends Model
         'status',
         'problem_mode',
         'problem_keyword',
+        'problem_match_type',
         'sort_order',
         'is_active',
     ];

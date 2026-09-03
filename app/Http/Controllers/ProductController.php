@@ -6,7 +6,6 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -37,7 +36,7 @@ class ProductController extends Controller
         return view('product.index', compact('products'));
     }
 
-    public function store(Request $request): RedirectResponse|JsonResponse
+    public function store(Request $request)
     {
         $data = $this->validateProduct($request);
 
@@ -59,35 +58,24 @@ class ProductController extends Controller
             return $product;
         });
 
-        if ($request->wantsJson()) {
-            return response()->json(['success' => true, 'message' => 'Produk '.$product->name.' berhasil ditambahkan (varian default dibuat).']);
-        }
-
-        return redirect()->route('product.index')
-            ->with('success', 'Produk '.$product->name.' berhasil ditambahkan (varian default dibuat).');
+        return response()->json(['success' => true, 'message' => 'Produk '.$product->name.' berhasil ditambahkan (varian default dibuat).']);
     }
 
-    public function update(Request $request, Product $product): RedirectResponse|JsonResponse
+    public function update(Request $request, Product $product)
     {
         $data = $this->validateProduct($request, $product);
 
         $product->update($data);
 
-        if ($request->wantsJson()) {
-            return response()->json(['success' => true, 'message' => 'Produk '.$product->name.' berhasil diperbarui.']);
-        }
-
-        return redirect()->route('product.index')
-            ->with('success', 'Produk '.$product->name.' berhasil diperbarui.');
+        return response()->json(['success' => true, 'message' => 'Produk '.$product->name.' berhasil diperbarui.']);
     }
 
-    public function destroy(Product $product): RedirectResponse
+    public function destroy(Product $product)
     {
         $name = $product->name;
         $product->delete();
 
-        return redirect()->route('product.index')
-            ->with('success', 'Produk '.$name.' berhasil dihapus.');
+        return response()->json(['success' => true, 'message' => 'Produk '.$name.' berhasil dihapus.']);
     }
 
     public function toggleStatus(Product $product): JsonResponse

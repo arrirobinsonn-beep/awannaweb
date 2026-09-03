@@ -3,6 +3,16 @@ Baca file ini sebelum memulai sesi. Lanjutkan fitur yang belum selesai sesuai pl
 
 ---
 
+# Catatan DB Test (19 Agustus 2026)
+
+- `php artisan test` memakai DB **`webawanna_test`** (di-set di `phpunit.xml`), TERPISAH dari DB aplikasi `webawanna` — test TIDAK pernah membuat dummy di DB aplikasi.
+- DB test sudah di-migrate + di-seed (DatabaseSeeder lengkap: user, produk, courier rules, export templates, warehouse rules, tracking status rules). Tanpa `RefreshDatabase` — data antar-run menumpuk di DB test (boleh, tidak mengganggu siapa pun).
+- Reset DB test bila perlu: `CREATE DATABASE webawanna_test` → `$env:DB_DATABASE='webawanna_test'; php artisan migrate:fresh --seed`.
+- `filecoba/verify_pipeline.php` tetap memakai DB aktif (.env = `webawanna`) tapi self-cleanup (hapus order CBC-* + balik jurnal).
+- Catatan lama di bagian fitur yang menyebut "Test memakai DB `awannacoba`" tidak berlaku lagi (DB test = `webawanna_test`, DB aplikasi = `webawanna`).
+
+---
+
 # Performance Optimization Rules
 
 ## 1. Database Indexes
@@ -241,7 +251,7 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 | `app/Services/OrderOnlineImportService.php` | `parse/preview/import`; calibrate province (config regional), mapping status (completed skip), deteksi duplikat 14 hari, resolve `product_id` via `whereIn`, resolve CS batch via `users.nama/panggilan`, isi `order_online_contacts`, simpan `raw_payload` |
 | `app/Services/OrderTemplateExportService.php` | `download(batch, template, courier?)` → .xlsx atau ZIP per gudang (PhpSpreadsheet); `WAREHOUSE_BY_PRODUCT` (KSP→Aurora, SH→GTM) + `warehouseFor()` (tahan kode varian via `explode('+')`); `PACK_DIMENSIONS=[10,8,6]` + `DEFAULT_COURIER_NOTE`; `phoneSpx()` (mulai 8) + CAPSLOCK utk SPX; filter `EXPORTABLE_STATUSES`; `reserveStock()` (recordOut + stock_note); Kelurahan kosong; nilai=amount (gross_revenue CSV) |
 | `app/Http/Controllers/OrderOnlineController.php` | `index` (batch + orders + `$products` utk select), `preview`, `store` (sender required, tampilkan jumlah duplikat), `update` (edit courier/product_code; varian HANYA di-re-resolve bila product_code berubah via `ProductVariant::where('code')`, reverseReference dulu bila ada jurnal), `export` |
-| `resources/views/order/index.blade.php` | Upload (sender wajib) + preview modal + daftar batch + tabel orders (badge status incl. duplikat/cancel/belum_diproses, kolom produk+stock_note) + edit courier & product_code (dropdown per varian) inline + dropdown export FLIK per courier |
+| `resources/views/order/index.blade.php` | Upload (sender wajib) + preview modal + daftar batch + tabel orders (badge status incl. duplikat/cancel/belum_diproses, kolom produk+stock_note) + edit courier & product_code (dropdown per varian **dari export_templates** + undeliverable) inline + dropdown export FLIK per courier |
 | `database/migrations/2026_08_09_000000_add_meta_account_to_shipping_orders_table.php` | kolom `shipping_orders.meta_account` (string nullable) |
 | `resources/views/layouts/app.blade.php` | Sidebar section Iklan → "Data Mentah" |
 | `tests/Feature/OrderOnlineTest.php` | 45 test: courier resolve (incl. sicepat), status mapping (incl. completed skip, courier null), resolve product_id, render, duplikat (window/same file/repeat order/bedorder_id real COD/bank_transfer repeat & source/re-import order_id sama bukan duplikat), FLIK separated by courier+status, stok idempotent, skip stok kurang, undeliverable balikin stok, undeliverable→courier normal tidak dobel, undeliverable varian non-default balikin stok & varian tetap, edit courier product_code sama → varian tetap, ganti product_code dgn jurnal ada → stok varian lama balik, reimport real hapus belum_diproses lama, reimport real tidak dobel (double_real), warehouse mapping, ZIP split SH/KSP/sender, phoneSpx 8 + CAPSLOCK, filename sender, tembakan→spx, product meta_account split, dapat qty override + product_name, product_code = kode varian, warehouseFor varian, dimensi & catatan kurir per template, FLIK 1 kolom HP 62, nama kacamata +power, nama non-kacamata tetap |
@@ -390,7 +400,7 @@ Kolom `shipping_orders.product_price` & `cod_amount` (diisi dari `product_price`
 ## G. ✅ Upload Status Aggregator → awb/aggregator_status/delivered_at + Stok Return (10 Agustus 2026)
 
 ### Deskripsi
-Admin upload file dashboard aggregator (FLIK / SiCepat / SPX, `.csv` atau `.xlsx`) lewat halaman Data Mentah → kolom `shipping_orders.awb`, `aggregator_status`, `delivered_at` terisi. Baris file dihubungkan ke order memakai **signature**: Tier 1 = `phone_normalized + product_id + quantity + alamat` (normalisasi lowercase/kolaps spasi), Tier 2 (fallback) = `phone_normalized + product_id + quantity` bila tier 1 kosong dan kandidat unik. 0 kandidat → `unmatched`; >1 kandidat → `ambiguous` (tidak diisi).
+Admin upload file dashboard aggregator (FLIK / SiCepat / SPX, `.csv` atau `.xlsx`) lewat halaman Data Mentah → kolom `shipping_orders.awb`, `aggregator_status`, `delivered_at` terisi. Baris file dihubungkan ke order memakai **pencocokan 2 kolom**: `phone_normalized` (sudah di-filter batch `whereIn`) + `customer_name` (dari kolom "Nama Penerima" / "Nama Shopper" / "Recipient Name" file). 0 kandidat nama → `unmatched`; >1 kandidat nama sama → `ambiguous` (tidak diisi).
 
 Saat `aggregator_status` berubah menjadi **`returned`**, stok yang di-reserve saat export (jurnal `order_online`) dikembalikan otomatis via `StockService::reverseReference` (idempotent — re-import file yang sama tidak menggandakan).
 
@@ -409,7 +419,7 @@ Raw status tak dikenal → `aggregator_status = null` (tetap dihitung `unmatched
 ### Implementasi
 | File | Keterangan |
 |---|---|
-| `app/Services/AggregatorTrackingImportService.php` | `parse` (readRows via PhpSpreadsheet IOFactory csv/xlsx, detectSource header tak selalu baris 1 — SPX di baris 3, mapHeaders aliases, mapStatus, isProblem), `import` (1 transaksi: batch `whereIn phone_normalized` + `ProductNameMatcher` → `resolveOrder` tier1/tier2 → update awb/status/delivered_at → reverseReference bila jadi returned) |
+| `app/Services/AggregatorTrackingImportService.php` | `parse` (readRows via PhpSpreadsheet IOFactory csv/xlsx, detectSource 100% DB-driven dari `tracking_header_mappings`, mapHeaders DB-aware, mapStatus DB-driven), `import` (1 transaksi: batch `whereIn phone_normalized` → `resolveOrder` phone + customer_name → update awb/status/delivered_at → reverseReference bila jadi returned) |
 | `app/Http/Controllers/OrderOnlineController.php` | `trackingImport` (validate `mimes:csv,txt,xlsx,xls` max 10MB, flash report: Total/Terisi/Stok dikembalikan/Ambigu/Tak cocok) |
 | `app/Models/ShippingOrder.php` | const `TRACKING_STATUSES` |
 | `resources/views/order/index.blade.php` | kartu "Upload Status Aggregator" (dropzone + JS fetch `orders.tracking-import`) |
@@ -931,12 +941,17 @@ Prioritas: **rule dinamis** (`warehouse_rules` aktif, product_code cocok) → **
 ## S. ✅ Aturan Status Aggregator Dinamis — Mapping Status Dashboard → Status Sistem (13 Agustus 2026)
 
 ### Deskripsi
-Mapping raw status file dashboard aggregator (FLIK / SiCepat / SPX) → `shipping_orders.aggregator_status` tidak lagi hardcoded di `AggregatorTrackingImportService::mapStatus`. Aturan tersimpan di tabel **`tracking_status_rules`** dan dikelola admin lewat halaman **Aturan Status** (`/tracking-status-rules`, sidebar Data Master) — pola sama dengan Aturan Courier / Aturan Gudang.
+Mapping raw status file dashboard aggregator (FLIK / SiCepat / SPX) → `shipping_orders.aggregator_status` tidak lagi hardcoded di `AggregatorTrackingImportService::mapStatus`. Aturan tersimpan di tabel **`tracking_status_rules`** dan dikelola admin lewat halaman **Aturan Status** (`/tracking-status-rules`, sidebar Data Master).
+
+**Halaman dipisah PER DASHBOARD** (FLIK / SiCepat / SPX) — karena nama kolom & isi file tiap ekspedisi berbeda-beda: `index` = kartu per dashboard (jumlah mapping header + jumlah aturan status, tombol Edit), `edit` = halaman per dashboard berisi **2 hal**:
+1. **🧩 Mapping Kolom Database → Header CSV** (14 Agustus — UI DIBALIK dari pola export template): kolom kiri = **kolom DATABASE (teks statis, BUKAN form** — DB tidak mungkin berubah), kolom kanan = **dropdown header CSV dari file upload**. Admin **upload file dashboard aslinya** → sistem mengekstrak header (`extractHeaders` — sumber dideteksi otomatis, mapping lama ikut terbawa per kolom DB) → untuk tiap kolom DB pilih header yang mengisinya (`tracking_header_mappings` 9 kolom: tracking_number/phone/**customer_name**/address/product_name/quantity/status/problem/delivered_date) → **Simpan Mapping** (bulk replace; 1 header hanya boleh dipakai 1 kolom — duplikat ditolak + dicegah JS). Kolom dibiarkan kosong → tidak diisi.
+2. **🗂 Aturan Status** (raw → sistem) khusus sumber itu: tabel rule (toggle/↑↓/edit modal/hapus) + form tambah manual (collapsible, `source` terkunci = dashboard yang dibuka).
+`AggregatorTrackingImportService::mapHeaders()` kini **membaca mapping DB** (menang atas alias hardcoded untuk header yang sama; header lain tetap fallback alias) — jadi import tracking ikut kolom yang dipilih admin.
 
 ### Cara kerja (`TrackingStatusRuleService::resolve`)
 - Evaluasi per sumber, urut dari `sort_order` terkecil; **rule pertama yang cocok menang**.
 - `raw_status` di-normalisasi lowercase saat simpan & saat cocok; `match_type` **exact** (sama persis) atau **contains** (status memuat teks).
-- **Aturan bermasalah** memakai `problem_mode=required`: rule hanya cocok bila kolom masalah file terpenuhi — `problem_keyword` **null** = kolom cukup TIDAK kosong (SPX `Delivery OnHold Reason`); **terisi** = kolom harus MENGANDUNG keyword case-insensitive (FLIK `Status Terakhir dari 3PL` berisi `problem`). Bila tidak terpenuhi, rule dilewati → jatuh ke rule normal utk status yang sama. Karena itu rule problem diberi `sort_order` kecil (dievaluasi duluan).
+- **Aturan bermasalah** memakai `problem_mode=required`: rule hanya cocok bila kolom masalah file terpenuhi — `problem_keyword` **null** = kolom cukup TIDAK kosong (SPX `Delivery OnHold Reason`); **terisi** = dicocokkan sesuai `problem_match_type` (14 Agustus): **`contains`** = kolom MENGANDUNG keyword (default), **`starts_with`** = kolom DIAWALI keyword — **keunikan FLIK**: status kolom normal, masalah ada di kolom 3PL TERPISAH (header beda, `problem` mapping) yang isinya diawali `Problem...`. Bila tidak terpenuhi, rule dilewati → jatuh ke rule normal utk status yang sama. Karena itu rule problem diberi `sort_order` kecil (dievaluasi duluan).
 - Tidak ada rule cocok → `null` (raw tak dikenal, `aggregator_status` tidak diisi).
 - Rule dikelompokkan per `source` + cache per instance (anti N+1, pola AGENTS.md).
 
@@ -947,27 +962,40 @@ Mapping raw status file dashboard aggregator (FLIK / SiCepat / SPX) → `shippin
 | File | Keterangan |
 |---|---|
 | `database/migrations/2026_08_13_150000_create_tracking_status_rules_table.php` | `source`, `raw_status`, `match_type` (exact/contains), `status`, `problem_mode` (none/required), `problem_keyword` nullable, `sort_order`, `is_active`; UNIQUE `(source, raw_status, match_type, problem_mode, status)` |
-| `app/Models/TrackingStatusRule.php` | konstanta `SOURCES`/`MATCH_TYPES`/`PROBLEM_MODES` + casts |
-| `app/Services/TrackingStatusRuleService.php` (baru) | `resolve(source, rawStatus, ?problemColumn)` — evaluasi sort_order, `problemColumnMatches()` (keyword null → non-kosong; terisi → contains) |
-| `app/Services/AggregatorTrackingImportService.php` | `mapStatus(source, rawStatus, problemColumn)` → delegasi ke service (argumen `true` lama tetap diterima = paksa `problem`); `isProblem()` dihapus; `normalizeRow` kirim teks kolom masalah langsung |
-| `app/Http/Controllers/TrackingStatusRuleController.php` (baru) | `index/store/update/destroy/toggle/move`; validasi source/match/status/problem_mode `in:...`; duplikat per kombinasi; normalisasi lowercase |
-| `resources/views/tracking_status_rule/index.blade.php` (baru) | Form tambah (sumber, status mentah, cara cocok, status sistem, kolom masalah + kata kunci yang tampil kondisional, urutan, aktif) + tabel (badge sumber/status mentah/status sistem/masalah, toggle, ↑↓, edit modal, hapus) + info box |
-| `routes/web.php` | `/tracking-status-rules` GET/POST/PUT/PATCH toggle/POST move/DELETE (nama `tracking-status-rule.*`) |
+| `database/migrations/2026_08_14_100000_create_tracking_header_mappings_table.php` (baru) | `source`, `header` (normalized), `db_column`; UNIQUE `(source, header)` nama eksplisit `tracking_header_mappings_combo_unique` |
+| `database/migrations/2026_08_14_100001_add_problem_match_type_to_tracking_status_rules.php` (baru) | + `problem_match_type` string default `contains` (nilai `contains`/`starts_with`) — cara cocok kolom masalah terhadap keyword |
+| `app/Models/TrackingHeaderMapping.php` (baru) | konstanta **`COLUMNS`** (registry **9** kolom: tracking_number/phone/**customer_name**/address/product_name/quantity/status/problem/delivered_date) — sumber kebenaran dropdown & validasi |
+| `app/Models/TrackingStatusRule.php` | konstanta `SOURCES` (backward-compat) + **`validSources()`** di controller (SOURCES lama + ExportTemplate keys) / `MATCH_TYPES`/`PROBLEM_MODES`/**`PROBLEM_MATCH_TYPES`** + casts |
+| `app/Services/TrackingStatusRuleService.php` (baru) | `resolve(source, rawStatus, ?problemColumn)` — evaluasi sort_order, `problemColumnMatches(column, keyword, matchType)` (keyword null → non-kosong; `contains` → mengandung; `starts_with` → diawali) |
+| `app/Services/AggregatorTrackingImportService.php` | `mapStatus(source, rawStatus, problemColumn)` → delegasi ke service (argumen `true` lama tetap diterima = paksa `problem`); `isProblem()` dihapus; `normalizeRow` kirim teks kolom masalah langsung + baca **`customer_name`/`name_norm`**; **`resolveOrder`** hanya **phone + customer_name** — nama kosong → unmatched; >1 kandidat nama sama → ambiguous; **`extractQuantity`** + pola **`Dapat N`** (Beli 1 Dapat 2 → qty 2, konsisten `OrderOnlineImportService`); **`mapHeaders` DB-aware** (`headerMappingFor(source)` cache per instance → mapping DB MENANG per header, sisanya fallback alias); **`extractHeaders(filePath)`** (header list + `mapping` db_column→header utk carry-over UI dibalik); **`saveHeaderMapping(source, items)`** (items `{db_column, header}`, bulk replace dlm 1 transaksi, **1 header utk 1 kolom** → RuntimeException); **`extractDefaultMapping(filePath)`** (header → db_column murni alias utk seeder) |
+| `app/Http/Controllers/TrackingStatusRuleController.php` (baru) | `index` (kartu per dashboard + hitungan via 2 aggregate groupBy + **export template reference** dari `ExportTemplate`) + **`edit($source)`** (per dashboard: mapping kolom DB + rules khusus sumber; `mapping` pluck header by db_column) + **`upload`** (JSON `{source, headers[], mapping{}}` — file di-`store` dulu agar path punya ekstensi, validasi sumber = dashboard yang dibuka) + **`saveMapping`** (validasi `db_column required in:COLUMNS`, header nullable; catch RuntimeException → error mapping) + `store/update/destroy/toggle/move` (+ validasi/normalisasi `problem_match_type`); **`validSources()`** = SOURCES lama + ExportTemplate keys (dinamis — template baru otomatis valid) |
+| `resources/views/tracking_status_rule/index.blade.php` (baru) | Kartu per dashboard (gradient, ikon, jumlah mapping header & aturan status, **template export reference** — nama/couriers, atau ⚠️ belum ada template) + tombol ➕ template baru yang belum punya tracking rules — pola export template |
+| `resources/views/tracking_status_rule/edit.blade.php` (baru) | Per dashboard: kartu **Mapping Kolom Database → Header CSV** (kiri kolom DB teks statis, kanan select header dari file; upload → isi dropdown + pre-select carry-over; JS cegah header dobel; simpan → hidden `items[]`) + kartu **Aturan Status** (tabel rule khusus sumber + form tambah manual `source` hidden + field `problem_match_type` di form & modal edit) |
+| `routes/web.php` | `GET /tracking-status-rules`, `GET /{source}/edit`, `POST /upload`, `POST /{source}/mapping` + POST/PUT/PATCH toggle/POST move/DELETE (nama `tracking-status-rule.*`) |
 | `resources/views/layouts/app.blade.php` | Sidebar Data Master → **Aturan Status** (di bawah Aturan Gudang) |
-| `database/seeders/TrackingStatusRuleSeeder.php` (baru) | 23 rule bawaan idempotent (updateOrCreate by kombinasi): FLIK 8 (incl. 2 problem `dikonfirmasi`/`sedang diantar` + 3PL berisi `problem`, sort 1), SICEPAT 6, SPX 9 (incl. 3 problem `pending pickup`/`in transit`/`delivering` + OnHold terisi, sort 1) |
-| `tests/Feature/TrackingStatusRuleTest.php` (baru) | 10 test: index, store+resolve dinamis, problem required (keyword null & terisi), prioritas problem atas normal, contains, toggle, destroy, duplikat, move swap, update; + import ikut rules DB |
-| `tests/Feature/AggregatorTrackingImportTest.php` | `test_map_status_english_values` disesuaikan — argumen `true` diganti string kolom masalah (`'Problem: alamat tidak lengkap'` → problem, `'OK'` → waiting_pickup, `''` → in_transit) |
-| `filecoba/verify_pipeline.php` | + precheck `tracking_status_rules` |
+| `database/seeders/TrackingStatusRuleSeeder.php` (baru) | 23 rule bawaan idempotent (updateOrCreate by kombinasi): FLIK 8 (incl. 2 problem `dikonfirmasi`/`sedang diantar` + 3PL DIAWALI `problem` via `starts_with`, sort 1), SICEPAT 6, SPX 9 (incl. 3 problem `pending pickup`/`in transit`/`delivering` + OnHold terisi, sort 1) |
+| `tests/Feature/TrackingStatusRuleTest.php` (baru) | 17 test: index kartu, **edit per dashboard scoped** (kolom DB kiri + rule flik tidak tampil di spx), **upload header CSV + carry-over per db_column**, **save mapping → dipakai import** (header tak standar dikenali via DB, incl. `customer_name`), **duplikat header ditolak**, store+resolve dinamis, problem required (**starts_with**: diawali vs mengandung), prioritas, contains, toggle, destroy, duplikat, move, update, import ikut rules DB |
+| `tests/Feature/AggregatorTrackingImportTest.php` | `test_map_status_english_values` disesuaikan — argumen `true` diganti string kolom masalah; +2 test **matching nama pelanggan** (nama memutuskan 2 order HP+produk+qty sama; nama menang walau alamat file beda); **+3 test fallback produk tak dikenal** (nama promo FLIK tetap match via phone+qty+nama; qty diekstrak dari "Beli 1 Dapat 2"; 2 kandidat tanpa pembeda tetap ambiguous) |
+| `filecoba/verify_pipeline.php` | + precheck `tracking_status_rules` + cleanup `tracking_header_mappings` di awal (agar import tracking selalu pakai alias bawaan) |
 
 ### Penting
 - **Batas key MySQL (3072 bytes utf8mb4)**: kolom unik 5 string() default (255 char) melebihi batas → `source`/`match_type`/`status`/`problem_mode` dibatasi `string(20)`, `raw_status`/`problem_keyword` `string(191)`; UNIQUE `tracking_status_rules_combo_unique` (`source, raw_status, match_type, problem_mode, status`) tetap 5 kolom (dipakai `updateOrCreate` seeder).
 - **Migrasi gagal di tengah**: bila `alter table ... add unique` error, tabel sudah terbuat tapi migrasi tidak tercatat → `Schema::dropIfExists('tracking_status_rules')` dulu, baru `php artisan migrate`.
-- **Perubahan perilaku kecil**: FLIK problem dulu `stripos(..., 'problem') === 0` (prefix), kini `contains` (MENGANDUNG) via `problem_keyword='problem'` — lebih longgar, dan bisa diubah admin.
+- **`upload` wajib `store` file dulu** (pola `trackingImport`): temp upload browser TIDAK punya ekstensi (`/tmp/phpXXXX`) → `readRows()` menolak "Format file tidak didukung" (422). `UploadedFile::fake()->createWithContent()` juga menghasilkan pathname tanpa ekstensi — test upload harus lewat controller (yang store), bukan panggil service dgn pathname langsung.
+- **`saveHeaderMapping` = bulk replace per sumber** dalam 1 transaksi: hapus semua mapping lama sumber itu lalu buat dari `items` — aman re-upload file yang sama (idempotent); item tanpa kolom dilewati (header jadi tidak dipakai).
+- **Mapping DB menang per header, bukan menggantikan alias total**: `mapHeaders` merge — header yang di-map admin dipakai apa adanya, header lain tetap dicocokkan alias bawaan (mapping sebagian tidak memutus kolom lain). Konsistensi: pipeline & test `save mapping` WAJIB hapus mapping di `finally` (DB aktif tanpa refresh) agar run berikutnya tidak terkontaminasi.
+- **DB column registry** (`TrackingHeaderMapping::COLUMNS`) satu-satunya sumber kebenaran — tambah kolom baru di registry + `mapHeaders`/`normalizeRow` bila perlu.
+- **UI mapping DIBALIK dari export template** (14 Agustus): kiri = kolom DB TEKS statis (DB tidak berubah), kanan = select header CSV. `saveHeaderMapping` tetap menyimpan `(source, header, db_column)` — items dari form `{db_column, header}`; **satu header hanya boleh dipakai satu kolom** (unique `(source, header)`) → validasi service + cegah duplikat di JS (option disabled).
+- **Keunikan FLIK kini data-driven** (`problem_match_type=starts_with`): status kolom normal (`Dikonfirmasi`/`Sedang Diantar`) + kolom 3PL TERPISAH (di-map ke `problem`) diawali `Problem...` → `problem`. Aggregator baru cukup konfigurasi mapping header + rules, tanpa ubah kode.
 - `AggregatorTrackingImportService::mapStatus` menerima argumen ketiga string (kolom masalah) ATAU `true` (kompatibilitas lama: paksa `problem`).
 - Aturan bermasalah harus `sort_order` KECIL dari rule normal utk status yang sama (kalau tidak, rule normal menang duluan). Seeder meletakkan problem di sort 1.
 - Status tak dikenal → `aggregator_status=null` (tetap dihitung `unmatched` di laporan import). `delivered_at` tetap hanya diisi saat status `delivered`.
 - Test memakai DB aktif tanpa refresh → rule test memakai `raw_status` unik prefix `teststatus` dan di-delete di akhir test; service resolver di-test dengan instance BARU (cache per instance).
-- Suite: **133 pass** (hanya `ExampleTest` 302 pre-existing) · pipeline `verify_pipeline.php` **104/104 PASS**.
+- **Fallback produk tak dikenal (15 Agu)**: dashboard FLIK asli berisi nama PROMO di kolom "Nama Produk" (`Promo: PROMO Beli 1 Dapat 2 - Rp 129.000...`) yang TIDAK bisa dicocokkan ke tabel products → `product_id=null` → dulu semua baris jadi `unmatched` walau order-nya ada di DB. Sekarang `resolveOrder` hanya pakai phone + customer_name (produk tidak relevan untuk pencocokan); `extractQuantity` juga paham "Dapat N". Verifikasi nyata: `training/02_flik.csv` 7 baris → 4 matched (2 unmatched sah: belum_diproses & phone tidak ada; 1 ambiguous: 2 order identik).
+- **`TrackingHeaderMappingSeeder` (15 Agu)**: baca `training/templateTracking/header_*.csv` → isi `tracking_header_mappings` via `extractDefaultMapping()` (murni alias, idempotent updateOrCreate). FLIK 8, SiCepat 8, SPX 9 kolom. Dipanggil di `DatabaseSeeder` (8d).
+- **Courier dropdown dinamis dari `export_templates` (15 Agustus)**: `OrderOnlineController::index()` kumpulkan courier dari `ExportTemplate::where('is_active')` → `flatMap(couriers)` → unique + push `undeliverable` → pass `$courierList` ke view. View ganti hardcode `CourierRuleService::COURIERS` → `$courierList`. `update()` validasi courier juga dinamis dari `ExportTemplate`. Saat admin tambah template baru (mis. `idxeveropro` → `IDEXPRESS`), courier itu langsung muncul di dropdown tanpa ubah kode.
+- **Tracking SOURCES dinamis dari `export_templates` (15 Agustus)**: `TrackingStatusRuleController::validSources()` = `TrackingStatusRule::SOURCES` (backward-compat) + `ExportTemplate::pluck('key')` (unique). Template baru (mis. `idxeveropro`) otomatis valid untuk aturan tracking. Index view tampilkan **template export reference** (nama + couriers) + tombol ➕ untuk template yang belum punya tracking rules. Tidak ada migrasi baru — `source` column `string(20)` menerima nilai bebas.
+- Suite: **158 pass** (hanya `ExampleTest` 302 pre-existing) · pipeline `verify_pipeline.php` **104/104 PASS**.
 
 ---
 
@@ -999,6 +1027,7 @@ Dashboard admin (general) kini menampilkan 4 kartu operasional **hari ini** yang
 | `resources/views/dashboard/general.blade.php` | 4 kartu stat operasional (klik → laporan dgn dari/sampai=hari ini) di atas kartu Spending |
 | `resources/views/laporan/operasional.blade.php` (baru) | Kartu ringkasan PERIODE TERPILIH + date-range picker + tabel per pengirim (pengeluaran, resi `N / total`, COD, TF, uang masuk, HPP) + tfoot TOTAL KESELURUHAN & baris Margin (uang masuk − HPP, % ) |
 | `resources/views/laporan/batch.blade.php` (baru, 14 Agustus) | **Detail per batch/pengirim** — kartu ringkasan (order/resi, qty terjual, uang masuk, margin) + tabel **Barang Terjual & Rincian Varian**: grup per produk master, baris per varian (badge power) + nama terjual + qty/order + jumlah order + qty terjual + uang masuk + HPP |
+| `resources/views/laporan/batch.blade.php` (+14 Agustus) | **Tombol 📋 Copy ke WhatsApp** — teks laporan lengkap dibangun SERVER-SIDE (`$copyText` di `@php`, format WA: ringkasan + barang per varian + total) disimpan di `<textarea hidden>` (dibaca JS) + `<pre>` fallback; JS `navigator.clipboard` → fallback `document.execCommand('copy')` → kalau gagal, `<pre>` ditampilkan utk blok manual |
 | `resources/views/layouts/app.blade.php` | Sidebar Gudang & Kiriman → **Laporan Operasional** (owner/super_admin/admin) |
 | `routes/web.php` | `GET /laporan-operasional` (`operational-report.index`); `GET /laporan-operasional/{batch}` (`operational-report.batch`) |
 | `tests/Feature/OperationalReportTest.php` (baru) | 5 test: kartu dashboard render, laporan per sender + totals, rentang tanggal, empty state, total per sender = sum |
@@ -1015,7 +1044,56 @@ Dashboard admin (general) kini menampilkan 4 kartu operasional **hari ini** yang
 - **`created_at` di query detail batch WAJIB dikualifikasi** `shipping_orders.created_at` — setelah LEFT JOIN `products`/`product_variants` (keduanya punya `created_at`) kolom jadi ambigu (SQLSTATE 1052).
 - Test memakai DB bersama tanpa refresh → data di-isolasi dgn tanggal unik prefix `2026-01-XX` + `uniqid()` di sender/order_id, batch di-delete di `finally`; empty-state memakai rentang `2019-01-01..31`.
 - Sidebar hanya utk role yang punya akses Gudang & Kiriman (owner/super_admin/admin); route tetap bisa dibuka role lain yg login (profil lengkap).
-- Suite: **144 pass** (hanya `ExampleTest` 302 pre-existing) · pipeline `verify_pipeline.php` **104/104 PASS**.
+- **Copy ke WhatsApp (14 Agustus)**: `$copyText` dibangun dari `$rows`/`$grouped` yang SAMA dengan tabel (format angka identik `number_format(...,0,',','.')`, pemisah pcs per varian tetap beda baris), jadi isi yang di-paste = persis isi halaman. `isSecureContext` diperiksa — di HTTP non-localhost `navigator.clipboard` undefined → otomatis fallback execCommand; gagal total → `<pre id="copy-report-fallback">` tampil utk seleksi manual. Textarea tersembunyi (`position:fixed;left:-9999px`) bukan `display:none` agar `select()`/`execCommand` tetap jalan.
+- Suite: **145 pass** (hanya `ExampleTest` 302 pre-existing) · pipeline `verify_pipeline.php` **104/104 PASS**.
+
+---
+
+## U. ✅ Sektor Keuangan — Akun, Kategori, Transfer Antar Akun, Bukti Transfer (19 Agustus 2026)
+
+### Deskripsi
+Modul keuangan 4 tabel: **`accounts`** (master rekening/cash/aggregator + `current_balance`), **`transaction_categories`** (kategori transaksi, `type` in/out), **`account_transfers`** (operan saldo antar akun), **`bank_transfers`** (transaksi masuk/keluar per akun + bukti gambar). Alur: CS upload bukti transfer pembeli (type=in) → status `pending` (saldo BELUM berubah) → role Keuangan/Owner **approve** (saldo bertambah, gambar bukti DIHAPUS dari disk) atau **reject** (wajib `rejection_note`, saldo tetap, gambar disimpan agar CS bisa lihat; notifikasi terkirim ke CS). Transaksi **keluar** dicatat langsung oleh approver (status langsung `approved`, saldo berkurang, tanpa gambar/approval). `current_balance` dihitung otomatis dari transaksi via `FinanceService` (single source of truth).
+
+### Skema (migration `2026_08_19_000000_create_finance_tables.php`)
+- `accounts`: `name`, `type` (bank/cash/ewallet/aggregator), `current_balance` decimal(15,2), `status` (active/inactive) + index.
+- `transaction_categories`: `name`, `type` (in/out) + UNIQUE `(name, type)`.
+- `account_transfers`: `from_account_id`/`to_account_id` FK RESTRICT, `amount`, `transfer_date` (datetime), `description`, `created_by` + index (from, to, transfer_date).
+- `bank_transfers`: `account_id`, `category_id` FK RESTRICT, `type` (in/out), `amount` decimal(15,2), `transaction_date` (datetime), `description`, `image_url` nullable, `status` (pending/approved/rejected), `rejection_note` nullable, `created_by` + index (status, account_id, type, transaction_date).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Models/Account.php` | `TYPES`/`TYPE_LABELS`/`STATUSES`, scopeAktif, `type_label`, relasi bankTransfers/transfersFrom/transfersTo |
+| `app/Models/TransactionCategory.php` | `TYPES`, relasi bankTransfers |
+| `app/Models/AccountTransfer.php`, `BankTransfer.php` | `STATUS_LABELS` + isPending/isApproved/isRejected; casts `transaction_date:datetime`, `amount:decimal:2` |
+| `app/Services/FinanceService.php` | `applyBankTransfer`/`reverseBankTransfer`/`applyAccountTransfer` (+`RuntimeException` saldo cukup)/`reverseAccountTransfer` — SEMUA update `accounts.current_balance` lewat sini (DB::transaction + `lockForUpdate`) |
+| `app/Http/Controllers/FinanceAccountController.php` | CRUD + toggle; hapus diblokir (flash error) bila punya transaksi |
+| `app/Http/Controllers/FinanceCategoryController.php` | CRUD + cek duplikat (name+type); hapus diblokir bila dipakai transaksi |
+| `app/Http/Controllers/FinanceTransferController.php` | store (validasi saldo cukup) / destroy (balikin saldo) / index |
+| `app/Http/Controllers/BankTransferController.php` | `APPROVERS = ['owner','super_admin','admin','keuangan']`; CS: HANYA type=in + gambar WAJIB + hanya lihat milik sendiri (`where created_by`); approve → hapus gambar + null image_url; reject → `rejection_note` wajib + notif `bank_transfer_rejected`; destroy → reverse saldo; notifyCreator via model `Notification` |
+| `routes/web.php` | grup `prefix('keuangan')->name('finance.')`: resource akun/kategori (params `account`/`category`), transfer, bukti-transfer |
+| `resources/views/finance/accounts/index.blade.php`, `categories/index.blade.php`, `transfers/index.blade.php`, `bank_transfers/index.blade.php` | pola clay-card/clay-table + modal edit + JS filter kategori by tipe |
+| `resources/views/layouts/app.blade.php` | Sidebar Keuangan: Akun Keuangan, Kategori Transaksi, Transfer Antar Akun, Bukti Transfer (owner/super_admin/mentor/keuangan) + Upload Bukti Transfer (cs) |
+| `resources/views/notifications/index.blade.php` | `@case('bank_transfer_approved') ✅` & `@case('bank_transfer_rejected') ❌` |
+| `tests/Feature/FinanceTest.php` | 14 test: CRUD akun (hapus diblokir), kategori (duplikat), transfer saldo cukup/tidak + destroy balikin, CS upload pending (saldo tetap) → approve (saldo naik + gambar terhapus) / reject (note + notif + gambar disimpan), out langsung kurangi saldo, CS dilarang out, guard role advertiser, approve hanya approver |
+
+### Endpoint
+- `GET/POST /keuangan/akun`, `PUT/DELETE /keuangan/akun/{account}`, `PATCH /keuangan/akun/{account}/toggle`
+- `GET/POST /keuangan/kategori`, `PUT/DELETE /keuangan/kategori/{category}`
+- `GET/POST /keuangan/transfer`, `DELETE /keuangan/transfer/{transfer}`
+- `GET/POST /keuangan/bukti-transfer`, `POST /keuangan/bukti-transfer/{bankTransfer}/approve|reject`, `DELETE .../destroy`
+
+### Penting
+- **Semua perubahan `current_balance` WAJIB lewat `FinanceService`** (jangan `$account->update` manual di controller) - ini satu-satunya titik yang konsisten + lockForUpdate.
+- Approve = hapus `image_url` dari disk (`Storage::disk('public')->delete`); reject TIDAK menghapus gambar (CS perlu melihat buktinya). Alur ini disengaja, beda dari dugaan awal.
+- Resource route param: `->parameters(['akun' => 'account'])` - tanpanya `route('finance.accounts.update', ['account' => ...])` di JS view error "Missing parameter: akun" (URL tetap `/keuangan/akun/...`).
+- Gambar disimpan ke disk `public` folder `bukti-transfer`; `php artisan storage:link` sudah dijalankan.
+- Approval tidak mengirim notifikasi `approved` (hanya reject  CS); status lihat di halaman.
+- `transaction_date` disimpan datetime (jam ikut); form date dikirim `Y-m-d`  jam 00:00.
+- **Keterangan = template chat CS** (19 Agustus): `description` max **5000** char (kolom `text`); CS menempel template konfirmasi pesanan utuh. Klik **keterangan / thumbnail bukti** (khusus role approver)  **modal detail**: foto besar  keterangan (`white-space:pre-wrap`, baris baru terjaga)  tombol **? Download Bukti** (`<a download>`) + **?? Salin Keterangan** (clipboard + fallback execCommand). `data-desc` di-encode `rawurlencode` (newline & quote aman di atribut HTML)  `decodeURIComponent` + `textContent` di JS (anti-XSS). CS melihat keterangan/bukti polos (tanpa klik).
+- **Saldo awal rekening (saldo endap BNI/dll.)** diisi di field `current_balance` saat **tambah akun** (menu Keuangan  Akun Keuangan  Tambah). Saat membuat akun bank baru (mis. BNI), masukkan saldo yang sudah ada di rekening tersebut ke field **Saldo Awal (current_balance)**. Angka ini jadi basis saldo buku; transaksi selanjutnya (bukti transfer, transfer antar akun) akan menambah/mengurangi dari sini. Jika akun sudah dibuat tapi saldo awal salah, edit akun & ubah `current_balance` langsung (tanpa lewat FinanceService, karena ini penyesuaian buku awal bukan transaksi).
+- Test memakai DB bersama tanpa refresh  nama akun/kategori pakai `uniqid()`, gambar via `Storage::fake('public')`.
+- Suite: **159 pass** (hanya `ExampleTest` 302 pre-existing).
 
 ---
 >>>>>>> 31116a421615ff596ca544b8bd2f45c31d785e57
@@ -1104,3 +1182,26 @@ File yang diunggah di halaman **Detail Per Daerah** (`/regional`) adalah file ya
 ---
 
 # Fitur Belum Selesai / Ide ke Depan
+
+## 📌 Sesi Berikutnya (setelah 27 Agustus): Lanjutan Sektor Keuangan
+
+Modul dasar keuangan (fitur U) SELESAI: akun, kategori, transfer antar akun, bukti transfer + approval. Sisa yang bisa dikerjakan berikutnya:
+
+- ✅ **FIXED (27 Agustus)**: `SpendingHarian::approve()` no-op — sudah diperbaiki:
+  - Tambah kolom `status` (default `pending`) ke tabel `spending_harians` via migration `2026_08_27_120350`
+  - Tambah `status` ke `$fillable` di model `SpendingHarian`
+  - Tambah badge Status + tombol Approve per baris di `spending/index-general.blade.php`
+  - Route `PATCH spending/{spending}/approve` → set `status = 'approved'`
+
+- ✅ **FIXED (27 Agustus)**: Halaman `/orders` — cards rapih (sistem mini-stat) + grafik tren harian interaktif Chart.js (drag-to-scroll, toggle legend, 4 dataset: Total/Real/Tembakan/Lead). Courier cards: filter null key, tiap courier punya warna + ikon berbeda.
+
+- **Dashboard keuangan** — sudah dicek: `dashboardKeuangan()` sudah kirim `$topAdvertiser`, semua blade compile OK. Jika masih 500 saat login, cek error log aktual.
+
+- **Top-up belum punya test** — `TopUpController` (proposal → approve → bayar → va-paid → confirm) belum ter-cover suite.
+- Pertanyaan yang belum dijawab user: apakah saldo akun boleh negatif (rekening vs cash), kolom bank/atas nama di `accounts`, dan apakah reject perlu alur CS upload ulang (edit bukti yang ditolak).
+
+- Tabel keuangan yang relevan saat ini: `spending_harians`, `top_up_proposals`, `top_up_proposal_items`, `whitelists` (total_topup/total_spending/nominal_terakhir_topup), `users` (role advertiser/keuangan), `notifications`, `regional_reports`, `regional_cs_stats`; sisi operasional pendukung: `shipping_orders`, `shipments`, `stock_movements`, `purchases`, `products`, `product_variants`.
+- Alur top-up yang ada: proposal → approve → bayar → va-paid → confirm saldo. Alur spending: input harian → approve (role keuangan/owner).
+- Login demo: `owner@awanna.id` / `password` (semua user seeder pakai `password`).
+
+**Langkah besok:** (1) user kasih daftar tabel + alur keuangan versi mereka → (2) cocokkan dengan modul U yang sudah dibangun → (3) tentukan apa yang baru/diubah → (4) bangun + test.

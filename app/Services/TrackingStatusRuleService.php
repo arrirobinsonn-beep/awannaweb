@@ -33,15 +33,17 @@ class TrackingStatusRuleService
         }
 
         foreach ($this->rules($source) as $rule) {
-            if ($rule->problem_mode === 'required' && ! $this->problemColumnMatches($problemColumn, $rule->problem_keyword)) {
+            if ($rule->problem_mode === 'required' && ! $this->problemColumnMatches($problemColumn, $rule->problem_keyword, $rule->problem_match_type ?? 'contains')) {
                 continue;
             }
 
+            $ruleRaw = strtolower($rule->raw_status); // stored as-is, compared lowercase
+
             if ($rule->match_type === 'contains') {
-                if ($raw !== '' && str_contains($raw, $rule->raw_status)) {
+                if ($raw !== '' && str_contains($raw, $ruleRaw)) {
                     return $rule->status;
                 }
-            } elseif ($raw === $rule->raw_status) {
+            } elseif ($raw === $ruleRaw) {
                 return $rule->status;
             }
         }
@@ -51,8 +53,10 @@ class TrackingStatusRuleService
 
     /**
      * Cek apakah kolom masalah terpenuhi untuk sebuah rule.
+     *
+     * @param  string  $matchType  contains (mengandung keyword) / starts_with (diawali keyword).
      */
-    protected function problemColumnMatches(?string $problemColumn, ?string $keyword): bool
+    protected function problemColumnMatches(?string $problemColumn, ?string $keyword, string $matchType = 'contains'): bool
     {
         $column = trim((string) $problemColumn);
         if ($column === '') {
@@ -60,6 +64,10 @@ class TrackingStatusRuleService
         }
         if ($keyword === null || trim($keyword) === '') {
             return true; // cukup tidak kosong (SPX: Delivery OnHold Reason berisi)
+        }
+
+        if ($matchType === 'starts_with') {
+            return str_starts_with(mb_strtolower($column), mb_strtolower($keyword));
         }
 
         return stripos($column, $keyword) !== false;

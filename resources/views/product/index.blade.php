@@ -5,44 +5,7 @@
 
 @push('styles')
 <style>
-    .pm-modal {
-        position: fixed; inset: 0; z-index: 9999;
-        display: none; align-items: center; justify-content: center; padding: 16px;
-    }
-    .pm-modal.active { display: flex; }
-    .pm-modal .pm-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.55); backdrop-filter: blur(2px); }
-    .pm-modal .pm-container {
-        position: relative; background: #fff; border-radius: 18px;
-        width: 100%; max-width: 540px; overflow: hidden;
-        display: flex; flex-direction: column;
-        box-shadow: 0 25px 60px rgba(0,0,0,.25); animation: pmIn .22s ease;
-    }
-    @keyframes pmIn { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-    .pm-modal .pm-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
-        background: linear-gradient(135deg, #FFF5F5, #fff);
-    }
-    .pm-modal .pm-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
-    .pm-modal .pm-close { background: #f3f4f6; border: none; border-radius: 8px; width: 30px; height: 30px; cursor: pointer; color: #6b7280; }
-    .pm-modal .pm-close:hover { background: #e5e7eb; }
-    .pm-modal .pm-body { padding: 18px 20px; max-height: 62vh; overflow-y: auto; }
-    .pm-modal .pm-body label { display: block; font-size: .72rem; font-weight: 700; color: #6b7280; margin-bottom: 4px; }
-    .pm-modal .pm-body .clay-input { font-size: .85rem; padding: 7px 10px; }
-    .pm-modal .pm-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06); }
-
-    .clay-toggle {
-        position: relative; display: inline-block; width: 36px; height: 20px; vertical-align: middle; cursor: pointer;
-    }
-    .clay-toggle input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
-    .clay-toggle .clay-toggle-slider { position: absolute; inset: 0; background: #d1d5db; border-radius: 999px; transition: background .18s; }
-    .clay-toggle .clay-toggle-slider::before {
-        content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px;
-        background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .18s;
-    }
-    .clay-toggle input:checked + .clay-toggle-slider { background: var(--color-primary, #FF6B6B); }
-    .clay-toggle input:checked + .clay-toggle-slider::before { transform: translateX(16px); }
-    .clay-toggle-sm { transform: scale(.85); transform-origin: center; }
+    /* Modal styles — now centralized in clay.css (clay-modal) */
 </style>
 @endpush
 
@@ -176,11 +139,9 @@
                                     data-category="{{ $p->category }}" data-goods-type="{{ $p->goods_type }}"
                                     data-min-stock="{{ $p->min_stock }}" data-description="{{ $p->description }}"
                                     data-purchase-price="{{ $p->purchase_price }}" data-selling-price="{{ $p->selling_price }}"
-                                    data-unit="{{ $p->unit }}" data-status="{{ $p->status }}" data-ad-status="{{ $p->ad_status }}">✏️</button>
-                            <form method="POST" action="{{ route('product.destroy', $p) }}" onsubmit="return confirm('Hapus produk {{ $p->name }} beserta variannya?')">
-                                @csrf @method('DELETE')
-                                <button type="submit" class="clay-btn clay-btn-sm clay-btn-danger" style="padding:5px 10px;font-size:.72rem;" title="Hapus produk">🗑</button>
-                            </form>
+                                    data-unit="{{ $p->unit }}" data-status="{{ $p->status }}">✏️</button>
+                            <button type="button" class="clay-btn clay-btn-sm clay-btn-danger" style="padding:5px 10px;font-size:.72rem;" title="Hapus produk"
+                                    onclick="deleteProduct('{{ route('product.destroy', $p) }}', '{{ addslashes($p->name) }}')">🗑</button>
                         </div>
                     </td>
                 </tr>
@@ -255,14 +216,14 @@
 </div>
 
 {{-- ═══════════════ MODAL TAMBAH / EDIT PRODUK ═══════════════ --}}
-<div class="pm-modal" id="modal-product" role="dialog" aria-modal="true">
-    <div class="pm-backdrop" onclick="closeProductModal()"></div>
-    <div class="pm-container">
-        <div class="pm-header">
+<div class="clay-modal" id="modal-product" role="dialog" aria-modal="true">
+    <div class="clay-modal-backdrop" onclick="closeProductModal()"></div>
+    <div class="clay-modal-container">
+        <div class="clay-modal-header">
             <h2 id="pm-title">➕ Tambah Produk</h2>
-            <button class="pm-close" onclick="closeProductModal()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeProductModal()" type="button">✕</button>
         </div>
-        <div class="pm-body">
+        <div class="clay-modal-body">
             <div class="form-grid" style="gap:12px;">
                 <div>
                     <label>Kode Produk <span style="color:#f87171;">*</span></label>
@@ -324,7 +285,7 @@
                 📦 Varian default dibuat otomatis. Produk belum terdaftar di gudang mana pun — daftarkan lewat halaman <b>Gudang</b>.
             </div>
         </div>
-        <div class="pm-footer">
+        <div class="clay-modal-footer">
             <button class="clay-btn clay-btn-outline" onclick="closeProductModal()" type="button">Batal</button>
             <button class="clay-btn clay-btn-primary" id="pm-save" type="button">💾 Simpan Produk</button>
         </div>
@@ -332,14 +293,14 @@
 </div>
 
 {{-- ═══════════════ MODAL TAMBAH / EDIT VARIAN ═══════════════ --}}
-<div class="pm-modal" id="modal-variant" role="dialog" aria-modal="true">
-    <div class="pm-backdrop" onclick="closeVariantModal()"></div>
-    <div class="pm-container">
-        <div class="pm-header">
+<div class="clay-modal" id="modal-variant" role="dialog" aria-modal="true">
+    <div class="clay-modal-backdrop" onclick="closeVariantModal()"></div>
+    <div class="clay-modal-container">
+        <div class="clay-modal-header">
             <h2 id="pv-title">➕ Tambah Varian</h2>
-            <button class="pm-close" onclick="closeVariantModal()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeVariantModal()" type="button">✕</button>
         </div>
-        <div class="pm-body">
+        <div class="clay-modal-body">
             <div class="form-grid" style="gap:12px;">
                 <div>
                     <label>Kode Varian <span style="color:#f87171;">*</span></label>
@@ -370,7 +331,7 @@
                 Stok varian diisi per gudang (halaman Gudang / Barang Masuk), bukan di sini.
             </div>
         </div>
-        <div class="pm-footer">
+        <div class="clay-modal-footer">
             <button class="clay-btn clay-btn-outline" onclick="closeVariantModal()" type="button">Batal</button>
             <button class="clay-btn clay-btn-primary" id="pv-save" type="button">💾 Simpan Varian</button>
         </div>
@@ -543,6 +504,14 @@ function toggleVarian(id) {
                 .finally(function() { self.disabled = false; });
         });
     });
+
+    // ── HAPUS PRODUK ──────────────────────────────
+    window.deleteProduct = function(url, name) {
+        if (!confirm('Hapus produk ' + name + ' beserta variannya?')) return;
+        post(url, 'DELETE')
+            .then(function(json) { if (json.success) { window.location.reload(); } else { alert('Gagal: ' + json.message); } })
+            .catch(function(err) { alert('Error: ' + err.message); });
+    };
 
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {

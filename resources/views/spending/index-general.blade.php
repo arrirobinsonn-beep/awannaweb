@@ -267,10 +267,19 @@
                                                    color:#9ca3af;text-transform:uppercase;text-align:right;
                                                    border-bottom:1px solid rgba(0,0,0,.05);">{{ $h }}</th>
                                         @endforeach
+                                        <th style="padding:6px 10px;font-size:.64rem;font-weight:700;
+                                                   color:#9ca3af;text-transform:uppercase;text-align:center;
+                                                   border-bottom:1px solid rgba(0,0,0,.05);">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                 @foreach($prodData['whitelists'] as $item)
+                                @php
+                                    $itemStatus = $item->status ?? 'pending';
+                                    $itemStatusClass = $itemStatus === 'approved' ? 'clay-badge-green' : 'clay-badge-yellow';
+                                    $canApprove = auth()->user()->hasRole(['owner','super_admin','keuangan','admin'])
+                                                  && $itemStatus !== 'approved';
+                                @endphp
                                 <tr onmouseenter="this.style.background='#f0fffe'"
                                     onmouseleave="this.style.background=''">
                                     <td style="padding:7px 20px 7px 36px;">
@@ -308,6 +317,21 @@
                                     </td>
                                     <td style="padding:7px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($item->cpa_lead,0,',','.') }}</td>
                                     <td style="padding:7px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($item->cpa_paid,0,',','.') }}</td>
+                                    <td style="padding:7px 10px;text-align:center;">
+                                        <div style="display:flex;align-items:center;justify-content:center;gap:4px;">
+                                            <span class="clay-badge {{ $itemStatusClass }}" style="font-size:.62rem;">
+                                                {{ $itemStatus === 'approved' ? '✓ Approved' : 'Pending' }}
+                                            </span>
+                                            @if($canApprove)
+                                            <form method="POST" action="{{ route('spending.approve',$item) }}" style="margin:0;">
+                                                @csrf @method('PATCH')
+                                                <button type="submit" class="clay-btn clay-btn-secondary"
+                                                        style="padding:2px 7px;font-size:.62rem;line-height:1.4;"
+                                                        title="Setujui spending ini">✓</button>
+                                            </form>
+                                            @endif
+                                        </div>
+                                    </td>
                                 </tr>
                                 @endforeach
                                 {{-- Total baris produk --}}
@@ -322,6 +346,7 @@
                                     </td>
                                     <td style="padding:6px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($prodData['cpa_lead'],0,',','.') }}</td>
                                     <td style="padding:6px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($prodData['cpa_paid'],0,',','.') }}</td>
+                                    <td></td>{{-- kolom status --}}
                                 </tr>
                                 </tbody>
                             </table>

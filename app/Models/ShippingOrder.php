@@ -59,6 +59,14 @@ class ShippingOrder extends Model
 
     public const STATUSES = ['real', 'tembakan', 'belum_diproses', 'cancel', 'duplikat'];
 
+    public const STATUS_LABELS = [
+        'real' => 'Real',
+        'tembakan' => 'Tembakan',
+        'belum_diproses' => 'Belum Diproses',
+        'cancel' => 'Cancel',
+        'duplikat' => 'Duplikat',
+    ];
+
     /** Nilai aggregator_status (tracking dari dashboard FLIK/SiCepat/SPX). */
     public const TRACKING_STATUSES = ['waiting_pickup', 'in_transit', 'delivered', 'returning', 'returned', 'problem'];
 

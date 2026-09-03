@@ -58,7 +58,15 @@
                 <span class="badge-order-status st-{{ $shippingOrder->status }}">{{ $shippingOrder->status ? str_replace('_', ' ', ucwords($shippingOrder->status, '_')) : '-' }}</span>
                 <span class="badge-courier cou-{{ $shippingOrder->courier }}">{{ $shippingOrder->courier ?? '-' }}</span>
                 @if($shippingOrder->aggregator_status)
-                    <span class="badge-courier" style="background:#d1fae5;color:#065f46;">{{ str_replace('_', ' ', $shippingOrder->aggregator_status) }}</span>
+                    @php
+                        $aggColor = match($shippingOrder->aggregator_status) {
+                            'waiting_pickup', 'in_transit', 'delivered' => 'background:#dcfce7;color:#15803d;',
+                            'problem' => 'background:#fee2e2;color:#b91c1c;',
+                            'returning', 'returned' => 'background:#fef3c7;color:#92400e;',
+                            default => 'background:#f3f4f6;color:#6b7280;',
+                        };
+                    @endphp
+                    <span class="badge-courier" style="{{ $aggColor }}">{{ str_replace('_', ' ', $shippingOrder->aggregator_status) }}</span>
                 @endif
             </div>
         </div>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\CourierRule;
+use App\Models\ExportTemplate;
 use App\Models\Product;
 use App\Services\CourierRuleService;
 use Illuminate\Http\RedirectResponse;
@@ -31,7 +32,7 @@ class CourierRuleController extends Controller
         return view('courier_rule.index', [
             'rules' => $rules,
             'nextOrder' => ($rules->max('sort_order') ?? 0) + 1,
-            'couriers' => CourierRuleService::COURIERS,
+            'couriers' => $this->allCouriers(),
             'provinces' => config('regional.master_provinces', []),
             'productCodes' => Product::query()->pluck('code')->sort()->values(),
         ]);
@@ -44,7 +45,7 @@ class CourierRuleController extends Controller
             'payment_method' => ['nullable', 'string', 'max:50'],
             'province' => ['nullable', 'string', 'max:191'],
             'product_code' => ['nullable', 'string', 'max:50'],
-            'courier' => ['required', 'string', 'in:'.implode(',', CourierRuleService::COURIERS)],
+            'courier' => ['required', 'string', 'in:'.implode(',', $this->allCouriers())],
             'is_active' => ['sometimes', 'boolean'],
         ]));
 
@@ -66,7 +67,7 @@ class CourierRuleController extends Controller
             'payment_method' => ['nullable', 'string', 'max:50'],
             'province' => ['nullable', 'string', 'max:191'],
             'product_code' => ['nullable', 'string', 'max:50'],
-            'courier' => ['required', 'string', 'in:'.implode(',', CourierRuleService::COURIERS)],
+            'courier' => ['required', 'string', 'in:'.implode(',', $this->allCouriers())],
             'is_active' => ['sometimes', 'boolean'],
         ]));
 
@@ -144,5 +145,20 @@ class CourierRuleController extends Controller
             ->where('product_code', $data['product_code'])
             ->when($ignoreId !== null, fn ($q) => $q->where('id', '!=', $ignoreId))
             ->exists();
+    }
+
+    /**
+     * Courier dinamis dari export_templates + undeliverable.
+     */
+    private function allCouriers(): array
+    {
+        $fromTemplates = ExportTemplate::where('is_active', true)
+            ->get()
+            ->flatMap(fn ($t) => $t->couriers ?? [])
+            ->unique()
+            ->values();
+        $fromTemplates->push('undeliverable');
+
+        return $fromTemplates->sort()->values()->all();
     }
 }
