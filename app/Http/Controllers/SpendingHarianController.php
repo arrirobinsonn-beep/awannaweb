@@ -57,9 +57,12 @@ class SpendingHarianController extends Controller
             ->get()
             ->keyBy('tgl');
 
-        // Total spending per tanggal
+        // Total spending per tanggal — HANYA produk RUNNING
+        // (regional_reports hanya memuat lead/paid produk running;
+        //  spending testing tidak ikut dibandingkan agar selaras)
         $spendingTotals = SpendingHarian::where('user_id', $userId)
             ->whereBetween('tanggal', [$dari, $sampai])
+            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
             ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('tgl')
             ->get()
@@ -72,12 +75,22 @@ class SpendingHarianController extends Controller
         $hasDiscrepancy = false;
         $discrepancies = [];
         $discrepantDates = [];
+        // Kelompok "Data belum ditambahkan": tanggal punya data REGIONAL tapi
+        // spending-nya kosong (belum diisi) — bukan selisih angka.
+        $missingSpendingDates = [];
 
         foreach ($allDates as $date) {
             $regLead = (int) ($regionalTotals[$date]->total_lead ?? 0);
             $regPaid = (int) ($regionalTotals[$date]->total_paid ?? 0);
             $spLead = (int) ($spendingTotals[$date]->total_lead ?? 0);
             $spPaid = (int) ($spendingTotals[$date]->total_paid ?? 0);
+
+            // Spending belum diisi sama sekali → "Data belum ditambahkan"
+            if (($regLead > 0 || $regPaid > 0) && $spLead === 0 && $spPaid === 0) {
+                $hasDiscrepancy = true;
+                $missingSpendingDates[$date] = true;
+                continue;
+            }
 
             if ($regLead !== $spLead || $regPaid !== $spPaid) {
                 $hasDiscrepancy = true;
@@ -91,7 +104,7 @@ class SpendingHarianController extends Controller
             }
         }
 
-        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates');
+        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates');
     }
 
     // ─── View Advertiser: data milik sendiri, group by tanggal → produk ─
@@ -160,6 +173,7 @@ class SpendingHarianController extends Controller
         $hasDiscrepancy = $discrepancy['hasDiscrepancy'];
         $discrepancies = $discrepancy['discrepancies'];
         $discrepantDates = $discrepancy['discrepantDates'];
+        $missingSpendingDates = $discrepancy['missingSpendingDates'] ?? [];
 
         // ─── Cek discrepancy: Data CS tim vs data advertiser ────
         $csTeamIds = User::where('advertiser_id', $user->id)
@@ -247,7 +261,7 @@ class SpendingHarianController extends Controller
         return view('spending.index-advertiser', compact(
             'summaries', 'summary', 'runningSummary', 'testingSummary',
             'dari', 'sampai', 'myWhitelists', 'user',
-            'hasDiscrepancy', 'discrepancies', 'discrepantDates',
+            'hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates',
             'csDiscrepancy', 'hasWhitelist', 'dateChangeRestrictions'
         ));
     }
@@ -296,6 +310,7 @@ class SpendingHarianController extends Controller
 
         $spendingTotals = SpendingHarian::whereIn('user_id', $advIds)
             ->whereBetween('tanggal', [$dari, $sampai])
+            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
             ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('user_id', 'tgl')
             ->get()
@@ -321,6 +336,7 @@ class SpendingHarianController extends Controller
                     'has_discrepancy' => $disc['hasDiscrepancy'],
                     'discrepancies' => $disc['discrepancies'],
                     'discrepant_dates' => $disc['discrepantDates'],
+                    'missing_spending_dates' => $disc['missingSpendingDates'] ?? [],
                 ];
 
                 continue;
@@ -334,6 +350,7 @@ class SpendingHarianController extends Controller
                 'has_discrepancy' => $disc['hasDiscrepancy'],
                 'discrepancies' => $disc['discrepancies'],
                 'discrepant_dates' => $disc['discrepantDates'],
+                'missing_spending_dates' => $disc['missingSpendingDates'] ?? [],
                 'summaries' => $grouped->map(function ($items) {
                     $byProduct = $items->groupBy('product_id')->map(function ($pItems) {
                         return [
@@ -412,12 +429,20 @@ class SpendingHarianController extends Controller
         $hasDiscrepancy = false;
         $discrepancies = [];
         $discrepantDates = [];
+        $missingSpendingDates = [];
 
         foreach ($allDates as $date) {
             $regLead = (int) ($regionalKeyed[$date]->total_lead ?? 0);
             $regPaid = (int) ($regionalKeyed[$date]->total_paid ?? 0);
             $spLead = (int) ($spendingKeyed[$date]->total_lead ?? 0);
             $spPaid = (int) ($spendingKeyed[$date]->total_paid ?? 0);
+
+            // Spending belum diisi sama sekali → "Data belum ditambahkan"
+            if (($regLead > 0 || $regPaid > 0) && $spLead === 0 && $spPaid === 0) {
+                $hasDiscrepancy = true;
+                $missingSpendingDates[$date] = true;
+                continue;
+            }
 
             if ($regLead !== $spLead || $regPaid !== $spPaid) {
                 $hasDiscrepancy = true;
@@ -431,7 +456,7 @@ class SpendingHarianController extends Controller
             }
         }
 
-        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates');
+        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates');
     }
 
     // ─── Create ────────────────────────────────────────────────────

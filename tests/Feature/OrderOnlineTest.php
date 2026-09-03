@@ -2316,6 +2316,33 @@ class OrderOnlineTest extends TestCase
         $this->assertNull(Product::find($product->id));
     }
 
+    public function test_product_store_via_json_returns_json_not_type_error(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $code = 'MPJ-'.strtoupper(substr(uniqid(), -5));
+
+        // Form modal produk dikirim via fetch (Accept: application/json) → store()
+        // HARUS mengembalikan JsonResponse, bukan TypeError (regresi: deklarasi
+        // return type lama hanya RedirectResponse padahal data tetap tersimpan).
+        $this->actingAs($user)
+            ->postJson(route('product.store'), [
+                'code' => $code,
+                'name' => 'Produk JSON Store',
+                'goods_type' => 'core',
+                'selling_price' => 30000,
+                'purchase_price' => 8000,
+                'unit' => 'pcs',
+                'status' => 'active',
+            ])
+            ->assertOk()
+            ->assertJson(['success' => true]);
+
+        $product = Product::where('code', $code)->first();
+        $this->assertNotNull($product, 'Produk harus tersimpan saat store() lewat JSON');
+        $this->assertNotNull($product->defaultVariant());
+    }
+
     private function createOrder(int $batchId, string $orderId, string $name, string $courier, string $status, ?int $productId, ?string $productCode, int $qty, string $province = 'JAWA BARAT', string $city = 'Bandung', string $subdistrict = 'Coblong'): ShippingOrder
     {
         $variantId = $productId ? ProductVariant::where('product_id', $productId)->first()?->id : null;

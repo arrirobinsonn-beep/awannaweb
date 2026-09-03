@@ -209,6 +209,11 @@
         font-size: .62rem; font-weight: 600; text-transform: uppercase;
         color: #9ca3af; margin-top: 2px;
     }
+    .preview-testing-note {
+        grid-column: 1 / -1; text-align: left;
+        background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+        padding: 8px 12px; font-size: .74rem; font-weight: 600; color: #92400e;
+    }
     .preview-alert {
         background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px;
         padding: 10px 14px; font-size: .78rem; color: #991b1b; margin-bottom: 12px;
@@ -377,6 +382,7 @@
     <div class="clay-alert clay-alert-error" data-reveal>
         <span>🚨</span>
         <div style="flex:1;font-size:.83rem;">
+            @if(count($discrepancies) > 0)
             <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
             @if(count($discrepancies) > 5)
             <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
@@ -392,6 +398,30 @@
                 </div>
                 @endforeach
             </div>
+            @endif
+
+            @if(count($missingSpendingDates) > 0)
+            @if(count($discrepancies) > 0)
+            <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
+            @endif
+            <strong>Data Belum Ditambahkan</strong>
+            @if(count($missingSpendingDates) > 5)
+            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($missingSpendingDates) }} tanggal — scroll untuk melihat sisanya
+            </div>
+            @endif
+            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach(array_keys($missingSpendingDates) as $tgl)
+                @php
+                    $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+                @endphp
+                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                    📅 {{ $tglLbl }} —
+                    Belum mengisi data spending iklan tanggal {{ $tglLbl }}
+                </div>
+                @endforeach
+            </div>
+            @endif
         </div>
     </div>
     @endif
@@ -768,6 +798,30 @@
     </div>
 </div>
 
+{{-- ═══════════════ KONFIRMASI SIMPAN (cek tanggal existing) ═══════════════ --}}
+<div class="modal-regional" id="modal-save-confirm">
+    <div class="modal-backdrop" id="save-confirm-backdrop"></div>
+    <div class="modal-container modal-container-sm" style="max-width:420px;">
+        <div class="modal-header">
+            <h2>💾 Konfirmasi Simpan</h2>
+            <button class="modal-close" id="save-confirm-close" type="button">✕</button>
+        </div>
+        <div class="modal-body" style="padding:20px 22px;">
+            <p style="font-size:.82rem;color:#374151;font-weight:600;margin:0 0 10px;">
+                Data akan disimpan pada tanggal berikut:
+            </p>
+            <div id="save-confirm-dates" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+            <div id="save-confirm-warning" style="display:none;margin-top:12px;padding:8px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:.72rem;color:#991b1b;font-weight:600;">
+                ⚠️ Beberapa tanggal sudah memiliki data — isian lama akan <strong>DIGANTI</strong> dengan data dari file ini.
+            </div>
+        </div>
+        <div class="modal-footer" style="justify-content:center;gap:12px;">
+            <button class="clay-btn clay-btn-outline" id="save-confirm-cancel" type="button">Batal</button>
+            <button class="clay-btn clay-btn-primary" id="save-confirm-yes" type="button">💾 Ya, Simpan</button>
+        </div>
+    </div>
+</div>
+
 {{-- ═══════════════ ALERT CS BELUM DITUGASKAN ═══════════════ --}}
 <div class="modal-regional" id="modal-cs-alert">
     <div class="modal-backdrop" id="cs-alert-backdrop"></div>
@@ -833,6 +887,7 @@
     let previewErrors = [];
     let previewPhoneContacts = [];
     let previewCsStats = []; // CS stats terbaru setelah edit
+    let previewSkippedTesting = 0; // lead produk Testing yang dilewati (tidak tampil di tabel)
 
     // ── Helpers ──────────────────────────────────────
     function formatNumber(n) { return n.toLocaleString('id-ID'); }
@@ -978,6 +1033,7 @@
                 previewData = json.data;
                 previewErrors = json.errors || [];
                 previewPhoneContacts = json.phone_contacts || [];
+                previewSkippedTesting = json.skipped_testing || 0;
                 // ─── Simpan CS stats dari preview ────
                 previewCsStats = [];
                 if (json.data.cs_by_date) {
@@ -1029,6 +1085,14 @@
             '<div class="preview-stat"><div class="val">' + numDates + '</div><div class="lbl">Tanggal</div></div>' +
             (pcCount ? '<div class="preview-stat" style="background:#f0fdf4;"><div class="val" style="color:#059669;">' + formatNumber(pcCount) + '</div><div class="lbl">No Telepon</div></div>' : '') +
             (uniqueCs.length ? '<div class="preview-stat" style="background:#f0fdf4;"><div class="val" style="color:#059669;">' + uniqueCs.length + '</div><div class="lbl">CS Unik</div></div>' : '');
+
+        // Info produk Testing yang dilewati (tidak tampil di tabel regional)
+        if (previewSkippedTesting > 0) {
+            var skipNote = document.createElement('div');
+            skipNote.className = 'preview-testing-note';
+            skipNote.textContent = '🔬 ' + formatNumber(previewSkippedTesting) + ' lead produk Testing dilewati (tabel hanya menampilkan produk Running).';
+            statsEl.appendChild(skipNote);
+        }
 
         // Errors
         if (errors.length > 0) {
@@ -1124,6 +1188,17 @@
     const delConfirmCancel = document.getElementById('delete-confirm-cancel');
     const delConfirmYes    = document.getElementById('delete-confirm-yes');
     const delConfirmInfo   = document.getElementById('delete-confirm-info');
+
+    // ── Konfirmasi Simpan (cek tanggal existing sebelum save) ──
+    const mSaveConfirm     = document.getElementById('modal-save-confirm');
+    const saveConfirmClose = document.getElementById('save-confirm-close');
+    const saveConfirmBackdrop = document.getElementById('save-confirm-backdrop');
+    const saveConfirmCancel = document.getElementById('save-confirm-cancel');
+    const saveConfirmYes   = document.getElementById('save-confirm-yes');
+    const saveConfirmDates = document.getElementById('save-confirm-dates');
+    const saveConfirmWarning = document.getElementById('save-confirm-warning');
+
+    let pendingSave = null; // { items, csStatsPayload, phoneContacts }
 
     let pendingDeleteId = null;
 
@@ -1282,8 +1357,6 @@
         }
 
         // ─── Kumpulkan CS stats ─────────────────────
-        previewSave.innerHTML = '<span class="spinner-sm"></span> Menyimpan...';
-
         var csStatsPayload = [];
         previewCsStats.forEach(function(cs) {
             csStatsPayload.push({
@@ -1294,7 +1367,84 @@
             });
         });
 
-        var saveData = { items: items, cs_stats: csStatsPayload, phone_contacts: previewPhoneContacts };
+        // ─── Cek tanggal yang SUDAH ada datanya → konfirmasi ──
+        // Tanggal yang sudah ada isian akan DIGANTI; yang baru akan DITAMBAH.
+        // (Pencegahan kasus "data nyasar ke tanggal lain": tanggal simpan
+        //  diambil persis dari tanggal yang terbaca di file preview.)
+        var checkData = { dates: Object.keys(dateSet) };
+        var advSelect = document.querySelector('select[name="user_id"]');
+        if (advSelect) checkData.user_id = advSelect.value;
+
+        fetch('{{ route('regional.check-existing') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+            },
+            body: JSON.stringify(checkData),
+        })
+        .then(function(res) {
+            if (!res.ok) return res.json().then(function(e) { throw new Error(e.message || 'Gagal'); });
+            return res.json();
+        })
+        .then(function(json) {
+            previewSave.disabled = false;
+            previewSave.innerHTML = '💾 Simpan Data';
+
+            var existing = json.existing_dates || [];
+            var existingSet = {};
+            existing.forEach(function(d) { existingSet[d] = true; });
+
+            var dates = Object.keys(dateSet).sort();
+            var html = '';
+            var hasExisting = false;
+            dates.forEach(function(tgl) {
+                var lbl = new Date(tgl + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                var isExisting = !!existingSet[tgl];
+                if (isExisting) hasExisting = true;
+                html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;font-size:.78rem;font-weight:600;'
+                     + (isExisting ? 'background:#fef2f2;color:#991b1b;' : 'background:#f0fdf4;color:#065f46;') + '">'
+                     + '📅 ' + lbl
+                     + '<span style="margin-left:auto;font-size:.64rem;font-weight:800;">'
+                     + (isExisting ? 'SUDAH ADA → AKAN DIGANTI' : 'BARU → AKAN DITAMBAH')
+                     + '</span></div>';
+            });
+            saveConfirmDates.innerHTML = html;
+            saveConfirmWarning.style.display = hasExisting ? '' : 'none';
+
+            pendingSave = { items: items, csStatsPayload: csStatsPayload, phoneContacts: previewPhoneContacts };
+            mSaveConfirm.classList.add('active');
+        })
+        .catch(function(err) {
+            previewSave.disabled = false;
+            previewSave.innerHTML = '💾 Simpan Data';
+            alert('Gagal memeriksa tanggal: ' + err.message);
+        });
+    });
+
+    // ── Konfirmasi Simpan ───────────────────────────
+    function closeSaveConfirm() {
+        mSaveConfirm.classList.remove('active');
+        pendingSave = null;
+    }
+    saveConfirmClose.addEventListener('click', closeSaveConfirm);
+    saveConfirmBackdrop.addEventListener('click', closeSaveConfirm);
+    saveConfirmCancel.addEventListener('click', closeSaveConfirm);
+
+    saveConfirmYes.addEventListener('click', function() {
+        if (!pendingSave) return;
+        var p = pendingSave;
+        pendingSave = null;
+        closeSaveConfirm();
+        doSave(p.items, p.csStatsPayload, p.phoneContacts);
+    });
+
+    function doSave(items, csStatsPayload, phoneContacts) {
+        previewSave.disabled = true;
+        previewSave.innerHTML = '<span class="spinner-sm"></span> Menyimpan...';
+
+        var saveData = { items: items, cs_stats: csStatsPayload, phone_contacts: phoneContacts };
 
         // Kirim target_user_id jika ada selector advertiser
         var advSelect = document.querySelector('select[name="user_id"]');
@@ -1328,7 +1478,7 @@
             previewSave.disabled = false;
             previewSave.innerHTML = '💾 Simpan Data';
         });
-    });
+    }
 
 })();
 

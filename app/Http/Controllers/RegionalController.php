@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CsAssignment;
 use App\Models\Notification;
+use App\Models\Product;
 use App\Models\OrderOnlineContact;
 use App\Models\RegionalCsStat;
 use App\Models\RegionalReport;
@@ -129,8 +130,10 @@ class RegionalController extends Controller
         }
 
         // ─── Alarm: bandingkan dengan Spending Harian ────────
+        // Regional hanya memuat produk RUNNING → spending pembanding juga running saja
         $spendingTotals = SpendingHarian::where('user_id', $targetUserId)
             ->whereBetween('tanggal', [$dari, $sampai])
+            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
             ->selectRaw('tanggal, COALESCE(SUM(`lead`), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
             ->groupBy('tanggal')
             ->get()
@@ -139,12 +142,20 @@ class RegionalController extends Controller
 
         $hasDiscrepancy = false;
         $discrepancies = [];
+        $missingSpendingDates = [];
 
         foreach ($allDates as $date) {
             $regLead = $totalPerTanggal[$date]['lead'];
             $regPaid = $totalPerTanggal[$date]['paid'];
             $spLead = (int) ($spendingTotals[$date]->total_lead ?? 0);
             $spPaid = (int) ($spendingTotals[$date]->total_paid ?? 0);
+
+            // Spending belum diisi sama sekali → "Data belum ditambahkan"
+            if (($regLead > 0 || $regPaid > 0) && $spLead === 0 && $spPaid === 0) {
+                $hasDiscrepancy = true;
+                $missingSpendingDates[$date] = true;
+                continue;
+            }
 
             if ($regLead !== $spLead || $regPaid !== $spPaid) {
                 $hasDiscrepancy = true;
@@ -194,6 +205,7 @@ class RegionalController extends Controller
             'totalSpending',
             'hasDiscrepancy',
             'discrepancies',
+            'missingSpendingDates',
             'dari',
             'sampai',
             'advertisers',
@@ -238,6 +250,7 @@ class RegionalController extends Controller
                 'data' => $preview,
                 'errors' => $result['errors'],
                 'total_raw_rows' => $result['total'],
+                'skipped_testing' => $result['skipped_testing'] ?? 0,
                 'phone_contacts' => $result['phone_contacts'] ?? [],
             ]);
         } catch (\Exception $e) {
@@ -559,12 +572,15 @@ class RegionalController extends Controller
             ->whereBetween('tanggal', [$dari, $sampai])
             ->sum('paid');
 
+        // Regional hanya memuat produk RUNNING → spending pembanding juga running saja
         $spendingLead = (int) SpendingHarian::where('user_id', $user->id)
             ->whereBetween('tanggal', [$dari, $sampai])
+            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
             ->sum('lead');
 
         $spendingPaid = (int) SpendingHarian::where('user_id', $user->id)
             ->whereBetween('tanggal', [$dari, $sampai])
+            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
             ->sum('paid');
 
         return response()->json([

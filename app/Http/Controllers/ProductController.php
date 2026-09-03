@@ -37,7 +37,7 @@ class ProductController extends Controller
         return view('product.index', compact('products'));
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request): RedirectResponse|JsonResponse
     {
         $data = $this->validateProduct($request);
 
