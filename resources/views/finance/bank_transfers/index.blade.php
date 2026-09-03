@@ -71,10 +71,10 @@
     .bt-filter-bar select, .bt-filter-bar .clay-btn { font-size: .75rem; padding: 6px 10px; }
     .bt-filter-bar select { border: 1.5px solid #e5e7eb; border-radius: 10px; background: #fff; color: #374151; }
 
-    /* Modal reject — styles centralized in clay.css (clay-modal) */
-    .bt-modal .bt-container { max-width: 760px; max-height: 92vh; }
-    .bt-modal .bt-body { padding: 16px 20px; overflow-y: auto; }
-    .bt-modal .bt-footer { flex-wrap: wrap; }
+    /* Modal overrides — base styles in clay.css */
+    .clay-modal .clay-modal-container.bt-lg { max-width: 760px; max-height: 92vh; }
+    .clay-modal .clay-modal-body.bt-body-dense { padding: 16px 20px; overflow-y: auto; }
+    .clay-modal .clay-modal-footer { flex-wrap: wrap; }
 
     @media (max-width: 479px) {
         .bt-table-wrap { overflow-x: auto; }
@@ -451,7 +451,7 @@
                         <td style="max-width:180px;">
                             @if($isApprover)
                             <div class="bt-desc-click" onclick="openBtDetail(this)"
-                                 data-img="{{ $bt->image_url ? asset('storage/'.$bt->image_url) : '' }}"
+                                 data-img="{{ $bt->image_url ? route('finance.bank-transfers.image', $bt) : '' }}"
                                  data-desc="{{ rawurlencode($bt->description ?? '') }}"
                                  data-dl="{{ $bt->image_url ? route('finance.bank-transfers.download', $bt) : '' }}"
                                  title="Klik untuk lihat foto & keterangan lengkap">
@@ -470,14 +470,14 @@
                             @if($bt->image_url)
                                 @if($isApprover)
                                 <a href="javascript:void(0)" onclick="openBtDetail(this)"
-                                   data-img="{{ asset('storage/'.$bt->image_url) }}"
+                                   data-img="{{ route('finance.bank-transfers.image', $bt) }}"
                                    data-desc="{{ rawurlencode($bt->description ?? '') }}"
                                    data-dl="{{ route('finance.bank-transfers.download', $bt) }}"
                                    title="Klik untuk lihat detail">
-                                    <img src="{{ asset('storage/'.$bt->image_url) }}" class="bt-img" alt="bukti">
+                                    <img src="{{ route('finance.bank-transfers.image', $bt) }}" class="bt-img" alt="bukti">
                                 </a>
                                 @else
-                                <img src="{{ asset('storage/'.$bt->image_url) }}" class="bt-img" alt="bukti" title="{{ $bt->description }}">
+                                <img src="{{ route('finance.bank-transfers.image', $bt) }}" class="bt-img" alt="bukti" title="{{ $bt->description }}">
                                 @endif
                             @else
                                 <span style="font-size:.7rem;color:#9ca3af;">—</span>
@@ -551,16 +551,16 @@
 </div>
 
 {{-- ── Modal Reject ─────────────────────────────────────────────── --}}
-<div class="bt-modal" id="bt-modal" role="dialog" aria-modal="true" aria-labelledby="bt-modal-title">
-    <div class="bt-backdrop" onclick="closeBtReject()"></div>
-    <div class="bt-container">
-        <div class="bt-header">
+<div class="clay-modal" id="bt-modal" role="dialog" aria-modal="true" aria-labelledby="bt-modal-title">
+    <div class="clay-modal-backdrop" onclick="closeBtReject()"></div>
+    <div class="clay-modal-container bt-lg">
+        <div class="clay-modal-header">
             <h2 id="bt-modal-title">✕ Tolak Bukti Transfer</h2>
-            <button class="bt-close" onclick="closeBtReject()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeBtReject()" type="button">✕</button>
         </div>
         <form method="POST" id="bt-reject-form">
             @csrf
-            <div class="bt-body">
+            <div class="clay-modal-body bt-body-dense">
                 <div class="bt-form">
                     <div class="bt-field">
                         <label>Alasan Penolakan (feedback ke CS) *</label>
@@ -572,7 +572,7 @@
                     </div>
                 </div>
             </div>
-            <div class="bt-footer">
+            <div class="clay-modal-footer">
                 <button type="button" class="clay-btn clay-btn-outline" onclick="closeBtReject()">Batal</button>
                 <button type="submit" class="clay-btn clay-btn-primary">✕ Tolak & Kirim Feedback</button>
             </div>
@@ -581,14 +581,14 @@
 </div>
 
 {{-- ── Modal Detail Transaksi (foto + keterangan + download) ─────── --}}
-<div class="bt-modal" id="btd-modal" role="dialog" aria-modal="true" aria-labelledby="btd-modal-title">
-    <div class="bt-backdrop" onclick="closeBtDetail()"></div>
-    <div class="bt-container">
-        <div class="bt-header">
+<div class="clay-modal" id="btd-modal" role="dialog" aria-modal="true" aria-labelledby="btd-modal-title">
+    <div class="clay-modal-backdrop" onclick="closeBtDetail()"></div>
+    <div class="clay-modal-container bt-lg">
+        <div class="clay-modal-header">
             <h2 id="btd-modal-title">📄 Detail Transaksi</h2>
-            <button class="bt-close" onclick="closeBtDetail()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeBtDetail()" type="button">✕</button>
         </div>
-        <div class="bt-body">
+        <div class="clay-modal-body bt-body-dense">
             <div style="display:flex;gap:16px;align-items:stretch;flex-wrap:wrap;">
                 <div id="btd-img-wrap" style="display:none;flex:1 1 220px;min-width:0;text-align:center;background:#f3f4f6;border-radius:14px;padding:10px;">
                     <img id="btd-img" src="" alt="bukti transfer" style="max-width:100%;max-height:62vh;object-fit:contain;border-radius:10px;">
@@ -599,7 +599,7 @@
                 </div>
             </div>
         </div>
-        <div class="bt-footer">
+        <div class="clay-modal-footer">
             <button type="button" class="clay-btn clay-btn-outline" id="btd-copy-buyer" onclick="copyBtBuyer(this)">👤 Salin Nama Buyer</button>
             <button type="button" class="clay-btn clay-btn-outline" id="btd-copy" onclick="copyBtDesc(this)">📋 Salin Keterangan</button>
             <a id="btd-download" class="clay-btn clay-btn-primary" download style="display:none;text-decoration:none;color:#fff;">⬇ Download Bukti</a>

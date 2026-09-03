@@ -259,6 +259,7 @@ Route::middleware('auth')->group(function () {
             Route::post('bukti-transfer/{bankTransfer}/reject', [BankTransferController::class, 'reject'])->name('bank-transfers.reject');
             Route::delete('bukti-transfer/{bankTransfer}/image', [BankTransferController::class, 'deleteImage'])->name('bank-transfers.delete-image');
             Route::delete('bukti-transfer/{bankTransfer}', [BankTransferController::class, 'destroy'])->name('bank-transfers.destroy');
+            Route::get('bukti-transfer/{bankTransfer}/image', [BankTransferController::class, 'serveImage'])->name('bank-transfers.image');
             Route::get('bukti-transfer/{bankTransfer}/download', [BankTransferController::class, 'download'])->name('bank-transfers.download');
         });
     });

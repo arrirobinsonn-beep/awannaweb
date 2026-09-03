@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Bukti transfer (bank_transfers).
@@ -161,7 +162,7 @@ class BankTransferController extends Controller
                 'transaction_date' => $data['transaction_date'],
                 'created_by' => $user->id,
                 'image_url' => $request->hasFile('image')
-                    ? $request->file('image')->store('bukti-transfer', 'public')
+                    ? $request->file('image')->store('bukti-transfer', 'local')
                     : null,
                 // Approver = langsung dicatat (saldo ter-update); CS = pending (perlu confirm pemilik bank dulu).
                 'status' => $isApprover ? 'approved' : 'pending',
@@ -171,6 +172,11 @@ class BankTransferController extends Controller
 
             return $bt;
         });
+
+        // Generate WebP version for secure API serving
+        if ($bt->image_url) {
+            $this->generateWebp(storage_path('app/private/'.$bt->image_url));
+        }
 
         if ($isCs) {
             // Notifikasi ke semua approver
@@ -293,9 +299,7 @@ class BankTransferController extends Controller
         abort_unless($this->isApprover(), 403);
         abort_unless($bankTransfer->image_url, 404, 'Tidak ada gambar yang bisa dihapus.');
 
-        if (Storage::disk('public')->exists($bankTransfer->image_url)) {
-            Storage::disk('public')->delete($bankTransfer->image_url);
-        }
+        $this->deleteImageFiles($bankTransfer->image_url);
 
         $bankTransfer->update(['image_url' => null]);
 
@@ -306,8 +310,10 @@ class BankTransferController extends Controller
     public function download(BankTransfer $bankTransfer)
     {
         abort_unless($this->isApprover() || $this->isAccountOwner($bankTransfer->account) || $bankTransfer->created_by === auth()->id(), 403);
-        abort_unless($bankTransfer->image_url && Storage::disk('public')->exists($bankTransfer->image_url),
-            404, 'Bukti gambar sudah tidak tersedia.');
+        abort_unless($bankTransfer->image_url, 404, 'Bukti gambar sudah tidak tersedia.');
+
+        $resolved = $this->resolveImageFile($bankTransfer->image_url, false);
+        abort_unless($resolved, 404, 'Bukti gambar sudah tidak tersedia.');
 
         $buyer = $bankTransfer->order_online_id
             ? optional(ShippingOrder::where('order_id', $bankTransfer->order_online_id)->first())->customer_name
@@ -320,8 +326,8 @@ class BankTransferController extends Controller
             $bankTransfer->id,
         ]));
 
-        return Storage::disk('public')->download(
-            $bankTransfer->image_url,
+        return Storage::disk($resolved[0])->download(
+            $resolved[1],
             'bukti-'.$slug.'-'.date('Ymd').'.'.pathinfo($bankTransfer->image_url, PATHINFO_EXTENSION)
         );
     }
@@ -336,7 +342,7 @@ class BankTransferController extends Controller
             app(FinanceService::class)->reverseBankTransfer($bankTransfer);
 
             if ($bankTransfer->image_url) {
-                Storage::disk('public')->delete($bankTransfer->image_url);
+                $this->deleteImageFiles($bankTransfer->image_url);
             }
 
             $bankTransfer->delete();
@@ -346,6 +352,81 @@ class BankTransferController extends Controller
             $wasApproved
                 ? 'Transaksi dihapus & saldo dikembalikan.'
                 : 'Transaksi dihapus (saldo belum pernah berubah karena statusnya belum disetujui).');
+    }
+
+    /** Serve image (WebP preferred) for authenticated web users. */
+    public function serveImage(BankTransfer $bankTransfer): Response
+    {
+        abort_unless(
+            $this->isApprover() || $this->isAccountOwner($bankTransfer->account) || $bankTransfer->created_by === auth()->id(),
+            403
+        );
+        abort_unless($bankTransfer->image_url, 404, 'Tidak ada gambar.');
+
+        $resolved = $this->resolveImageFile($bankTransfer->image_url, true);
+        abort_unless($resolved, 404, 'Gambar tidak ditemukan.');
+
+        return response()->file(Storage::disk($resolved[0])->path($resolved[1]));
+    }
+
+    /** Resolve image file across local (new) and public (old) disks. */
+    private function resolveImageFile(string $url, bool $preferWebp = true): ?array
+    {
+        $webpPath = preg_replace('/\.[\w]+$/', '.webp', $url);
+
+        foreach (['local', 'public'] as $disk) {
+            if ($preferWebp && Storage::disk($disk)->exists($webpPath)) {
+                return [$disk, $webpPath];
+            }
+            if (Storage::disk($disk)->exists($url)) {
+                return [$disk, $url];
+            }
+        }
+
+        return null;
+    }
+
+    /** Delete image + WebP from all disks. */
+    private function deleteImageFiles(string $url): void
+    {
+        $webpPath = preg_replace('/\.[\w]+$/', '.webp', $url);
+        foreach (['local', 'public'] as $disk) {
+            foreach ([$url, $webpPath] as $path) {
+                if (Storage::disk($disk)->exists($path)) {
+                    Storage::disk($disk)->delete($path);
+                }
+            }
+        }
+    }
+
+    /** Generate WebP version of an image (GD library). */
+    private function generateWebp(string $filePath): void
+    {
+        if (! function_exists('imagewebp')) {
+            return;
+        }
+        $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+        if ($ext === 'webp') {
+            return;
+        }
+        $webpPath = preg_replace('/\.[\w]+$/', '.webp', $filePath);
+        try {
+            $info = @getimagesize($filePath);
+            if (! $info) {
+                return;
+            }
+            $image = match ($info['mime']) {
+                'image/jpeg' => @imagecreatefromjpeg($filePath),
+                'image/png' => @imagecreatefrompng($filePath),
+                default => null,
+            };
+            if ($image) {
+                @imagewebp($image, $webpPath, 82);
+                imagedestroy($image);
+            }
+        } catch (\Throwable) {
+            // Fail silently — WebP is enhancement only
+        }
     }
 
     private function notifyCreator(BankTransfer $bt, string $type, string $title, string $message, ?int $fromUserId): void
