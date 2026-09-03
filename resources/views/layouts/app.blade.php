@@ -488,16 +488,18 @@
             @endif
 
             {{-- ═══ Manajemen ═══ --}}
-            @if($u->hasRole(['owner','super_admin']))
+            @if($u->hasRole(['owner','super_admin','admin','keuangan']))
             <div class="nav-group" data-group="manajemen">
                 <button type="button" class="nav-group-header sidebar-label" data-tip="Manajemen">
                     <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;"><x-icon name="cog-6-tooth" class="icon-sm" /> Manajemen</span>
                     <span class="nav-chev">▾</span>
                 </button>
                 <div class="nav-group-body">
+                    @if($u->hasRole(['owner','super_admin']))
                     <a href="{{ route('user.index') }}" class="nav-item {{ request()->routeIs('user.*') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="users" /></span><span class="sidebar-label">Users & Role</span>
                     </a>
+                    @endif
                     @if($u->hasRole(['owner','super_admin','admin']))
                     <a href="{{ route('team.admin-index') }}" class="nav-item {{ request()->routeIs('team.admin-index') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="map-pin" /></span><span class="sidebar-label">Mapping Tim CS</span>
