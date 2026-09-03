@@ -9,4 +9,5 @@ Route::prefix('mobile')->name('mobile.')->middleware('auth.mobile')->group(funct
     Route::get('transactions/{id}', [MobileTransactionController::class, 'show'])->name('transactions.show');
     Route::get('transactions/{id}/image', [MobileTransactionController::class, 'image'])->name('transactions.image');
     Route::post('transactions/{id}/confirm', [MobileTransactionController::class, 'confirm'])->name('transactions.confirm');
+    Route::post('transactions/{id}/reject', [MobileTransactionController::class, 'reject'])->name('transactions.reject');
 });

@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Storage;
 class MobileTransactionController extends Controller
 {
     /** Kolom yang di-select dari DB (hindari SELECT *). */
-    private const LIST_FIELDS = ['id', 'amount', 'transaction_date', 'description', 'created_by', 'product_id', 'image_url', 'status'];
+    private const LIST_FIELDS = ['id', 'amount', 'transaction_date', 'description', 'created_by', 'product_id', 'image_url', 'status', 'rejection_note'];
 
     /**
      * GET /api/mobile/transactions
@@ -43,6 +43,7 @@ class MobileTransactionController extends Controller
             'product_name' => $t->product?->name ?? '-',
             'image_url' => $t->image_url ? route('mobile.transactions.image', $t->id) : null,
             'status' => $t->status,
+            'rejection_note' => $t->rejection_note,
         ]);
 
         return response()->json([
@@ -156,6 +157,49 @@ class MobileTransactionController extends Controller
         return response()->json([
             'message' => 'Transaksi berhasil dikonfirmasi.',
             'data' => $transaction->fresh('category'),
+        ]);
+    }
+
+    /**
+     * POST /api/mobile/transactions/{id}/reject
+     * Tolak transaksi — memerlukan rejection_note.
+     * Hanya transaksi pending/confirmed yang bisa ditolak.
+     */
+    public function reject(Request $request, int $id): JsonResponse
+    {
+        $account = $request->attributes->get('mobile_account');
+
+        $transaction = BankTransfer::where('id', $id)
+            ->where('account_id', $account->id)
+            ->first();
+
+        if (! $transaction) {
+            return response()->json(['message' => 'Transaksi tidak ditemukan atau bukan milik akun ini.'], 404);
+        }
+
+        if (! in_array($transaction->status, ['pending', 'confirmed'])) {
+            return response()->json([
+                'message' => 'Transaksi tidak bisa ditolak.',
+                'current_status' => $transaction->status,
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'rejection_note' => ['required', 'string', 'max:500'],
+        ]);
+
+        $transaction->update([
+            'status' => 'rejected',
+            'rejection_note' => $data['rejection_note'],
+        ]);
+
+        return response()->json([
+            'message' => 'Transaksi berhasil ditolak.',
+            'data' => [
+                'id' => $transaction->id,
+                'status' => $transaction->status,
+                'rejection_note' => $transaction->rejection_note,
+            ],
         ]);
     }
 }
