@@ -69,7 +69,7 @@ body {
 .nav-item:hover { background: #FFF5F5; color: var(--color-primary); }
 .nav-item.active { background: linear-gradient(135deg, rgba(255,107,107,0.08), rgba(255,154,154,0.12)); color: var(--color-primary); font-weight: 700; border: 1.5px solid rgba(255,107,107,0.2); }
 .nav-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
-.nav-item.active .nav-icon { background: var(--color-primary); box-shadow: 0 3px 0 #e05555; }
+.nav-item.active .nav-icon { background: rgba(255, 107, 107, 0.12); color: var(--color-primary); box-shadow: none; }
 
 /* ─── Stat Card ──────────────────────────────────────────── */
 .stat-card { border-radius: 20px; padding: 22px; border: 2px solid transparent; position: relative; overflow: hidden; transition: transform 0.2s ease; }

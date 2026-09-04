@@ -5,6 +5,13 @@
 
 @section('content')
 
+{{-- ═══ Date Range Picker ═══ --}}
+<div class="clay-card" style="padding:12px 16px;margin-bottom:16px;" data-reveal>
+    <form id="dash-drp-form" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+        <x-date-range-picker :dari="$dari" :sampai="$sampai" form-id="dash-drp-form" />
+    </form>
+</div>
+
 @php
     $tSpend  = $bulanIni->total_spending ?? 0;
     $tLead   = $bulanIni->total_lead    ?? 0;

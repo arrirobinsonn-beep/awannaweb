@@ -35,17 +35,7 @@ class OrderOnlineController extends Controller
         $selectedBatch = $batchId ? OrderOnlineImportBatch::find($batchId) : null;
 
         // Query orders — filter by batch if selected, otherwise show all
-        $ordersQuery = ShippingOrder::query()
-            ->when($selectedBatch, fn ($q) => $q->where('order_online_import_batch_id', $selectedBatch->id))
-            ->when($request->filled('search'), fn ($q) => $q->where(function ($qq) use ($request) {
-                $qq->where('order_id', 'like', '%'.$request->search.'%')
-                    ->orWhere('customer_name', 'like', '%'.$request->search.'%')
-                    ->orWhere('phone', 'like', '%'.$request->search.'%');
-            }))
-            ->when($request->filled('courier'), fn ($q) => $q->where('courier', $request->courier))
-            ->when($request->filled('status'), fn ($q) => $q->where('status', 'like', '%'.$request->status.'%'))
-            ->when($request->filled('product_code'), fn ($q) => $q->where('product_code', $request->product_code))
-            ->orderByDesc('id');
+        $ordersQuery = $this->buildOrderQuery($request, $selectedBatch);
 
         $orders = $ordersQuery->paginate(25)->withQueryString();
 
@@ -137,6 +127,54 @@ class OrderOnlineController extends Controller
         $isCs = auth()->user()->hasRole('cs');
 
         return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions', 'isCs', 'summaryByCourier', 'summaryByStatus', 'summaryByAggregator', 'summaryTotal', 'chartData'));
+    }
+
+    public function filter(Request $request): JsonResponse
+    {
+        $batchId = $request->integer('batch');
+        $selectedBatch = $batchId ? OrderOnlineImportBatch::find($batchId) : null;
+
+        $ordersQuery = $this->buildOrderQuery($request, $selectedBatch);
+        $orders = $ordersQuery->paginate(25)->withQueryString();
+
+        $courierList = $this->getCourierList();
+        $products = Product::query()->orderBy('code')->with('variants')->get(['id', 'code', 'name']);
+
+        return response()->json([
+            'html' => view('order._table', [
+                'orders' => $orders,
+                'courierList' => $courierList,
+                'products' => $products,
+                'isCs' => auth()->user()->hasRole('cs'),
+                'selectedBatch' => $selectedBatch,
+            ])->render(),
+            'total' => $orders->total(),
+        ]);
+    }
+
+    private function buildOrderQuery(Request $request, ?OrderOnlineImportBatch $selectedBatch = null)
+    {
+        return ShippingOrder::query()
+            ->when($selectedBatch, fn ($q) => $q->where('order_online_import_batch_id', $selectedBatch->id))
+            ->when($request->filled('dari'), fn ($q) => $q->where('created_at', '>=', $request->dari))
+            ->when($request->filled('sampai'), fn ($q) => $q->where('created_at', '<=', $request->sampai.' 23:59:59'))
+            ->when($request->filled('search'), fn ($q) => $q->where(function ($qq) use ($request) {
+                $qq->where('order_id', 'like', '%'.$request->search.'%')
+                    ->orWhere('customer_name', 'like', '%'.$request->search.'%')
+                    ->orWhere('phone', 'like', '%'.$request->search.'%');
+            }))
+            ->when($request->filled('courier'), fn ($q) => $q->where('courier', $request->courier))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', 'like', '%'.$request->status.'%'))
+            ->when($request->filled('product_code'), fn ($q) => $q->where('product_code', $request->product_code))
+            ->orderByDesc('id');
+    }
+
+    private function getCourierList()
+    {
+        $exportTemplates = ExportTemplate::where('is_active', true)->get();
+        $allCouriers = $exportTemplates->flatMap(fn ($t) => $t->couriers ?? [])->unique()->values()->sort()->values();
+        $allCouriers->push('undeliverable');
+        return $allCouriers;
     }
 
     public function show(ShippingOrder $shippingOrder): View

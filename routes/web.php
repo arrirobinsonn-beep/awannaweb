@@ -198,6 +198,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/pengiriman/import', [ShipmentController::class, 'store'])->name('shipment.import');
 
         // Order Online (Data Mentah + Export Template Excel)
+        Route::get('/orders/filter', [OrderOnlineController::class, 'filter'])->name('orders.filter');
         Route::get('/orders', [OrderOnlineController::class, 'index'])->name('orders.index');
         Route::post('/orders/preview', [OrderOnlineController::class, 'preview'])->name('orders.preview');
         Route::post('/orders/import', [OrderOnlineController::class, 'store'])->name('orders.import');
@@ -211,16 +212,14 @@ Route::middleware('auth')->group(function () {
         Route::delete('/order-batches/{batch}', [OrderOnlineBatchController::class, 'destroy'])->name('order-batch.destroy');
 
         // Purchase (Barang Masuk)
+        Route::get('/barang-masuk/filter', [PurchaseController::class, 'filter'])->name('purchase.filter');
         Route::get('/barang-masuk', [PurchaseController::class, 'index'])->name('purchase.index');
         Route::post('/barang-masuk', [PurchaseController::class, 'store'])->name('purchase.store');
-        Route::patch('/barang-masuk/{purchase}/verify', [PurchaseController::class, 'verifyArrival'])->name('purchase.verify');
+        Route::patch('/barang-masuk/{purchase}/receive', [PurchaseController::class, 'receive'])->name('purchase.receive');
         Route::delete('/barang-masuk/{purchase}', [PurchaseController::class, 'destroy'])->name('purchase.destroy');
 
-        // ── Approval (Unified: Top Up + Pembelian) ──
-        Route::get('/approval', [PurchaseController::class, 'approvalIndex'])->name('approval.index');
-        Route::patch('/approval/purchase/{purchase}/approve', [PurchaseController::class, 'approvePurchase'])->name('approval.purchase.approve');
-        Route::patch('/approval/purchase/{purchase}/reject', [PurchaseController::class, 'rejectPurchase'])->name('approval.purchase.reject');
-        Route::patch('/approval/purchase/{purchase}/verify', [PurchaseController::class, 'verifyArrival'])->name('approval.purchase.verify');
+        // ── Approval (Top Up only — purchases no longer need approval) ──
+        Route::get('/approval', [ApprovalController::class, 'index'])->name('approval.index');
 
         // Jurnal Stok
         Route::get('/jurnal-stok', [StockMovementController::class, 'index'])->name('stock-movement.index');
