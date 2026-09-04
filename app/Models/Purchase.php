@@ -11,12 +11,13 @@ class Purchase extends Model
 {
     use HasFactory;
 
-    public const STATUSES = ['pending', 'approved', 'rejected', 'received'];
+    public const STATUS_IN_TRANSIT = 'in_transit';
+    public const STATUS_RECEIVED  = 'received';
+
+    public const STATUSES = [self::STATUS_IN_TRANSIT, self::STATUS_RECEIVED];
     public const STATUS_LABELS = [
-        'pending'  => 'Menunggu',
-        'approved' => 'Disetujui',
-        'rejected' => 'Ditolak',
-        'received' => 'Barang Diterima',
+        self::STATUS_IN_TRANSIT => 'Belum Masuk',
+        self::STATUS_RECEIVED  => 'Diterima',
     ];
 
     protected $fillable = [
@@ -30,13 +31,10 @@ class Purchase extends Model
         'note',
         'created_by',
         'status',
-        'approved_by',
-        'approved_at',
-        'rejection_note',
+        'received_qty',
+        'received_note',
         'received_at',
         'received_by',
-        'receive_note',
-        'source_account_id',
     ];
 
     protected $casts = [
@@ -44,7 +42,7 @@ class Purchase extends Model
         'quantity' => 'integer',
         'unit_price' => 'decimal:2',
         'shipping_cost' => 'decimal:2',
-        'approved_at' => 'datetime',
+        'received_qty' => 'integer',
         'received_at' => 'datetime',
     ];
 
@@ -70,65 +68,29 @@ class Purchase extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function approver(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'approved_by');
-    }
-
     public function receiver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'received_by');
     }
 
-    public function sourceAccount(): BelongsTo
-    {
-        return $this->belongsTo(Account::class, 'source_account_id');
-    }
-
     // ─── Helper ────────────────────────────────────────────────
 
-    public function isPending(): bool
+    public function isInTransit(): bool
     {
-        return $this->status === 'pending';
-    }
-
-    public function isApproved(): bool
-    {
-        return $this->status === 'approved';
-    }
-
-    public function isRejected(): bool
-    {
-        return $this->status === 'rejected';
+        return $this->status === self::STATUS_IN_TRANSIT;
     }
 
     public function isReceived(): bool
     {
-        return $this->status === 'received';
+        return $this->status === self::STATUS_RECEIVED;
     }
 
-    /** Sudah disetujui tapi belum diverifikasi barangnya. */
-    public function needsVerification(): bool
+    public function totalCost(): float
     {
-        return $this->status === 'approved';
+        return (float) $this->quantity * (float) $this->unit_price + (float) $this->shipping_cost;
     }
 
     // ─── Scope ─────────────────────────────────────────────────
-
-    public function scopePending(Builder $query): Builder
-    {
-        return $query->where('status', 'pending');
-    }
-
-    public function scopeApproved(Builder $query): Builder
-    {
-        return $query->where('status', 'approved');
-    }
-
-    public function scopeReceived(Builder $query): Builder
-    {
-        return $query->where('status', 'received');
-    }
 
     public function scopeByStatus(Builder $query, ?string $status): Builder
     {

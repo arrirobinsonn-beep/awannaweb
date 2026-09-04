@@ -56,7 +56,6 @@
         font-weight: 700; font-size: .76rem; cursor: pointer; padding: 2px 6px;
     }
     .cr-edit-btn:hover { text-decoration: underline; }
-    .cr-del-form { display: inline; }
     .cr-del-btn {
         background: none; border: none; color: #dc2626; font-weight: 700;
         font-size: .76rem; cursor: pointer; padding: 2px 6px;
@@ -71,8 +70,6 @@
         background: #f3f4f6; padding: 1px 6px; border-radius: 5px;
         font-size: .7rem; color: #6d28d9; font-weight: 700;
     }
-
-    /* Modal edit — styles centralized in clay.css (clay-modal) */
 
     @media (max-width: 479px) {
         .cr-table-wrap { overflow-x: auto; }
@@ -101,22 +98,13 @@
     {{-- ── Form Tambah ─────────────────────────────────────────── --}}
     <div class="clay-card" style="padding:16px;" data-reveal>
         <h2 style="margin:0 0 4px;font-size:1rem;font-weight:800;">➕ Tambah Aturan</h2>
-        <div style="font-size:.7rem;color:#9ca3af;margin-bottom:14px;">Mapping baru — langsung aktif dipakai saat import.</div>
+        <div style="font-size:.7rem;color:#9ca3af;margin-bottom:14px;">Mapping baru — langsung aktif dipakai saat import. Urutan otomatis di paling bawah.</div>
 
-        <form method="POST" action="{{ route('courier-rule.store') }}" class="cr-form">
-            @csrf
-
-            <div class="cr-field">
-                <label>Urutan (prioritas) *</label>
-                <input type="number" name="sort_order" class="clay-input" min="1" required
-                       value="{{ old('sort_order', $nextOrder) }}">
-                <div class="cr-hint">Kecil = dievaluasi lebih dulu (menang).</div>
-            </div>
-
+        <form id="cr-add-form" class="cr-form">
             <div class="cr-field">
                 <label>Metode Bayar</label>
-                <input type="text" name="payment_method" class="clay-input" list="cr-pm-list"
-                       placeholder="kosongkan = semua" value="{{ old('payment_method') }}">
+                <input type="text" name="payment_method" id="cr-payment" class="clay-input" list="cr-pm-list"
+                       placeholder="kosongkan = semua">
                 <datalist id="cr-pm-list">
                     <option value="cod">
                     <option value="bank_transfer">
@@ -126,8 +114,8 @@
 
             <div class="cr-field">
                 <label>Provinsi</label>
-                <input type="text" name="province" class="clay-input" list="cr-prov-list"
-                       placeholder="kosongkan = semua provinsi" value="{{ old('province') }}">
+                <input type="text" name="province" id="cr-province" class="clay-input" list="cr-prov-list"
+                       placeholder="kosongkan = semua provinsi">
                 <datalist id="cr-prov-list">
                     @foreach($provinces as $p)<option value="{{ $p }}">@endforeach
                 </datalist>
@@ -136,8 +124,8 @@
 
             <div class="cr-field">
                 <label>Kode Produk (khusus produk)</label>
-                <input type="text" name="product_code" class="clay-input" list="cr-code-list"
-                       placeholder="kosongkan = semua produk" value="{{ old('product_code') }}">
+                <input type="text" name="product_code" id="cr-product-code" class="clay-input" list="cr-code-list"
+                       placeholder="kosongkan = semua produk">
                 <datalist id="cr-code-list">
                     @foreach($productCodes as $pc)<option value="{{ $pc }}">@endforeach
                 </datalist>
@@ -146,17 +134,17 @@
 
             <div class="cr-field">
                 <label>Courier *</label>
-                <select name="courier" class="clay-input" required>
-                    <option value="" disabled {{ old('courier') ? '' : 'selected' }}>— pilih courier —</option>
+                <select name="courier" id="cr-courier" class="clay-input" required>
+                    <option value="" disabled selected>— pilih courier —</option>
                     @foreach($couriers as $c)
-                        <option value="{{ $c }}" @selected(old('courier') === $c)>{{ $c }}</option>
+                        <option value="{{ $c }}">{{ $c }}</option>
                     @endforeach
                 </select>
             </div>
 
             <div class="cr-field">
                 <label class="cr-check">
-                    <input type="checkbox" name="is_active" value="1" checked>
+                    <input type="checkbox" name="is_active" id="cr-active" value="1" checked>
                     Aktif (dipakai saat evaluasi)
                 </label>
             </div>
@@ -169,100 +157,12 @@
     <div class="clay-card" style="overflow:hidden;" data-reveal>
         <div style="padding:12px 18px;font-weight:800;font-size:.9rem;border-bottom:1px solid rgba(0,0,0,.06);
                     display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-            <span>🗂 Daftar Aturan <span style="color:#9ca3af;font-weight:600;font-size:.75rem;">({{ $rules->count() }})</span></span>
+            <span>🗂 Daftar Aturan <span id="cr-count" style="color:#9ca3af;font-weight:600;font-size:.75rem;">({{ $rules->count() }})</span></span>
             <span style="font-size:.68rem;color:#9ca3af;font-weight:500;">urut dari prioritas tertinggi ↓</span>
         </div>
 
-        <div class="cr-table-wrap">
-            <table class="clay-table">
-                <thead>
-                    <tr>
-                        <th style="width:70px;text-align:center;">Urutan</th>
-                        <th>Metode Bayar</th>
-                        <th>Provinsi</th>
-                        <th>Kode Produk</th>
-                        <th>Courier</th>
-                        <th style="text-align:center;">Status</th>
-                        <th style="width:170px;">Aksi</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse($rules as $rule)
-                    <tr style="{{ $rule->is_active ? '' : 'opacity:.55;' }}">
-                        <td style="text-align:center;font-weight:700;color:#6b7280;">{{ $rule->sort_order }}</td>
-                        <td>
-                            @if($rule->payment_method)
-                                <span class="clay-badge cr-badge-pm">{{ $rule->payment_method }}</span>
-                            @else
-                                <span class="clay-badge cr-badge-all">Semua</span>
-                            @endif
-                        </td>
-                        <td>
-                            @if($rule->province)
-                                <span class="clay-badge cr-badge-prov" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;">{{ $rule->province }}</span>
-                            @else
-                                <span class="clay-badge cr-badge-all">Semua Provinsi</span>
-                            @endif
-                        </td>
-                        <td>
-                            @if($rule->product_code)
-                                <span class="clay-badge cr-badge-code">{{ $rule->product_code }}</span>
-                            @else
-                                <span class="clay-badge cr-badge-all">Semua</span>
-                            @endif
-                        </td>
-                        <td>
-                            <span class="clay-badge cou-{{ $rule->courier }} cr-badge-cou">{{ $rule->courier }}</span>
-                        </td>
-                        <td style="text-align:center;">
-                            <form method="POST" action="{{ route('courier-rule.toggle', $rule) }}">
-                                @csrf @method('PATCH')
-                                <button type="submit" class="cr-toggle {{ $rule->is_active ? 'on' : 'off' }}"
-                                        title="Klik untuk {{ $rule->is_active ? 'menonaktifkan' : 'mengaktifkan' }}">
-                                    {{ $rule->is_active ? '● Aktif' : '○ Nonaktif' }}
-                                </button>
-                            </form>
-                        </td>
-                        <td>
-                            <div class="cr-aksi">
-                                {{-- Naik/Turun prioritas --}}
-                                <form method="POST" action="{{ route('courier-rule.move', [$rule, 'up']) }}" style="display:inline;">
-                                    @csrf
-                                    <button type="submit" class="cr-move" title="Naikkan prioritas" {{ $loop->first ? 'disabled' : '' }}>↑</button>
-                                </form>
-                                <form method="POST" action="{{ route('courier-rule.move', [$rule, 'down']) }}" style="display:inline;">
-                                    @csrf
-                                    <button type="submit" class="cr-move" title="Turunkan prioritas" {{ $loop->last ? 'disabled' : '' }}>↓</button>
-                                </form>
-
-                                {{-- Edit --}}
-                                <button type="button" class="cr-edit-btn" id="cr-edit-{{ $rule->id }}"
-                                        onclick="openCrEdit({{ $rule->id }})"
-                                        data-sort="{{ $rule->sort_order }}"
-                                        data-payment="{{ $rule->payment_method ?? '' }}"
-                                        data-province="{{ $rule->province ?? '' }}"
-                                        data-product="{{ $rule->product_code ?? '' }}"
-                                        data-courier="{{ $rule->courier }}"
-                                        data-active="{{ $rule->is_active ? '1' : '' }}">✏️ Edit</button>
-
-                                {{-- Hapus — label confirm dari data attribute (aman utk teks bebas) --}}
-                                <form method="POST" action="{{ route('courier-rule.destroy', $rule) }}" class="cr-del-form"
-                                      data-confirm="Hapus aturan {{ $rule->courier }} untuk {{ $rule->province ?? 'semua provinsi' }}{{ $rule->product_code ? ' (produk '.$rule->product_code.')' : '' }}?">
-                                    @csrf @method('DELETE')
-                                    <button type="submit" class="cr-del-btn">🗑 Hapus</button>
-                                </form>
-                            </div>
-                        </td>
-                    </tr>
-                    @empty
-                    <tr>
-                        <td colspan="7" style="text-align:center;padding:48px;color:#9ca3af;">
-                            Belum ada aturan. Tambahkan aturan pertama di form sebelah kiri.
-                        </td>
-                    </tr>
-                    @endforelse
-                </tbody>
-            </table>
+        <div class="cr-table-wrap" id="cr-table-wrap">
+            @include('courier_rule._table')
         </div>
     </div>
 </div>
@@ -275,13 +175,14 @@
             <h2 id="cr-modal-title">✏️ Edit Aturan</h2>
             <button class="clay-modal-close" onclick="closeCrEdit()" type="button">✕</button>
         </div>
-        <form method="POST" id="cr-edit-form" class="cr-form">
-            @csrf @method('PUT')
-            <div class="cr-body">
+        <form id="cr-edit-form" class="cr-form">
+            <div class="cr-modal-body" style="overflow-y:auto;max-height:65vh;padding:20px 24px;">
+                <input type="hidden" name="sort_order" id="cr-e-sort">
                 <div class="cr-field">
-                    <label>Urutan (prioritas) *</label>
-                    <input type="number" name="sort_order" id="cr-e-sort" class="clay-input" min="1" required>
-                    <div class="cr-hint">Kecil = dievaluasi lebih dulu (menang).</div>
+                    <label>Urutan (prioritas)</label>
+                    <input type="text" id="cr-e-sort-display" class="clay-input" readonly
+                           style="background:#f9fafb;color:#6b7280;cursor:not-allowed;">
+                    <div class="cr-hint">Diubah otomatis via tombol ↑↓ di tabel.</div>
                 </div>
                 <div class="cr-field">
                     <label>Metode Bayar</label>
@@ -316,7 +217,7 @@
                     </label>
                 </div>
             </div>
-            <div class="clay-modal-footer">
+            <div style="padding:14px 24px;border-top:1px solid rgba(0,0,0,.06);display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;">
                 <button type="button" class="clay-btn clay-btn-outline" onclick="closeCrEdit()">Batal</button>
                 <button type="submit" class="clay-btn clay-btn-primary">💾 Simpan</button>
             </div>
@@ -329,41 +230,178 @@
 @push('scripts')
 <script>
 (function () {
-    var modal = document.getElementById('cr-modal');
-    if (!modal) return;
+    'use strict';
+    var CSRF = '{{ csrf_token() }}';
+    var filterUrl = '{{ route("courier-rule.filter") }}';
 
-    var form = document.getElementById('cr-edit-form');
-    var updateUrl = '{{ route('courier-rule.update', ['courierRule' => '__ID__']) }}';
+    function post(url, method, body) {
+        return fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF },
+            body: body ? JSON.stringify(body) : undefined,
+        }).then(function(res) {
+            if (!res.ok) return res.json().then(function(e) {
+                var msg = e.message || 'Gagal';
+                if (e.errors) { var k = Object.keys(e.errors)[0]; if (k) msg = e.errors[k][0]; }
+                throw new Error(msg);
+            });
+            return res.json();
+        });
+    }
+
+    function refreshTable() {
+        return fetch(filterUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                document.getElementById('cr-table-wrap').innerHTML = data.html;
+                document.getElementById('cr-count').textContent = '(' + data.total + ')';
+                bindActions();
+            });
+    }
+
+    function bindActions() {
+        // Toggle buttons
+        document.querySelectorAll('.cr-toggle-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var self = this;
+                var id = self.dataset.id;
+                self.disabled = true;
+                post('/courier-rules/' + id + '/toggle', 'PATCH', null)
+                    .then(function(json) {
+                        if (json.success) {
+                            self.className = 'cr-toggle ' + (json.is_active ? 'on' : 'off') + ' cr-toggle-btn';
+                            self.textContent = json.is_active ? '● Aktif' : '○ Nonaktif';
+                        }
+                    })
+                    .catch(function(err) { alert('Error: ' + err.message); })
+                    .finally(function() { self.disabled = false; });
+            });
+        });
+
+        // Move buttons
+        document.querySelectorAll('.cr-move-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var self = this;
+                var id = self.dataset.id;
+                var dir = self.dataset.dir;
+                self.disabled = true;
+                post('/courier-rules/' + id + '/move/' + dir, 'POST', null)
+                    .then(function(json) {
+                        if (json.success) {
+                            document.getElementById('cr-table-wrap').innerHTML = json.html;
+                            document.getElementById('cr-count').textContent = '(' + json.total + ')';
+                            bindActions();
+                        }
+                    })
+                    .catch(function(err) { alert('Error: ' + err.message); });
+            });
+        });
+
+        // Delete buttons
+        document.querySelectorAll('.cr-del-btn-ajax').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                if (!confirm(this.dataset.confirm)) return;
+                var self = this;
+                var id = self.dataset.id;
+                self.disabled = true;
+                post('/courier-rules/' + id, 'DELETE', null)
+                    .then(function(json) {
+                        if (json.success) refreshTable();
+                        else alert('Gagal: ' + json.message);
+                    })
+                    .catch(function(err) { alert('Error: ' + err.message); })
+                    .finally(function() { self.disabled = false; });
+            });
+        });
+    }
+
+    // ── ADD FORM (AJAX) ──
+    document.getElementById('cr-add-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var btn = this.querySelector('button[type="submit"]');
+        btn.disabled = true; btn.innerHTML = 'Menyimpan...';
+
+        var body = {
+            payment_method: document.getElementById('cr-payment').value.trim(),
+            province: document.getElementById('cr-province').value.trim(),
+            product_code: document.getElementById('cr-product-code').value.trim(),
+            courier: document.getElementById('cr-courier').value,
+            is_active: document.getElementById('cr-active').checked ? 1 : 0,
+        };
+
+        post('{{ route("courier-rule.store") }}', 'POST', body)
+            .then(function(json) {
+                if (json.success) {
+                    // Reset form
+                    document.getElementById('cr-payment').value = '';
+                    document.getElementById('cr-province').value = '';
+                    document.getElementById('cr-product-code').value = '';
+                    document.getElementById('cr-courier').value = '';
+                    document.getElementById('cr-active').checked = true;
+                    refreshTable();
+                } else {
+                    alert('Gagal: ' + json.message);
+                }
+            })
+            .catch(function(err) { alert('Error: ' + err.message); })
+            .finally(function() { btn.disabled = false; btn.innerHTML = '+ Tambah Aturan'; });
+    });
+
+    // ── EDIT MODAL ──
+    var modal = document.getElementById('cr-modal');
+    var editForm = document.getElementById('cr-edit-form');
+    var editId = null;
 
     window.openCrEdit = function (id) {
         var btn = document.getElementById('cr-edit-' + id);
         if (!btn) return;
+        editId = id;
 
-        document.getElementById('cr-e-sort').value     = btn.dataset.sort;
+        document.getElementById('cr-e-sort').value = btn.dataset.sort;
+        document.getElementById('cr-e-sort-display').value = 'Urutan ' + btn.dataset.sort + ' — dievaluasi ' + (parseInt(btn.dataset.sort) <= 5 ? 'awal' : 'belakangan');
         document.getElementById('cr-e-payment').value  = btn.dataset.payment;
         document.getElementById('cr-e-province').value = btn.dataset.province;
         document.getElementById('cr-e-product').value  = btn.dataset.product;
         document.getElementById('cr-e-courier').value  = btn.dataset.courier;
         document.getElementById('cr-e-active').checked = btn.dataset.active === '1';
 
-        form.action = updateUrl.replace('__ID__', id);
         modal.classList.add('active');
     };
 
     window.closeCrEdit = function () {
         modal.classList.remove('active');
+        editId = null;
     };
 
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && modal.classList.contains('active')) window.closeCrEdit();
+    editForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        if (!editId) return;
+        var btn = editForm.querySelector('button[type="submit"]');
+        btn.disabled = true; btn.innerHTML = 'Menyimpan...';
+
+        var body = {
+            sort_order: document.getElementById('cr-e-sort').value,
+            payment_method: document.getElementById('cr-e-payment').value.trim(),
+            province: document.getElementById('cr-e-province').value.trim(),
+            product_code: document.getElementById('cr-e-product').value.trim(),
+            courier: document.getElementById('cr-e-courier').value,
+            is_active: document.getElementById('cr-e-active').checked ? 1 : 0,
+        };
+
+        post('/courier-rules/' + editId, 'PUT', body)
+            .then(function(json) {
+                if (json.success) { closeCrEdit(); refreshTable(); }
+                else alert('Gagal: ' + json.message);
+            })
+            .catch(function(err) { alert('Error: ' + err.message); })
+            .finally(function() { btn.disabled = false; btn.innerHTML = '💾 Simpan'; });
     });
 
-    // Confirm hapus — label dari data-confirm (nilai di-escape Blade saat render)
-    document.querySelectorAll('.cr-del-form').forEach(function (f) {
-        f.addEventListener('submit', function (e) {
-            if (!window.confirm(f.dataset.confirm)) e.preventDefault();
-        });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal.classList.contains('active')) closeCrEdit();
     });
+
+    bindActions();
 })();
 </script>
 @endpush

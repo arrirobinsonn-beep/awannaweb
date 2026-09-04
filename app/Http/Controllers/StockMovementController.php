@@ -32,21 +32,24 @@ class StockMovementController extends Controller
         foreach ($products as $prod) {
             $prodIn = 0;
             $prodOut = 0;
+            $prodStock = 0;
             $variantsData = [];
 
             foreach ($prod->variants as $var) {
                 $varMovements = $movementsByVariant->get($var->id, collect());
-                
+
                 $varIn = $varMovements->where('type', 'in')->sum('quantity');
                 $varOut = $varMovements->where('type', 'out')->sum('quantity');
-                
+
                 $prodIn += $varIn;
                 $prodOut += $varOut;
+                $prodStock += $var->stock;
 
                 $variantsData[] = (object)[
                     'variant' => $var,
                     'in' => $varIn,
                     'out' => $varOut,
+                    'stock' => $var->stock,
                     'movements' => $varMovements
                 ];
             }
@@ -55,6 +58,8 @@ class StockMovementController extends Controller
                 'product' => $prod,
                 'in' => $prodIn,
                 'out' => $prodOut,
+                'stock' => $prodStock,
+                'minStock' => $prod->min_stock ?? 0,
                 'variantsData' => $variantsData
             ];
         }

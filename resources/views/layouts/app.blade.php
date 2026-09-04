@@ -488,7 +488,7 @@
             @endif
 
             {{-- ═══ Manajemen ═══ --}}
-            @if($u->hasRole(['owner','super_admin','admin','keuangan']))
+            @if($u->hasRole(['owner','super_admin','keuangan']))
             <div class="nav-group" data-group="manajemen">
                 <button type="button" class="nav-group-header sidebar-label" data-tip="Manajemen">
                     <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;"><x-icon name="cog-6-tooth" class="icon-sm" /> Manajemen</span>
@@ -979,9 +979,36 @@ _click:ck,_hover:hv
         }
     });
 
+    /* ── Simpan/restore scroll position sidebar ── */
+    var nav = sidebar.querySelector('nav');
+    if (nav) {
+        /* Restore on page load */
+        try {
+            var saved = localStorage.getItem('wa_sidebar_scroll');
+            if (saved !== null) {
+                nav.scrollTop = parseInt(saved, 10) || 0;
+            }
+        } catch(e){}
+
+        /* Save on scroll */
+        nav.addEventListener('scroll', function () {
+            try { localStorage.setItem('wa_sidebar_scroll', nav.scrollTop); } catch(e){}
+        });
+
+        /* Save before navigating away */
+        window.addEventListener('beforeunload', function () {
+            try { localStorage.setItem('wa_sidebar_scroll', nav.scrollTop); } catch(e){}
+        });
+    }
+
     /* ── Tutup sidebar saat klik nav link di layar sempit ── */
     document.querySelectorAll('[data-page-link]').forEach(function (el) {
         el.addEventListener('click', function () {
+            /* Simpan scroll position sebelum navigasi */
+            try {
+                var navEl = sidebar.querySelector('nav');
+                if (navEl) localStorage.setItem('wa_sidebar_scroll', navEl.scrollTop);
+            } catch(e){}
             if (!isDesktop()) closeSidebar();
         });
     });
@@ -1011,6 +1038,15 @@ _click:ck,_hover:hv
             header.addEventListener('click', function(){ apply(g, !g.classList.contains('open')); });
         }
     });
+
+    /* ── Restore sidebar scroll position setelah nav groups expand ── */
+    try {
+        var savedScroll = localStorage.getItem('wa_sidebar_scroll');
+        if (savedScroll !== null) {
+            var sideNav = document.querySelector('#sidebar nav');
+            if (sideNav) sideNav.scrollTop = parseInt(savedScroll, 10) || 0;
+        }
+    } catch(e){}
 })();
 
 {{-- ── Discrepancy Alarm Badge (Spending vs Regional) ── --}}

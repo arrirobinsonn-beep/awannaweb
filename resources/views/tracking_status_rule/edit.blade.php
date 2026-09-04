@@ -190,88 +190,8 @@
         </div>
     </div>
 
-    <div class="table-scroll">
-        <table class="clay-table">
-            <thead>
-                <tr>
-                    <th style="width:64px;text-align:center;">Urutan</th>
-                    <th>Status Mentah</th>
-                    <th>Status Sistem</th>
-                    <th>Masalah</th>
-                    <th style="text-align:center;">Status</th>
-                    <th style="width:160px;">Aksi</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse($rules as $rule)
-                <tr style="{{ $rule->is_active ? '' : 'opacity:.55;' }}">
-                    <td style="text-align:center;font-weight:700;color:#6b7280;">{{ $rule->sort_order }}</td>
-                    <td>
-                        <span class="clay-badge ts-badge-raw">{{ $rule->raw_status }}</span>
-                        @if($rule->match_type === 'contains')
-                            <span class="clay-badge ts-badge-type" title="cocok bila status memuat teks ini">~</span>
-                        @endif
-                    </td>
-                    <td><span class="clay-badge ts-badge-st {{ $rule->status }}">{{ $rule->status }}</span></td>
-                    <td>
-                        @if($rule->problem_mode === 'required')
-                            @php
-                                $mtype = $rule->problem_match_type ?? 'contains';
-                                $cara = $mtype === 'starts_with' ? 'diawali' : 'mengandung';
-                            @endphp
-                            <span class="clay-badge ts-badge-required" title="kolom masalah {{ $rule->problem_keyword ? $cara.' “'.$rule->problem_keyword.'”' : 'harus terisi' }}">
-                                ⚠ {{ $rule->problem_keyword ? $cara.' '.$rule->problem_keyword : 'terisi' }}
-                            </span>
-                        @else
-                            <span class="clay-badge ts-badge-none">—</span>
-                        @endif
-                    </td>
-                    <td style="text-align:center;">
-                        <form method="POST" action="{{ route('tracking-status-rule.toggle', $rule) }}">
-                            @csrf @method('PATCH')
-                            <button type="submit" class="ts-toggle {{ $rule->is_active ? 'on' : 'off' }}"
-                                    title="Klik untuk {{ $rule->is_active ? 'menonaktifkan' : 'mengaktifkan' }}">
-                                {{ $rule->is_active ? '● Aktif' : '○ Nonaktif' }}
-                            </button>
-                        </form>
-                    </td>
-                    <td>
-                        <div class="ts-aksi">
-                            <form method="POST" action="{{ route('tracking-status-rule.move', [$rule, 'up']) }}" style="display:inline;">
-                                @csrf
-                                <button type="submit" class="ts-move" title="Naikkan prioritas" {{ $loop->first ? 'disabled' : '' }}>↑</button>
-                            </form>
-                            <form method="POST" action="{{ route('tracking-status-rule.move', [$rule, 'down']) }}" style="display:inline;">
-                                @csrf
-                                <button type="submit" class="ts-move" title="Turunkan prioritas" {{ $loop->last ? 'disabled' : '' }}>↓</button>
-                            </form>
-                            <button type="button" class="ts-edit-btn" id="ts-edit-{{ $rule->id }}"
-                                    onclick="openTsEdit({{ $rule->id }})"
-                                    data-sort="{{ $rule->sort_order }}"
-                                    data-raw="{{ $rule->raw_status }}"
-                                    data-match="{{ $rule->match_type }}"
-                                    data-status="{{ $rule->status }}"
-                                    data-problem="{{ $rule->problem_mode }}"
-                                    data-keyword="{{ $rule->problem_keyword ?? '' }}"
-                                    data-mtype="{{ $rule->problem_match_type ?? 'contains' }}"
-                                    data-active="{{ $rule->is_active ? '1' : '' }}">✏️ Edit</button>
-                            <form method="POST" action="{{ route('tracking-status-rule.destroy', $rule) }}" class="ts-del-form"
-                                  data-confirm="Hapus aturan {{ $rule->raw_status }} → {{ $rule->status }}?">
-                                @csrf @method('DELETE')
-                                <button type="submit" class="ts-del-btn">🗑 Hapus</button>
-                            </form>
-                        </div>
-                    </td>
-                </tr>
-                @empty
-                <tr>
-                    <td colspan="6" style="text-align:center;padding:40px;color:#9ca3af;">
-                        Belum ada aturan status untuk {{ strtoupper($source) }}. Tambahkan di form bawah.
-                    </td>
-                </tr>
-                @endforelse
-            </tbody>
-        </table>
+    <div class="table-scroll" id="ts-rules-wrap">
+        @include('tracking_status_rule._rules_table')
     </div>
 
     {{-- Form tambah manual (collapsible) — source terkunci dashboard ini --}}
@@ -284,8 +204,8 @@
 
                 <div class="ts-field">
                     <label>Status Mentah (dari file) *</label>
-                    <input type="text" name="raw_status" class="clay-input"
-                           placeholder="mis. Dikonfirmasi" value="{{ old('raw_status') }}" required>
+                    <input type="text" name="raw_status" id="ts-add-raw" class="clay-input"
+                           placeholder="mis. Dikonfirmasi" required>
                     <div class="ts-hint">Teks status di file dashboard {{ strtoupper($source) }} (otomatis di-lowercase).</div>
                 </div>
                 <div class="ts-field">
@@ -335,18 +255,13 @@
                     <div class="ts-hint">FLIK: kolom 3PL paket bermasalah <b>diawali</b> "Problem" → pilih <b>Diawali</b>.</div>
                 </div>
                 <div class="ts-field">
-                    <label>Urutan (prioritas) *</label>
-                    <input type="number" name="sort_order" class="clay-input" min="1" required
-                           value="{{ old('sort_order', $nextOrder) }}">
-                    <div class="ts-hint">Kecil = dievaluasi lebih dulu (menang). Aturan bermasalah di <b>atas</b> rule normal utk status yang sama.</div>
-                </div>
-                <div class="ts-field">
                     <label class="ts-check">
-                        <input type="checkbox" name="is_active" value="1" checked>
+                        <input type="checkbox" name="is_active" id="ts-add-active" value="1" checked>
                         Aktif (dipakai saat evaluasi)
                     </label>
                 </div>
                 <button type="submit" class="clay-btn clay-btn-primary">+ Tambah Aturan</button>
+                <div class="ts-hint" style="margin-top:6px;">Urutan otomatis di paling bawah. Gunakan tombol ↑↓ untuk menyesuaikan.</div>
             </form>
         </div>
     </details>
@@ -363,7 +278,8 @@
         <form method="POST" id="ts-edit-form" class="ts-form">
             @csrf @method('PUT')
             <input type="hidden" name="source" value="{{ $source }}">
-            <div class="ts-body">
+            <input type="hidden" name="sort_order" id="ts-e-sort">
+            <div class="ts-body" style="overflow-y:auto;max-height:65vh;padding:20px 24px;">
                 <div class="ts-field">
                     <label>Status Mentah (dari file) *</label>
                     <input type="text" name="raw_status" id="ts-e-raw" class="clay-input" required>
@@ -405,8 +321,10 @@
                     </select>
                 </div>
                 <div class="ts-field">
-                    <label>Urutan (prioritas) *</label>
-                    <input type="number" name="sort_order" id="ts-e-sort" class="clay-input" min="1" required>
+                    <label>Urutan (prioritas)</label>
+                    <input type="text" id="ts-e-sort-display" class="clay-input" readonly
+                           style="background:#f9fafb;color:#6b7280;cursor:not-allowed;">
+                    <div class="ts-hint" style="font-size:.66rem;color:#9ca3af;margin-top:3px;">Diubah otomatis via tombol ↑↓ di tabel.</div>
                 </div>
                 <div class="ts-field">
                     <label class="ts-check">
@@ -415,7 +333,7 @@
                     </label>
                 </div>
             </div>
-            <div class="clay-modal-footer">
+            <div style="padding:14px 24px;border-top:1px solid rgba(0,0,0,.06);display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;">
                 <button type="button" class="clay-btn clay-btn-outline" onclick="closeTsEdit()">Batal</button>
                 <button type="submit" class="clay-btn clay-btn-primary">💾 Simpan</button>
             </div>
@@ -429,114 +347,125 @@
 <script>
 (function () {
     'use strict';
+    var CSRF = document.querySelector('meta[name="csrf-token"]').content;
+    var filterUrl = '{{ route("tracking-status-rule.filter", $source) }}';
 
-    var uploadUrl = '{{ route('tracking-status-rule.upload') }}';
-    var tsmForm = document.getElementById('tsm-form');
-    var tsmBody = document.getElementById('tsm-body');
-
-    function escHtml(s) {
-        var d = document.createElement('div');
-        d.textContent = s == null ? '' : String(s);
-        return d.innerHTML;
-    }
-    function escAttr(s) {
-        return escHtml(s).replace(/"/g, '&quot;');
-    }
-
-    function headerOptions(current, headers) {
-        var o = '<option value="">— pilih header —</option>';
-        (headers || []).forEach(function (h) {
-            o += '<option value="' + escAttr(h) + '"' + (h === current ? ' selected' : '') + '>' + escHtml(h) + '</option>';
+    function post(url, method, body) {
+        return fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF },
+            body: body ? JSON.stringify(body) : undefined,
+        }).then(function(res) {
+            if (!res.ok) return res.json().then(function(e) {
+                var msg = e.message || 'Gagal';
+                if (e.errors) { var k = Object.keys(e.errors)[0]; if (k) msg = e.errors[k][0]; }
+                throw new Error(msg);
+            });
+            return res.json();
         });
-        return o;
     }
 
-    // ── Upload file dashboard → isi dropdown header tiap kolom DB ──
-    var input = document.getElementById('tsm-file');
-    if (input) {
-        input.addEventListener('change', function () {
-            if (!this.files.length) return;
-            var fd = new FormData();
-            fd.append('file', this.files[0]);
-            fd.append('source', '{{ $source }}');
+    // ── Refresh rules table ──
+    function refreshRules() {
+        return fetch(filterUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                document.getElementById('ts-rules-wrap').innerHTML = data.html;
+                bindActions();
+            });
+    }
 
-            var btn = document.getElementById('tsm-save-btn');
-            var oldText = btn ? btn.textContent : '';
-            if (btn) { btn.disabled = true; btn.textContent = '⏳ Membaca…'; }
+    function bindActions() {
+        // Toggle
+        document.querySelectorAll('.ts-toggle-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var self = this;
+                var id = self.dataset.id;
+                self.disabled = true;
+                post('/tracking-status-rules/' + id + '/toggle', 'PATCH', null)
+                    .then(function(json) {
+                        if (json.success) {
+                            self.className = 'ts-toggle ' + (json.is_active ? 'on' : 'off') + ' ts-toggle-btn';
+                            self.textContent = json.is_active ? '● Aktif' : '○ Nonaktif';
+                        }
+                    })
+                    .catch(function(err) { alert('Error: ' + err.message); })
+                    .finally(function() { self.disabled = false; });
+            });
+        });
 
-            fetch(uploadUrl, {
-                method: 'POST',
-                body: fd,
-                headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
-            })
-            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-            .then(function (res) {
-                if (!res.ok || !res.j.success) { alert(res.j.message || 'Gagal membaca file.'); return; }
+        // Move
+        document.querySelectorAll('.ts-move-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var self = this;
+                var id = self.dataset.id;
+                var dir = self.dataset.dir;
+                self.disabled = true;
+                post('/tracking-status-rules/' + id + '/move/' + dir, 'POST', null)
+                    .then(function(json) {
+                        if (json.success) {
+                            document.getElementById('ts-rules-wrap').innerHTML = json.html;
+                            bindActions();
+                        }
+                    })
+                    .catch(function(err) { alert('Error: ' + err.message); });
+            });
+        });
 
-                if (res.j.source !== '{{ $source }}') {
-                    alert('File terdeteksi sebagai ' + res.j.source.toUpperCase() + ', bukan ' + '{{ strtoupper($source) }}' + '. Pakai file yang benar.');
-                    return;
-                }
-
-                var headers = res.j.headers || [];
-                var mapping = res.j.mapping || {};
-
-                document.querySelectorAll('#tsm-body tr.tsm-row').forEach(function (tr) {
-                    var key = tr.dataset.column;
-                    var sel = tr.querySelector('.tsm-select');
-                    sel.innerHTML = headerOptions(mapping[key] || '', headers);
-                });
-                preventDupHeaders();
-                document.getElementById('tsm-draft').classList.add('show');
-                alert('File dibaca: ' + headers.length + ' header. Pilih header untuk tiap kolom database lalu Simpan Mapping.');
-            })
-            .catch(function (err) { alert('Gagal upload: ' + err.message); })
-            .finally(function () {
-                if (btn) { btn.disabled = false; btn.textContent = oldText; }
-                input.value = '';
+        // Delete
+        document.querySelectorAll('.ts-del-btn-ajax').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                if (!confirm(this.dataset.confirm)) return;
+                var self = this;
+                var id = self.dataset.id;
+                self.disabled = true;
+                post('/tracking-status-rules/' + id, 'DELETE', null)
+                    .then(function(json) {
+                        if (json.success) refreshRules();
+                        else alert('Gagal: ' + json.message);
+                    })
+                    .catch(function(err) { alert('Error: ' + err.message); })
+                    .finally(function() { self.disabled = false; });
             });
         });
     }
 
-    // Cegah header yang sama dipakai di dua kolom (unique (source, header))
-    function preventDupHeaders() {
-        var sels = document.querySelectorAll('#tsm-body .tsm-select');
-        sels.forEach(function (sel) {
-            sel.onchange = function () {
-                var chosen = {};
-                sels.forEach(function (s) { if (s.value) chosen[s.value] = true; });
-                sels.forEach(function (s) {
-                    Array.prototype.forEach.call(s.options, function (opt) {
-                        opt.disabled = opt.value !== '' && chosen[opt.value] && opt.value !== s.value;
-                    });
-                });
+    // ── ADD FORM (AJAX) ──
+    var addForm = document.getElementById('ts-form');
+    if (addForm) {
+        addForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var btn = this.querySelector('button[type="submit"]');
+            btn.disabled = true; btn.innerHTML = 'Menyimpan...';
+
+            var body = {
+                source: '{{ $source }}',
+                raw_status: document.getElementById('ts-add-raw').value.trim(),
+                match_type: this.querySelector('select[name="match_type"]').value,
+                status: this.querySelector('select[name="status"]').value,
+                problem_mode: document.getElementById('ts-problem-mode').value,
+                problem_keyword: document.getElementById('ts-problem-keyword') ? document.getElementById('ts-problem-keyword').value.trim() : '',
+                problem_match_type: document.getElementById('ts-problem-mtype') ? document.getElementById('ts-problem-mtype').value : 'contains',
+                is_active: document.getElementById('ts-add-active').checked ? 1 : 0,
             };
+
+            post('{{ route('tracking-status-rule.store') }}', 'POST', body)
+                .then(function(json) {
+                    if (json.success) {
+                        // Reset form
+                        addForm.querySelector('input[name="raw_status"]').value = '';
+                        if (addForm.querySelector('input[name="problem_keyword"]')) addForm.querySelector('input[name="problem_keyword"]').value = '';
+                        refreshRules();
+                    } else {
+                        alert('Gagal: ' + json.message);
+                    }
+                })
+                .catch(function(err) { alert('Error: ' + err.message); })
+                .finally(function() { btn.disabled = false; btn.innerHTML = '+ Tambah Aturan'; });
         });
-        sels.forEach(function (sel) { if (sel.onchange) sel.onchange(); });
     }
-    preventDupHeaders();
 
-    // ── Simpan mapping → susun items[] per kolom DB lalu submit ──
-    window.submitTsm = function () {
-        var rows = document.querySelectorAll('#tsm-body tr.tsm-row');
-        if (!rows.length) { return; }
-
-        tsmForm.querySelectorAll('input[name^="items["]').forEach(function (el) { el.remove(); });
-
-        rows.forEach(function (tr, i) {
-            [['db_column', tr.dataset.column], ['header', tr.querySelector('.tsm-select').value]].forEach(function (p) {
-                var inp = document.createElement('input');
-                inp.type = 'hidden';
-                inp.name = 'items[' + i + '][' + p[0] + ']';
-                inp.value = p[1];
-                tsmForm.appendChild(inp);
-            });
-        });
-
-        tsmForm.submit();
-    };
-
-    // ── Form tambah manual: visibilitas kata kunci + cara cocok ──
+    // ── Problem mode visibility ──
     function syncKeywordVisibility(select, wrap, keywordInput, mtypeWrap) {
         if (!select || !wrap) return;
         var required = select.value === 'required';
@@ -552,53 +481,75 @@
         syncKeywordVisibility(addSelect, document.getElementById('ts-keyword-wrap'), document.getElementById('ts-problem-keyword'), document.getElementById('ts-mtype-wrap'));
     }
 
-    // ── Modal edit ────────────────────────────────────────────
+    // ── EDIT MODAL ──
     var modal = document.getElementById('ts-modal');
-    if (modal) {
-        var form = document.getElementById('ts-edit-form');
-        var updateUrl = '{{ route('tracking-status-rule.update', ['trackingStatusRule' => '__ID__']) }}';
-        var editSelect = document.getElementById('ts-e-problem');
+    var editForm = document.getElementById('ts-edit-form');
+    var editId = null;
 
-        window.openTsEdit = function (id) {
-            var btn = document.getElementById('ts-edit-' + id);
-            if (!btn) return;
+    window.openTsEdit = function (id) {
+        var btn = document.getElementById('ts-edit-' + id);
+        if (!btn) return;
+        editId = id;
 
-            document.getElementById('ts-e-sort').value     = btn.dataset.sort;
-            document.getElementById('ts-e-raw').value      = btn.dataset.raw;
-            document.getElementById('ts-e-match').value    = btn.dataset.match;
-            document.getElementById('ts-e-status').value   = btn.dataset.status;
-            document.getElementById('ts-e-problem').value  = btn.dataset.problem;
-            document.getElementById('ts-e-keyword').value  = btn.dataset.keyword;
-            document.getElementById('ts-e-mtype').value    = btn.dataset.mtype || 'contains';
-            document.getElementById('ts-e-active').checked = btn.dataset.active === '1';
+        document.getElementById('ts-e-sort').value = btn.dataset.sort;
+        document.getElementById('ts-e-sort-display').value = 'Urutan ' + btn.dataset.sort + ' — dievaluasi ' + (parseInt(btn.dataset.sort) <= 5 ? 'awal' : 'belakangan');
+        document.getElementById('ts-e-raw').value      = btn.dataset.raw;
+        document.getElementById('ts-e-match').value    = btn.dataset.match;
+        document.getElementById('ts-e-status').value   = btn.dataset.status;
+        document.getElementById('ts-e-problem').value  = btn.dataset.problem;
+        document.getElementById('ts-e-keyword').value  = btn.dataset.keyword;
+        document.getElementById('ts-e-mtype').value    = btn.dataset.mtype || 'contains';
+        document.getElementById('ts-e-active').checked = btn.dataset.active === '1';
 
+        syncKeywordVisibility(document.getElementById('ts-e-problem'), document.getElementById('ts-e-keyword-wrap'), document.getElementById('ts-e-keyword'), document.getElementById('ts-e-mtype-wrap'));
+
+        modal.classList.add('active');
+    };
+
+    window.closeTsEdit = function () {
+        modal.classList.remove('active');
+        editId = null;
+    };
+
+    editForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        if (!editId) return;
+        var btn = editForm.querySelector('button[type="submit"]');
+        btn.disabled = true; btn.innerHTML = 'Menyimpan...';
+
+        var body = {
+            source: '{{ $source }}',
+            sort_order: document.getElementById('ts-e-sort').value,
+            raw_status: document.getElementById('ts-e-raw').value.trim(),
+            match_type: document.getElementById('ts-e-match').value,
+            status: document.getElementById('ts-e-status').value,
+            problem_mode: document.getElementById('ts-e-problem').value,
+            problem_keyword: document.getElementById('ts-e-keyword').value.trim(),
+            problem_match_type: document.getElementById('ts-e-mtype').value,
+            is_active: document.getElementById('ts-e-active').checked ? 1 : 0,
+        };
+
+        post('/tracking-status-rules/' + editId, 'PUT', body)
+            .then(function(json) {
+                if (json.success) { closeTsEdit(); refreshRules(); }
+                else alert('Gagal: ' + json.message);
+            })
+            .catch(function(err) { alert('Error: ' + err.message); })
+            .finally(function() { btn.disabled = false; btn.innerHTML = '💾 Simpan'; });
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal.classList.contains('active')) closeTsEdit();
+    });
+
+    var editSelect = document.getElementById('ts-e-problem');
+    if (editSelect) {
+        editSelect.addEventListener('change', function () {
             syncKeywordVisibility(editSelect, document.getElementById('ts-e-keyword-wrap'), document.getElementById('ts-e-keyword'), document.getElementById('ts-e-mtype-wrap'));
-
-            form.action = updateUrl.replace('__ID__', id);
-            modal.classList.add('active');
-        };
-
-        if (editSelect) {
-            editSelect.addEventListener('change', function () {
-                syncKeywordVisibility(editSelect, document.getElementById('ts-e-keyword-wrap'), document.getElementById('ts-e-keyword'), document.getElementById('ts-e-mtype-wrap'));
-            });
-        }
-
-        window.closeTsEdit = function () {
-            modal.classList.remove('active');
-        };
-
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && modal.classList.contains('active')) window.closeTsEdit();
         });
     }
 
-    // Confirm hapus
-    document.querySelectorAll('.ts-del-form').forEach(function (f) {
-        f.addEventListener('submit', function (e) {
-            if (!window.confirm(f.dataset.confirm)) e.preventDefault();
-        });
-    });
+    bindActions();
 })();
 </script>
 @endpush

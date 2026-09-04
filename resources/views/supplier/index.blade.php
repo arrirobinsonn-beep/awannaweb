@@ -7,61 +7,121 @@
 
 {{-- Toolbar --}}
 <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;justify-content:space-between;margin-bottom:18px;" data-reveal>
-    <form method="GET" action="{{ route('supplier.index') }}" style="display:flex;flex-wrap:wrap;gap:8px;flex:1;min-width:0;">
-        <input type="text" name="search" value="{{ request('search') }}" placeholder="Cari nama, kode, kota..." class="clay-input" style="flex:1;min-width:160px;max-width:300px;">
-        <select name="status" class="clay-input" style="width:auto;min-width:120px;">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;flex:1;min-width:0;">
+        <input type="text" id="search-input" name="search" value="{{ request('search') }}" placeholder="Cari nama, kode, kota..." class="clay-input" style="flex:1;min-width:160px;max-width:300px;">
+        <select id="status-filter" name="status" class="clay-input" style="width:auto;min-width:120px;">
             <option value="">Semua Status</option>
             <option value="aktif"    {{ request('status')==='aktif'    ?'selected':'' }}>Aktif</option>
             <option value="nonaktif" {{ request('status')==='nonaktif' ?'selected':'' }}>Nonaktif</option>
         </select>
-        <button type="submit" class="clay-btn clay-btn-secondary">🔍</button>
-    </form>
+    </div>
     <a href="{{ route('supplier.create') }}" class="clay-btn clay-btn-primary" data-page-link>＋ Tambah</a>
+</div>
+
+{{-- Total --}}
+<div id="supplier-count" style="font-size:.78rem;color:#9ca3af;margin-bottom:12px;">
+    Menampilkan {{ $suppliers->total() }} supplier
 </div>
 
 {{-- Tabel --}}
 <div class="clay-card" style="overflow:hidden;" data-reveal>
-    <div class="table-scroll">
-        <table class="clay-table">
-            <thead><tr>
-                <th>Kode</th><th>Nama Supplier</th><th>PIC</th><th>Kota</th><th>Status</th><th style="text-align:right;">Aksi</th>
-            </tr></thead>
-            <tbody>
-            @forelse($suppliers as $s)
-            <tr>
-                <td><span class="clay-badge clay-badge-gray" style="font-family:monospace;font-size:.72rem;">{{ $s->kode_supplier }}</span></td>
-                <td>
-                    <div style="font-weight:700;font-size:.875rem;">{{ $s->nama_supplier }}</div>
-                    @if($s->email)<div style="font-size:.72rem;color:#9ca3af;">{{ $s->email }}</div>@endif
-                </td>
-                <td>
-                    <div style="font-size:.83rem;">{{ $s->pic_nama ?? '-' }}</div>
-                    @if($s->pic_telepon)<div style="font-size:.72rem;color:#9ca3af;">{{ $s->pic_telepon }}</div>@endif
-                </td>
-                <td style="font-size:.83rem;">{{ $s->kota ?? '-' }}</td>
-                <td><span class="clay-badge {{ $s->status==='aktif'?'clay-badge-green':'clay-badge-red' }}">{{ ucfirst($s->status) }}</span></td>
-                <td style="text-align:right;">
-                    <div style="display:flex;justify-content:flex-end;gap:6px;">
-                        <a href="{{ route('supplier.show',$s) }}" class="clay-btn clay-btn-outline" style="padding:5px 10px;font-size:.72rem;" data-page-link>👁</a>
-                        <a href="{{ route('supplier.edit',$s) }}" class="clay-btn clay-btn-secondary" style="padding:5px 10px;font-size:.72rem;" data-page-link>✏️</a>
-                        <form method="POST" action="{{ route('supplier.destroy',$s) }}" onsubmit="return confirm('Hapus {{ $s->nama_supplier }}?')">
-                            @csrf @method('DELETE')
-                            <button type="submit" class="clay-btn clay-btn-danger" style="padding:5px 10px;font-size:.72rem;">🗑</button>
-                        </form>
-                    </div>
-                </td>
-            </tr>
-            @empty
-            <tr><td colspan="6" style="text-align:center;padding:48px 16px;">
-                <div style="font-size:2.5rem;margin-bottom:8px;">🏭</div>
-                <p style="color:#9ca3af;">Belum ada data supplier</p>
-            </td></tr>
-            @endforelse
-            </tbody>
-        </table>
+    <div class="table-scroll" id="supplier-table-wrap">
+        @include('supplier._table')
     </div>
-    @if($suppliers->hasPages())
-    <div style="padding:14px 18px;border-top:1px solid rgba(0,0,0,.05);">{{ $suppliers->links() }}</div>
-    @endif
+    <div id="supplier-pagination" style="padding:14px 18px;border-top:1px solid rgba(0,0,0,.05);">
+        @if($suppliers->hasPages())
+            {{ $suppliers->links() }}
+        @endif
+    </div>
 </div>
+
 @endsection
+
+@push('scripts')
+<script>
+(function() {
+    var searchInput = document.getElementById('search-input');
+    var statusFilter = document.getElementById('status-filter');
+    var tableWrap = document.getElementById('supplier-table-wrap');
+    var paginationWrap = document.getElementById('supplier-pagination');
+    var countEl = document.getElementById('supplier-count');
+    var filterUrl = '{{ route("supplier.filter") }}';
+    var debounceTimer = null;
+
+    function fetchFiltered() {
+        var search = searchInput.value.trim();
+        var status = statusFilter.value;
+        var params = new URLSearchParams();
+        if (search) params.set('search', search);
+        if (status) params.set('status', status);
+        params.set('page', '1'); // reset to page 1 on filter change
+
+        var url = filterUrl + '?' + params.toString();
+
+        fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            tableWrap.innerHTML = data.html;
+            paginationWrap.innerHTML = data.pagination || '';
+            countEl.textContent = 'Menampilkan ' + data.total + ' supplier';
+
+            // Re-bind pagination links for AJAX
+            paginationWrap.querySelectorAll('a').forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    fetchPage(this.href);
+                });
+            });
+        })
+        .catch(function(err) {
+            console.error('Filter error:', err);
+        });
+    }
+
+    function fetchPage(url) {
+        fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            tableWrap.innerHTML = data.html;
+            paginationWrap.innerHTML = data.pagination || '';
+            countEl.textContent = 'Menampilkan ' + data.total + ' supplier';
+
+            // Re-bind pagination links
+            paginationWrap.querySelectorAll('a').forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    fetchPage(this.href);
+                });
+            });
+
+            // Scroll to top of table
+            tableWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        })
+        .catch(function(err) {
+            console.error('Page fetch error:', err);
+        });
+    }
+
+    // Debounced search (300ms delay)
+    searchInput.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(fetchFiltered, 300);
+    });
+
+    // Immediate filter on status change
+    statusFilter.addEventListener('change', fetchFiltered);
+
+    // Bind existing pagination links on page load
+    paginationWrap.querySelectorAll('a').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            fetchPage(this.href);
+        });
+    });
+})();
+</script>
+@endpush

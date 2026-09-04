@@ -21,6 +21,24 @@ class ProductController extends Controller
 {
     public function index(Request $request): View
     {
+        $products = $this->getFilteredProducts($request, 15);
+
+        return view('product.index', compact('products'));
+    }
+
+    public function filter(Request $request)
+    {
+        $products = $this->getFilteredProducts($request, 15);
+
+        return response()->json([
+            'html' => view('product._table', compact('products'))->render(),
+            'pagination' => $products->links()->render(),
+            'total' => $products->total(),
+        ]);
+    }
+
+    private function getFilteredProducts(Request $request, int $perPage)
+    {
         $query = Product::with(['variants', 'inventories', 'primaryInventory'])->latest('id');
 
         $query->when($request->filled('search'), fn (Builder $q) => $q->where(function (Builder $w) use ($request) {
@@ -29,11 +47,10 @@ class ProductController extends Controller
                 ->orWhere('category', 'like', '%'.$request->search.'%');
         }))
             ->when($request->filled('goods_type'), fn (Builder $q) => $q->where('goods_type', $request->goods_type))
-            ->when($request->filled('status'), fn (Builder $q) => $q->where('status', $request->status));
+            ->when($request->filled('status'), fn (Builder $q) => $q->where('status', $request->status))
+            ->when($request->filled('ad_status'), fn (Builder $q) => $q->where('ad_status', $request->ad_status));
 
-        $products = $query->paginate(15)->withQueryString();
-
-        return view('product.index', compact('products'));
+        return $query->paginate($perPage)->withQueryString();
     }
 
     public function store(Request $request)
