@@ -1057,3 +1057,65 @@ Modul dasar keuangan (fitur U) SELESAI: akun, kategori, transfer antar akun, buk
 - Login demo: `owner@awanna.id` / `password` (semua user seeder pakai `password`).
 
 **Langkah besok:** (1) user kasih daftar tabel + alur keuangan versi mereka → (2) cocokkan dengan modul U yang sudah dibangun → (3) tentukan apa yang baru/diubah → (4) bangun + test.
+
+---
+
+## V. ✅ Alokasi Bonus — Distribusi Potensi Bonus per Tim (5 September 2026)
+
+### Deskripsi
+Halaman **Alokasi Bonus** (`/keuangan/alokasi-bonus`) menampilkan distribusi potensi bonus per tim advertiser. Setiap advertiser = 1 section (tim) dengan rincian seperti spreadsheet: Advertiser + CS Utama + CS Pengganti + Keuangan + Admin. Semua tim tampil sekaligus (scroll). Global % (Advertiser, CS, Keuangan, Admin) bisa diubah oleh role keuangan → berubah untuk semua tim sekaligus. Ada **search** untuk filter tim by nama advertiser.
+
+### Skema DB
+**`bonus_allocation_settings`** — menyimpan % bonus per role:
+
+| Kolom | Tipe | Keterangan |
+|-------|------|------------|
+| id | bigint PK | |
+| advertiser_id | bigint nullable FK→users | `null` = global (keuangan/admin), `id` = per advertiser |
+| role | string(20) | `advertiser`, `cs`, `keuangan`, `admin` |
+| percentage | decimal(5,2) | Persentase |
+| timestamps | | |
+
+**UNIQUE** `(advertiser_id, role)`
+
+### Kalkulasi (per tim)
+```
+potensi_bonus   = dari BonusCalculationService::calculateRealtime(period)
+nominal_role    = %role × potensi_bonus
+total_paid_cs   = SUM(paid semua CS utama + pengganti di tim itu)
+% pembagian     = paid_orang / total_paid_cs
+payment_orang   = %pembagian × nominal_cs
+```
+
+**Advertiser**: Jumlah Paid = total CS paid (display saja, bukan ditambah). Pembagian = 100%.
+**CS**: Pembagian = paid_orang / total_paid_cs.
+**Keuangan/Admin**: 1 orang global, pembagian = 100%.
+
+### Data CS paid
+- Sumber: `regional_cs_stats` (sama seperti Performa Tim)
+- Match pakai `cs_panggilan` (nama, uppercase) — **BUKAN** `cs_user_id` (yang bisa NULL)
+- Kalau `cs_assignments` kosong → fallback `users.advertiser_id` untuk CS utama
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_09_05_100000_create_bonus_allocation_settings_table.php` | Tabel settings |
+| `database/seeders/BonusAllocationSettingSeeder.php` | Seed default: keuangan 9%, admin 7%, per-adv 36%/48% |
+| `app/Models/BonusAllocationSetting.php` | Model + scopes `global()`, `forAdvertiser()` |
+| `app/Http/Controllers/BonusAllocationController.php` | `index()` + `updateSettings()` (AJAX) |
+| `resources/views/bonus-allocation/index.blade.php` | View: search + global % bar + per-tim spreadsheet |
+| `routes/web.php` | `GET /keuangan/alokasi-bonus`, `POST /keuangan/alokasi-bonus/settings` |
+| `resources/views/layouts/app.blade.php` | Sidebar link "Alokasi Bonus" 💎 |
+
+### Endpoint
+- `GET /keuangan/alokasi-bonus` — halaman utama (semua tim + search + global %)
+- `POST /keuangan/alokasi-bonus/settings` — AJAX update 4 global % (ads/cs/keuangan/admin)
+
+### Penting
+- **CS paid match pakai nama** (`cs_panggilan`), bukan `cs_user_id` — karena `cs_user_id` bisa NULL di `regional_cs_stats`.
+- **Jumlah PaidAdvertiser = total CS paid** (bukan dari `spending_harians`). Hanya display, tidak dijumlahkan lagi ke TOTAL.
+- **TOTAL Jumlah Paid = total CS paid** (bukan ads + CS, tidak double-counting).
+- **Global %Advertiser & CS** apply ke SEMUA advertiser sekaligus saat disimpan.
+- **Search**: filter tim by nama advertiser (JS client-side, `data-team-name`).
+- Sidebar visible: owner/super_admin/keuangan.
+- 32/32 finance tests pass.

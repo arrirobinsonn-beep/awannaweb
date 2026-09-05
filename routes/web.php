@@ -3,6 +3,8 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BankStatementController;
 use App\Http\Controllers\BankTransferController;
+use App\Http\Controllers\BonusAllocationController;
+use App\Http\Controllers\BonusCalculationController;
 use App\Http\Controllers\CourierRuleController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExportMappingController;
@@ -234,6 +236,13 @@ Route::middleware('auth')->group(function () {
             Route::delete('bukti-transfer/{bankTransfer}/image', [BankTransferController::class, 'deleteImage'])->name('bank-transfers.delete-image');
             Route::delete('bukti-transfer/{bankTransfer}', [BankTransferController::class, 'destroy'])->name('bank-transfers.destroy');
             Route::get('bukti-transfer/{bankTransfer}/download', [BankTransferController::class, 'download'])->name('bank-transfers.download');
+
+            // Bonus
+            Route::get('bonus', [BonusCalculationController::class, 'index'])->name('bonus.index');
+
+            // Alokasi Bonus
+            Route::get('alokasi-bonus', [BonusAllocationController::class, 'index'])->name('bonus-allocation.index');
+            Route::post('alokasi-bonus/settings', [BonusAllocationController::class, 'updateSettings'])->name('bonus-allocation.settings');
         });
     });
 });

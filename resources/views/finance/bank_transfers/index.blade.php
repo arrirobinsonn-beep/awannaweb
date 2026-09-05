@@ -180,6 +180,9 @@
     .bt-step-arrow { color: #d1d5db; font-size: .8rem; font-weight: 700; }
 
     /* Toggle tipe masuk/keluar */
+    .bt-type-fields { display: none; }
+    .bt-type-fields.active { display: block; }
+
     .bt-type-switch {
         display: flex; background: #f3f4f6; border-radius: 12px; padding: 4px; gap: 4px;
     }
@@ -278,6 +281,7 @@
             @csrf
 
             <div class="bt-form-fields">
+            {{-- Shared fields --}}
             <div class="bt-field">
                 <label>Akun (rekening tujuan) *</label>
                 <select name="account_id" class="clay-input" required>
@@ -320,32 +324,6 @@
             </div>
 
             <div class="bt-field">
-                <label>Produk <span style="color:#9ca3af;font-weight:600;">(opsional)</span></label>
-                <select name="product_id" class="clay-input">
-                    <option value="">— pilih produk —</option>
-                    @foreach($products as $product)
-                        <option value="{{ $product->id }}" {{ old('product_id') == $product->id ? 'selected' : '' }}>
-                            {{ $product->code }} — {{ $product->name }}
-                        </option>
-                    @endforeach
-                </select>
-                <div style="font-size:.66rem;color:#9ca3af;margin-top:3px;">Produk pesanan (daftar dari master Produk).</div>
-            </div>
-
-            <div class="bt-field">
-                <label>ID Order Online <span style="color:#9ca3af;font-weight:600;">(opsional)</span></label>
-                <input type="text" name="order_online_id" class="clay-input" list="bt-order-ids" maxlength="100"
-                       value="{{ old('order_online_id') }}"
-                       placeholder="mis. CBC-101 — ketik atau pilih dari daftar">
-                <datalist id="bt-order-ids">
-                    @foreach($orderIds as $oid)
-                        <option value="{{ $oid }}"></option>
-                    @endforeach
-                </datalist>
-                <div style="font-size:.66rem;color:#9ca3af;margin-top:3px;">ID order dari Data Mentah (ketik bebas atau pilih saran).</div>
-            </div>
-
-            <div class="bt-field">
                 <label>Jumlah (Rp) *</label>
                 <div class="bt-amount-wrap">
                     <span class="bt-amount-prefix">Rp</span>
@@ -359,23 +337,54 @@
                 <input type="date" name="transaction_date" class="clay-input"
                        value="{{ old('transaction_date', now()->format('Y-m-d')) }}" required>
             </div>
+            </div>
 
-            <div class="bt-field bt-field-wide">
+            {{-- Type: Masuk — Bukti Gambar --}}
+            <div class="bt-type-fields {{ old('type') !== 'out' || ! $isApprover ? 'active' : '' }}" id="bt-type-in">
+                <div class="bt-field">
+                    <label>Bukti Transfer (gambar) <span style="color:#dc2626;">*</span></label>
+                    <input type="file" name="image" id="bt-image" class="clay-input" accept="image/jpeg,image/png,image/webp" required>
+                    <div id="bt-preview">
+                        <img id="bt-preview-img" src="" alt="pratinjau bukti">
+                        <button type="button" onclick="clearBtImage()" title="Hapus gambar">✕</button>
+                    </div>
+                    <div style="font-size:.66rem;color:#9ca3af;margin-top:3px;">JPG/PNG/WebP, maks 2MB.</div>
+                </div>
+            </div>
+
+            {{-- Type: Keluar — Produk, ID Order --}}
+            <div class="bt-type-fields {{ old('type') === 'out' && $isApprover ? 'active' : '' }}" id="bt-type-out">
+                <div class="bt-form-fields">
+                    <div class="bt-field">
+                        <label>Produk</label>
+                        <select name="product_id" class="clay-input">
+                            <option value="">— pilih produk —</option>
+                            @foreach($products as $product)
+                                <option value="{{ $product->id }}" {{ old('product_id') == $product->id ? 'selected' : '' }}>
+                                    {{ $product->code }} — {{ $product->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="bt-field">
+                        <label>ID Order Online</label>
+                        <input type="text" name="order_online_id" class="clay-input" list="bt-order-ids" maxlength="100"
+                               value="{{ old('order_online_id') }}"
+                               placeholder="mis. CBC-101 — ketik atau pilih dari daftar">
+                        <datalist id="bt-order-ids">
+                            @foreach($orderIds as $oid)
+                                <option value="{{ $oid }}"></option>
+                            @endforeach
+                        </datalist>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Shared: Keterangan --}}
+            <div class="bt-field" style="margin-top:12px;">
                 <label>Keterangan</label>
                 <textarea name="description" class="clay-input" rows="4" maxlength="5000"
                           placeholder="Tempel template chat konfirmasi pesanan (rincian produk, alamat, rekening tujuan) — klik keterangan/bukti untuk lihat detail">{{ old('description') }}</textarea>
-            </div>
-
-            <div class="bt-field bt-field-wide" id="bt-image-field" style="{{ old('type') === 'out' && $isApprover ? 'display:none;' : '' }}">
-                <label>Bukti Transfer (gambar) <span id="bt-image-req" style="color:#dc2626;">*</span></label>
-                <input type="file" name="image" id="bt-image" class="clay-input" accept="image/jpeg,image/png,image/webp"
-                       {{ (! $isApprover || old('type') !== 'out') ? 'required' : '' }}>
-                <div id="bt-preview">
-                    <img id="bt-preview-img" src="" alt="pratinjau bukti">
-                    <button type="button" onclick="clearBtImage()" title="Hapus gambar">✕</button>
-                </div>
-                <div style="font-size:.66rem;color:#9ca3af;margin-top:3px;">JPG/PNG/WebP, maks 2MB.</div>
-            </div>
             </div>
 
             <button type="submit" class="clay-btn clay-btn-primary" style="width:100%;">
@@ -760,19 +769,32 @@
         });
     });
 
-    /* ── Filter kategori mengikuti tipe ── */
+    /* ── Filter kategori mengikuti tipe + toggle tipe masuk/keluar ── */
     var typeSel = document.getElementById('bt-type');
     var catSel = document.getElementById('bt-category');
-    var imageField = document.getElementById('bt-image-field');
-    var imageInput = document.getElementById('bt-image');
-    var imageReq = document.getElementById('bt-image-req');
+    var typeIn = document.getElementById('bt-type-in');
+    var typeOut = document.getElementById('bt-type-out');
 
     function syncType() {
         var type = typeSel ? typeSel.value : 'in';
-        if (imageField) imageField.style.display = type === 'in' ? '' : 'none';
-        if (imageInput) imageInput.required = type === 'in';
-        if (imageReq) imageReq.style.display = type === 'in' ? '' : 'none';
 
+        /* Toggle type-specific field groups */
+        if (typeIn) typeIn.classList.toggle('active', type === 'in');
+        if (typeOut) typeOut.classList.toggle('active', type === 'out');
+
+        /* Clear hidden field values to prevent stale submits */
+        if (type === 'in' && typeOut) {
+            typeOut.querySelectorAll('input, select').forEach(function (el) {
+                if (el.name) el.value = '';
+            });
+        } else if (type === 'out' && typeIn) {
+            var img = typeIn.querySelector('input[type="file"]');
+            if (img) img.value = '';
+            var preview = document.getElementById('bt-preview');
+            if (preview) preview.style.display = 'none';
+        }
+
+        /* Filter kategori mengikuti tipe */
         if (!catSel) return;
         var selected = catSel.value;
         catSel.querySelectorAll('option').forEach(function (opt) {
@@ -812,21 +834,21 @@
     }
 
     /* ── Preview gambar bukti sebelum submit ── */
-    var imageInput = document.getElementById('bt-image');
     var previewWrap = document.getElementById('bt-preview');
     var previewImg = document.getElementById('bt-preview-img');
 
-    if (imageInput) {
-        imageInput.addEventListener('change', function () {
-            var file = imageInput.files[0];
+    document.addEventListener('change', function (e) {
+        if (e.target && e.target.id === 'bt-image') {
+            var file = e.target.files[0];
             if (!file) { previewWrap.style.display = 'none'; return; }
             previewImg.src = URL.createObjectURL(file);
             previewWrap.style.display = 'block';
-        });
-    }
+        }
+    });
 
     window.clearBtImage = function () {
-        if (imageInput) imageInput.value = '';
+        var img = document.getElementById('bt-image');
+        if (img) img.value = '';
         previewImg.src = '';
         previewWrap.style.display = 'none';
     };
