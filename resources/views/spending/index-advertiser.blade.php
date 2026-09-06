@@ -29,25 +29,36 @@
         </div>
         @endif
 
-        {{-- Area 2: Data Belum Ditambahkan (regional ada, spending kosong) --}}
-        @if(count($missingSpendingDates) > 0)
+        {{-- Area 2: Data Belum Diisi (regional ada tapi spending kosong / sebaliknya) --}}
+        @if(count($missingSpendingDates) > 0 || count($missingRegionalDates ?? []) > 0)
         @if(count($discrepancies) > 0)
         <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
         @endif
-        <strong>Data Belum Ditambahkan</strong>
-        @if(count($missingSpendingDates) > 5)
+        <strong>Data Belum Diisi</strong>
+        @php
+            $allMissing = collect($missingSpendingDates)->map(fn() => 'spending')
+                ->merge(collect($missingRegionalDates ?? [])->map(fn() => 'regional'))
+                ->sortKeys()->all();
+            $totalMissing = count($allMissing);
+        @endphp
+        @if($totalMissing > 5)
         <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
-            ⬇ Menampilkan 5 dari {{ count($missingSpendingDates) }} tanggal — scroll untuk melihat sisanya
+            ⬇ Menampilkan 5 dari {{ $totalMissing }} tanggal — scroll untuk melihat sisanya
         </div>
         @endif
         <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
-            @foreach(array_keys($missingSpendingDates) as $tgl)
+            @foreach(array_keys($allMissing) as $tgl)
             @php
                 $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+                $src = $allMissing[$tgl];
             @endphp
             <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
                 📅 {{ $tglLbl }} —
-                Anda belum mengisi data spending iklan tanggal {{ $tglLbl }}
+                @if($src === 'spending')
+                Anda belum mengisi data spending iklan untuk tanggal {{ $tglLbl }}
+                @else
+                Data regional belum diisi untuk tanggal {{ $tglLbl }}
+                @endif
             </div>
             @endforeach
         </div>
@@ -1790,6 +1801,35 @@ function toggle(id) {
 @if(!$hasWhitelist)
 @push('styles')
 <style>
+    .modal-regional {
+        position: fixed; inset: 0; z-index: 9999;
+        display: none; align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal-regional.active { display: flex; }
+    .modal-regional .modal-backdrop {
+        position: absolute; inset: 0;
+        background: rgba(15,23,42,.55); backdrop-filter: blur(2px);
+    }
+    .modal-regional .modal-container {
+        position: relative; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.18);
+        width: 100%; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;
+    }
+    .modal-regional .modal-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 16px 20px; border-bottom: 1px solid #e5e7eb;
+    }
+    .modal-regional .modal-header h2 { margin: 0; font-size: .92rem; font-weight: 800; color: #1e1b2e; }
+    .modal-regional .modal-close {
+        background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #9ca3af; padding: 4px 8px; border-radius: 8px;
+    }
+    .modal-regional .modal-close:hover { background: #f3f4f6; color: #374151; }
+    .modal-regional .modal-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+    .modal-regional .modal-footer {
+        display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+        padding: 12px 20px; border-top: 1px solid #e5e7eb;
+    }
+    .modal-container-sm { max-width: 420px; }
+
     .modal-wl {
         position: fixed; inset: 0; z-index: 9999;
         display: none; align-items: center; justify-content: center; padding: 16px;
@@ -2552,7 +2592,9 @@ function toggle(id) {
         }
     }
 
-    // ─── Apply: kirim langsung ke server (spending.store) ───
+    // ─── Apply: cek tanggal ada → konfirmasi → kirim ke server ───
+    var pendingSpendingItems = null;
+
     function applyResults() {
         if (!upCombined.length) return;
         var items = [];
@@ -2576,10 +2618,71 @@ function toggle(id) {
         });
         if (!items.length) { showFlash('⚠️ Tidak ada data yang dipilih. Centang minimal 1 baris.'); return; }
 
+        // Kumpulkan tanggal unik
+        var dateSet = {};
+        items.forEach(function(it) { dateSet[it.tanggal] = true; });
+        var dates = Object.keys(dateSet).sort();
+
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) { applyBtn.disabled = true; applyBtn.innerHTML = '<span class="spinner-sm"></span> Memeriksa tanggal…'; }
+
+        // Cek tanggal yang sudah ada data spending
+        fetch('{{ route('spending.check-existing') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': CSRF
+            },
+            body: JSON.stringify({ dates: dates })
+        })
+        .then(function(res) {
+            if (!res.ok) return res.json().then(function(e) { throw new Error(e.message || 'Gagal'); });
+            return res.json();
+        })
+        .then(function(json) {
+            if (applyBtn) { applyBtn.disabled = false; applyBtn.innerHTML = '💾 Simpan ke Server (' + items.length + ' data)'; }
+
+            var existing = json.existing_dates || [];
+            var existingSet = {};
+            existing.forEach(function(d) { existingSet[d] = true; });
+            var hasExisting = existing.length > 0;
+
+            if (!hasExisting) {
+                // Tidak ada overlap → langsung simpan
+                doSaveSpending(items);
+                return;
+            }
+
+            // Ada overlap → tampilkan modal konfirmasi
+            pendingSpendingItems = items;
+            var confirmDates = document.getElementById('sp-confirm-dates');
+            var confirmWarning = document.getElementById('sp-confirm-warning');
+            var html = '';
+            dates.forEach(function(tgl) {
+                var lbl = new Date(tgl + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                var isExisting = !!existingSet[tgl];
+                html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;font-size:.78rem;font-weight:600;'
+                     + (isExisting ? 'background:#fef2f2;color:#991b1b;' : 'background:#f0fdf4;color:#065f46;') + '">'
+                     + '📅 ' + lbl
+                     + '<span style="margin-left:auto;font-size:.64rem;font-weight:800;">'
+                     + (isExisting ? 'SUDAH ADA → AKAN DIGANTI' : 'BARU → AKAN DITAMBAH')
+                     + '</span></div>';
+            });
+            confirmDates.innerHTML = html;
+            confirmWarning.style.display = hasExisting ? '' : 'none';
+            document.getElementById('sp-confirm-modal').style.display = '';
+        })
+        .catch(function(err) {
+            if (applyBtn) { applyBtn.disabled = false; applyBtn.innerHTML = '💾 Simpan ke Server'; }
+            showFlash('❌ Gagal memeriksa tanggal: ' + (err.message || 'Coba lagi.'));
+        });
+    }
+
+    function doSaveSpending(items) {
         var applyBtn = document.getElementById('up-apply');
         if (applyBtn) { applyBtn.disabled = true; applyBtn.innerHTML = '<span class="spinner-sm"></span> Menyimpan…'; }
 
-        // Build form data for POST
         var fd = new FormData();
         items.forEach(function(item, idx) {
             fd.append('items[' + idx + '][tanggal]', item.tanggal);
@@ -2611,6 +2714,25 @@ function toggle(id) {
             showFlash('❌ ' + (err.message || 'Gagal menyimpan data. Coba lagi.'));
         });
     }
+
+    // ─── Modal konfirmasi simpan spending ───
+    (function() {
+        var modal = document.getElementById('sp-confirm-modal');
+        if (!modal) return;
+        var closeBtn = document.getElementById('sp-confirm-close');
+        var cancelBtn = document.getElementById('sp-confirm-cancel');
+        var yesBtn = document.getElementById('sp-confirm-yes');
+        var backdrop = modal.querySelector('.modal-backdrop');
+
+        function hideConfirm() { modal.style.display = 'none'; pendingSpendingItems = null; }
+        if (closeBtn) closeBtn.onclick = hideConfirm;
+        if (cancelBtn) cancelBtn.onclick = hideConfirm;
+        if (backdrop) backdrop.onclick = hideConfirm;
+        if (yesBtn) yesBtn.onclick = function() {
+            hideConfirm();
+            if (pendingSpendingItems) doSaveSpending(pendingSpendingItems);
+        };
+    })();
 
     // Init on DOM ready
     if (document.readyState === 'loading') {
@@ -2723,6 +2845,30 @@ function toggle(id) {
         <div class="up-foot">
             <button type="button" class="clay-btn clay-btn-outline" id="up-cancel">Batal</button>
             <button type="button" class="clay-btn clay-btn-primary" id="up-apply" disabled>💾 Simpan ke Server</button>
+        </div>
+    </div>
+</div>
+
+{{-- ═══════════════ MODAL KONFIRMASI SIMPAN SPENDING ═══════════════ --}}
+<div id="sp-confirm-modal" class="modal-regional" style="display:none;">
+    <div class="modal-backdrop"></div>
+    <div class="modal-container modal-container-sm" style="max-width:420px;">
+        <div class="modal-header">
+            <h2>💾 Konfirmasi Simpan Spending</h2>
+            <button class="modal-close" id="sp-confirm-close" type="button">✕</button>
+        </div>
+        <div class="modal-body" style="padding:20px 22px;">
+            <p style="font-size:.82rem;color:#374151;font-weight:600;margin:0 0 10px;">
+                Data akan disimpan pada tanggal berikut:
+            </p>
+            <div id="sp-confirm-dates" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+            <div id="sp-confirm-warning" style="display:none;margin-top:12px;padding:8px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:.72rem;color:#991b1b;font-weight:600;">
+                ⚠️ Beberapa tanggal sudah memiliki data spending — isian lama akan <strong>DIGANTI</strong> dengan data dari file ini.
+            </div>
+        </div>
+        <div class="modal-footer" style="justify-content:center;gap:12px;">
+            <button class="clay-btn clay-btn-outline" id="sp-confirm-cancel" type="button">Batal</button>
+            <button class="clay-btn clay-btn-primary" id="sp-confirm-yes" type="button">💾 Ya, Simpan</button>
         </div>
     </div>
 </div>

@@ -95,24 +95,35 @@
             </div>
             @endif
 
-            @if(count($data['missing_spending_dates'] ?? []) > 0)
+            @php
+                $mSpend = collect($data['missing_spending_dates'] ?? [])->map(fn() => 'spending');
+                $mReg = collect($data['missing_regional_dates'] ?? [])->map(fn() => 'regional');
+                $allMissingGen = $mSpend->merge($mReg)->sortKeys()->all();
+                $totalMissingGen = count($allMissingGen);
+            @endphp
+            @if($totalMissingGen > 0)
             @if(count($data['discrepancies']) > 0)
             <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:8px;padding-top:8px;"></div>
             @endif
-            <strong>Data Belum Ditambahkan</strong>
-            @if(count($data['missing_spending_dates']) > 5)
+            <strong>Data Belum Diisi</strong>
+            @if($totalMissingGen > 5)
             <div style="margin-top:5px;font-size:.68rem;color:#b91c1c;font-weight:600;">
-                ⬇ Menampilkan 5 dari {{ count($data['missing_spending_dates']) }} tanggal — scroll untuk melihat sisanya
+                ⬇ Menampilkan 5 dari {{ $totalMissingGen }} tanggal — scroll untuk melihat sisanya
             </div>
             @endif
             <div style="margin-top:3px;max-height:102px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
-                @foreach(array_keys($data['missing_spending_dates']) as $tgl)
+                @foreach(array_keys($allMissingGen) as $tgl)
                 @php
                     $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+                    $src = $allMissingGen[$tgl];
                 @endphp
                 <div style="margin-top:3px;font-size:.74rem;line-height:1.45;">
                     📅 {{ $tglLbl }} —
-                    Belum mengisi data spending iklan tanggal {{ $tglLbl }}
+                    @if($src === 'spending')
+                    Belum mengisi data spending iklan untuk tanggal {{ $tglLbl }}
+                    @else
+                    Data regional belum diisi untuk tanggal {{ $tglLbl }}
+                    @endif
                 </div>
                 @endforeach
             </div>

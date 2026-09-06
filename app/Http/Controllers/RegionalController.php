@@ -146,6 +146,7 @@ class RegionalController extends Controller
         $hasDiscrepancy = false;
         $discrepancies = [];
         $missingSpendingDates = [];
+        $missingRegionalDates = [];
 
         foreach ($allDates as $date) {
             $regLead = $totalPerTanggal[$date]['lead'];
@@ -153,13 +154,22 @@ class RegionalController extends Controller
             $spLead = (int) ($spendingTotals[$date]->total_lead ?? 0);
             $spPaid = (int) ($spendingTotals[$date]->total_paid ?? 0);
 
-            // Spending belum diisi sama sekali → "Data belum ditambahkan"
-            if (($regLead > 0 || $regPaid > 0) && $spLead === 0 && $spPaid === 0) {
+            $hasReg = $regLead > 0 || $regPaid > 0;
+            $hasSp = $spLead > 0 || $spPaid > 0;
+
+            // Hanya regional ada → spending belum diisi
+            if ($hasReg && !$hasSp) {
                 $hasDiscrepancy = true;
                 $missingSpendingDates[$date] = true;
                 continue;
             }
-
+            // Hanya spending ada → regional belum diisi
+            if ($hasSp && !$hasReg) {
+                $hasDiscrepancy = true;
+                $missingRegionalDates[$date] = true;
+                continue;
+            }
+            // Keduanya ada tapi angka beda
             if ($regLead !== $spLead || $regPaid !== $spPaid) {
                 $hasDiscrepancy = true;
                 $discrepancies[$date] = [
@@ -208,7 +218,7 @@ class RegionalController extends Controller
             'totalSpending',
             'hasDiscrepancy',
             'discrepancies',
-            'missingSpendingDates',
+            'missingSpendingDates', 'missingRegionalDates',
             'dari',
             'sampai',
             'advertisers',

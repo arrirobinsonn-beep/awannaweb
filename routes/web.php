@@ -117,6 +117,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/spending/bulk-delete', [SpendingHarianController::class, 'bulkDestroy'])->name('spending.bulk-destroy');
         Route::post('/spending/bulk-update', [SpendingHarianController::class, 'bulkUpdate'])->name('spending.bulk-update');
         Route::post('/spending/parse-upload', [SpendingHarianController::class, 'parseUpload'])->name('spending.parse-upload');
+        Route::post('/spending/check-existing', [SpendingHarianController::class, 'checkExistingDates'])->name('spending.check-existing');
 
 
         // Top Up

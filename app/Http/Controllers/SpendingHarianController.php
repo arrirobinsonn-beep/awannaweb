@@ -9,6 +9,7 @@ use App\Models\SpendingHarian;
 use App\Models\User;
 use App\Models\Whitelist;
 use App\Services\ProductNameMatcher;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -83,9 +84,8 @@ class SpendingHarianController extends Controller
         $hasDiscrepancy = false;
         $discrepancies = [];
         $discrepantDates = [];
-        // Kelompok "Data belum ditambahkan": tanggal punya data REGIONAL tapi
-        // spending-nya kosong (belum diisi) — bukan selisih angka.
         $missingSpendingDates = [];
+        $missingRegionalDates = [];
 
         foreach ($allDates as $date) {
             $regLead = (int) ($regionalTotals[$date]->total_lead ?? 0);
@@ -93,13 +93,22 @@ class SpendingHarianController extends Controller
             $spLead = (int) ($spendingTotals[$date]->total_lead ?? 0);
             $spPaid = (int) ($spendingTotals[$date]->total_paid ?? 0);
 
-            // Spending belum diisi sama sekali → "Data belum ditambahkan"
-            if (($regLead > 0 || $regPaid > 0) && $spLead === 0 && $spPaid === 0) {
+            $hasReg = $regLead > 0 || $regPaid > 0;
+            $hasSp = $spLead > 0 || $spPaid > 0;
+
+            // Hanya regional ada → spending belum diisi
+            if ($hasReg && !$hasSp) {
                 $hasDiscrepancy = true;
                 $missingSpendingDates[$date] = true;
                 continue;
             }
-
+            // Hanya spending ada → regional belum diisi
+            if ($hasSp && !$hasReg) {
+                $hasDiscrepancy = true;
+                $missingRegionalDates[$date] = true;
+                continue;
+            }
+            // Keduanya ada tapi angka beda
             if ($regLead !== $spLead || $regPaid !== $spPaid) {
                 $hasDiscrepancy = true;
                 $discrepancies[$date] = [
@@ -112,7 +121,7 @@ class SpendingHarianController extends Controller
             }
         }
 
-        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates');
+        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates', 'missingRegionalDates');
     }
 
     // ─── View Advertiser: data milik sendiri, group by tanggal → produk ─
@@ -182,6 +191,7 @@ class SpendingHarianController extends Controller
         $discrepancies = $discrepancy['discrepancies'];
         $discrepantDates = $discrepancy['discrepantDates'];
         $missingSpendingDates = $discrepancy['missingSpendingDates'] ?? [];
+        $missingRegionalDates = $discrepancy['missingRegionalDates'] ?? [];
 
         // ─── Cek discrepancy: Data CS tim vs data advertiser ────
         $csTeamIds = User::where('advertiser_id', $user->id)
@@ -269,7 +279,7 @@ class SpendingHarianController extends Controller
         return view('spending.index-advertiser', compact(
             'summaries', 'summary', 'runningSummary', 'testingSummary',
             'dari', 'sampai', 'myWhitelists', 'user',
-            'hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates',
+            'hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates', 'missingRegionalDates',
             'csDiscrepancy', 'hasWhitelist', 'dateChangeRestrictions'
         ));
     }
@@ -345,6 +355,7 @@ class SpendingHarianController extends Controller
                     'discrepancies' => $disc['discrepancies'],
                     'discrepant_dates' => $disc['discrepantDates'],
                     'missing_spending_dates' => $disc['missingSpendingDates'] ?? [],
+                    'missing_regional_dates' => $disc['missingRegionalDates'] ?? [],
                 ];
 
                 continue;
@@ -359,6 +370,7 @@ class SpendingHarianController extends Controller
                 'discrepancies' => $disc['discrepancies'],
                 'discrepant_dates' => $disc['discrepantDates'],
                 'missing_spending_dates' => $disc['missingSpendingDates'] ?? [],
+                'missing_regional_dates' => $disc['missingRegionalDates'] ?? [],
                 'summaries' => $grouped->map(function ($items) {
                     $byProduct = $items->groupBy('product_id')->map(function ($pItems) {
                         return [
@@ -438,6 +450,7 @@ class SpendingHarianController extends Controller
         $discrepancies = [];
         $discrepantDates = [];
         $missingSpendingDates = [];
+        $missingRegionalDates = [];
 
         foreach ($allDates as $date) {
             $regLead = (int) ($regionalKeyed[$date]->total_lead ?? 0);
@@ -445,13 +458,19 @@ class SpendingHarianController extends Controller
             $spLead = (int) ($spendingKeyed[$date]->total_lead ?? 0);
             $spPaid = (int) ($spendingKeyed[$date]->total_paid ?? 0);
 
-            // Spending belum diisi sama sekali → "Data belum ditambahkan"
-            if (($regLead > 0 || $regPaid > 0) && $spLead === 0 && $spPaid === 0) {
+            $hasReg = $regLead > 0 || $regPaid > 0;
+            $hasSp = $spLead > 0 || $spPaid > 0;
+
+            if ($hasReg && !$hasSp) {
                 $hasDiscrepancy = true;
                 $missingSpendingDates[$date] = true;
                 continue;
             }
-
+            if ($hasSp && !$hasReg) {
+                $hasDiscrepancy = true;
+                $missingRegionalDates[$date] = true;
+                continue;
+            }
             if ($regLead !== $spLead || $regPaid !== $spPaid) {
                 $hasDiscrepancy = true;
                 $discrepancies[$date] = [
@@ -464,7 +483,7 @@ class SpendingHarianController extends Controller
             }
         }
 
-        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates');
+        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates', 'missingRegionalDates');
     }
 
     // ─── Create ────────────────────────────────────────────────────
@@ -750,6 +769,34 @@ class SpendingHarianController extends Controller
             'regional_unmatched' => array_slice(array_values(array_unique($regionalUnmatched)), 0, 20),
             'regional_unmatched_count' => count(array_unique($regionalUnmatched)),
             'total_rows' => count($allKeys),
+        ]);
+    }
+
+    // ─── Cek Tanggal yang Sudah Ada Data Spending (AJAX) ────────
+
+    public function checkExistingDates(Request $request): JsonResponse
+    {
+        $request->validate([
+            'dates' => ['required', 'array', 'min:1'],
+            'dates.*' => ['required', 'date'],
+        ]);
+
+        $user = Auth::user();
+        $advertiserId = $user->hasRole('advertiser') ? $user->id : ($user->advertiser_id ?? $user->id);
+        $dates = $request->input('dates');
+
+        $existingDates = SpendingHarian::where('user_id', $advertiserId)
+            ->whereIn('tanggal', $dates)
+            ->select('tanggal')
+            ->distinct()
+            ->get()
+            ->pluck('tanggal')
+            ->map(fn ($d) => $d instanceof Carbon ? $d->format('Y-m-d') : (string) $d)
+            ->toArray();
+
+        return response()->json([
+            'has_existing' => count($existingDates) > 0,
+            'existing_dates' => $existingDates,
         ]);
     }
 
