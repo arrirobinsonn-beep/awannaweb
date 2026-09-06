@@ -214,9 +214,9 @@ body {
     flex-shrink: 0;
 }
 .nav-item.active .nav-icon {
-    background: var(--color-primary);
-    color: #fff;
-    box-shadow: 0 3px 0 #e05555;
+    background: rgba(255, 107, 107, 0.12);
+    color: var(--color-primary);
+    box-shadow: none;
 }
 
 /* ─── Stat Cards ──────────────────────────────────────────── */

@@ -33,6 +33,9 @@
 .pc-stat-val { font-size: 1.1rem; font-weight: 900; }
 .pc-stat-val.in { color: #10b981; }
 .pc-stat-val.out { color: #ef4444; }
+.pc-stat-val.stock { color: #3b82f6; }
+.pc-stock-warn { background: #fef2f2; border-color: #fca5a5 !important; }
+.pc-stock-warn .pc-stat-val.stock { color: #ef4444; }
 
 .product-detail-section {
     display: none;
@@ -87,10 +90,20 @@
 {{-- Grid Cards --}}
 <div class="grid-stats" data-reveal>
     @foreach($productStats as $idx => $ps)
-    <div class="product-card" onclick="showProductDetail({{ $ps->product->id }}, this)">
+    @php
+        $stockWarn = $ps->minStock > 0 && $ps->stock <= $ps->minStock;
+    @endphp
+    <div class="product-card{{ $stockWarn ? ' pc-stock-warn' : '' }}" onclick="showProductDetail({{ $ps->product->id }}, this)">
         <div class="pc-title">{{ $ps->product->name }}</div>
         <div class="pc-code">{{ $ps->product->code }}</div>
+        @if($stockWarn)
+            <div style="font-size:.65rem;color:#ef4444;font-weight:700;margin-bottom:8px;">⚠ Perlu Restock (min {{ number_format($ps->minStock,0,',','.') }})</div>
+        @endif
         <div class="pc-stats">
+            <div class="pc-stat">
+                <div class="pc-stat-label">Stok</div>
+                <div class="pc-stat-val stock">{{ number_format($ps->stock, 0, ',', '.') }}</div>
+            </div>
             <div class="pc-stat">
                 <div class="pc-stat-label">Masuk</div>
                 <div class="pc-stat-val in">{{ number_format($ps->in, 0, ',', '.') }}</div>
@@ -121,6 +134,7 @@
                             <th style="width:40px;"></th>
                             <th>Nama Varian</th>
                             <th>Kode</th>
+                            <th style="text-align:right;">Stok</th>
                             <th style="text-align:right;">Masuk</th>
                             <th style="text-align:right;">Keluar</th>
                         </tr>
@@ -130,17 +144,18 @@
                         <tr class="variant-row" onclick="toggleDetail('var-{{ $vd->variant->id }}', this)">
                             <td style="text-align:center;color:#9ca3af;font-size:1.2rem;">▾</td>
                             <td style="font-weight:700;">
-                                {{ $vd->variant->nama }}
+                                {{ $vd->variant->name }}
                                 @if((float)$vd->variant->power > 0)
                                     <span style="color:#6b7280;font-weight:600;">(+{{ number_format($vd->variant->power,2,',','.') }})</span>
                                 @endif
                             </td>
                             <td style="color:#6b7280;font-size:.8rem;">{{ $vd->variant->code }}</td>
+                            <td style="text-align:right;font-weight:700;color:{{ $vd->stock > 0 ? '#3b82f6' : '#9ca3af' }};">{{ number_format($vd->stock, 0, ',', '.') }}</td>
                             <td style="text-align:right;color:#10b981;font-weight:700;">{{ number_format($vd->in, 0, ',', '.') }}</td>
                             <td style="text-align:right;color:#ef4444;font-weight:700;">{{ number_format($vd->out, 0, ',', '.') }}</td>
                         </tr>
                         <tr class="detail-row" id="var-{{ $vd->variant->id }}">
-                            <td colspan="5" style="padding:0;background:#f8fafc;">
+                            <td colspan="6" style="padding:0;background:#f8fafc;">
                                 @if($vd->movements->count())
                                 <div style="padding:16px 20px 24px 40px;">
                                     <table style="width:100%;border-collapse:collapse;font-size:.8rem;">

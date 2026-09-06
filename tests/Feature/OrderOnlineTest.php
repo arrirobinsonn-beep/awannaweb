@@ -2198,7 +2198,7 @@ class OrderOnlineTest extends TestCase
         ProductInventory::create(['product_id' => $product->id, 'inventory_id' => $invA->id, 'is_primary' => true]);
 
         $this->actingAs($user)
-            ->post(route('purchase.store'), [
+            ->postJson(route('purchase.store'), [
                 'date' => now()->format('Y-m-d'),
                 'product_variant_id' => $variant->id,
                 'inventory_id' => $invB->id,
@@ -2206,33 +2206,22 @@ class OrderOnlineTest extends TestCase
                 'unit_price' => 5000,
                 'shipping_cost' => 0,
             ])
-            ->assertRedirect();
+            ->assertJson(['success' => true]);
 
         $purchase = Purchase::where('product_variant_id', $variant->id)->latest('id')->first();
         $this->assertNotNull($purchase);
         $this->assertSame((int) $invB->id, (int) $purchase->inventory_id);
-        $this->assertSame('pending', $purchase->status);
-        // Stok BELUM masuk karena masih pending
+        $this->assertSame('in_transit', $purchase->status);
+        // Stok BELUM masuk karena masih dalam perjalanan
         $this->assertSame(0, $stock->stockOf($variant->id, $invB->id));
 
-        // Approve pembelian → stok BELUM masuk (perlu verifikasi)
-        $user->assignRole('admin');
-        $testAccount = \App\Models\Account::create(['name' => 'Test '.uniqid(), 'type' => 'bank', 'current_balance' => 10000000, 'status' => 'active']);
+        // Terima barang → stok masuk ke gudang B
         $this->actingAs($user)
-            ->patch(route('approval.purchase.approve', $purchase), ['source_account_id' => $testAccount->id])
-            ->assertRedirect();
-
-        $purchase = $purchase->fresh();
-        $this->assertSame('approved', $purchase->status);
-        $this->assertSame(0, $stock->stockOf($variant->id, $invB->id)); // belum masuk
-
-        // Verifikasi barang datang → stok masuk
-        $this->actingAs($user)
-            ->patch(route('approval.purchase.verify', $purchase), [
-                'actual_quantity' => 10,
-                'receive_note' => 'Barang lengkap',
+            ->patchJson(route('purchase.receive', $purchase), [
+                'received_qty' => 10,
+                'received_note' => 'Barang lengkap',
             ])
-            ->assertRedirect();
+            ->assertJson(['success' => true]);
 
         $purchase = $purchase->fresh();
         $this->assertSame('received', $purchase->status);
@@ -2244,7 +2233,7 @@ class OrderOnlineTest extends TestCase
             ->get(route('purchase.index', ['inventory_id' => $invB->id]))
             ->assertOk()
             ->assertSee($invB->name)
-            ->assertSee('Barang Masuk');
+            ->assertSee('Pembelian Barang');
     }
 
     public function test_product_master_variant_crud(): void

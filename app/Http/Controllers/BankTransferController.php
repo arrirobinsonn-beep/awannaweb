@@ -49,7 +49,8 @@ class BankTransferController extends Controller
 
         if (! $isApprover && ! $user->hasRole('pemilik_bank')) {
             abort_unless($user->hasRole('cs'), 403);
-            $query->where('created_by', $user->id);
+            $query->where('created_by', $user->id)
+                  ->where('type', 'in');
         }
 
         // Pemilik bank hanya lihat bukti transfer ke akun yang dia miliki
@@ -164,8 +165,8 @@ class BankTransferController extends Controller
                 'image_url' => $request->hasFile('image')
                     ? $request->file('image')->store('bukti-transfer', 'local')
                     : null,
-                // Approver = langsung dicatat (saldo ter-update); CS = pending (perlu confirm pemilik bank dulu).
-                'status' => $isApprover ? 'approved' : 'pending',
+                // Semua transaksi (masuk & keluar) dimulai dari status pending.
+                'status' => 'pending',
             ]);
 
             app(FinanceService::class)->applyBankTransfer($bt);
@@ -251,7 +252,14 @@ class BankTransferController extends Controller
     public function approve(BankTransfer $bankTransfer): RedirectResponse
     {
         abort_unless($this->isApprover(), 403);
-        abort_unless($bankTransfer->isConfirmed(), 400, 'Bukti transfer harus dikonfirmasi pemilik bank terlebih dahulu.');
+
+        // Pengeluaran (out) langsung approve tanpa perlu konfirmasi pemilik bank.
+        // Pemasukan (in) harus sudah dikonfirmasi pemilik bank dulu.
+        if ($bankTransfer->type === 'in') {
+            abort_unless($bankTransfer->isConfirmed(), 400, 'Bukti transfer masuk harus dikonfirmasi pemilik bank terlebih dahulu.');
+        } else {
+            abort_unless($bankTransfer->isPending(), 400, 'Transaksi pengeluaran sudah diproses.');
+        }
 
         DB::transaction(function () use ($bankTransfer) {
             $bankTransfer->update(['status' => 'approved']);

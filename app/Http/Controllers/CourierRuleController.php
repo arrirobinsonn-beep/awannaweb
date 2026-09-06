@@ -31,17 +31,29 @@ class CourierRuleController extends Controller
 
         return view('courier_rule.index', [
             'rules' => $rules,
-            'nextOrder' => ($rules->max('sort_order') ?? 0) + 1,
             'couriers' => $this->allCouriers(),
             'provinces' => config('regional.master_provinces', []),
             'productCodes' => Product::query()->pluck('code')->sort()->values(),
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function filter()
+    {
+        $rules = CourierRule::orderBy('sort_order')->orderBy('id')->get();
+
+        return response()->json([
+            'html' => view('courier_rule._table', [
+                'rules' => $rules,
+                'couriers' => $this->allCouriers(),
+            ])->render(),
+            'total' => $rules->count(),
+            'nextOrder' => ($rules->max('sort_order') ?? 0) + 1,
+        ]);
+    }
+
+    public function store(Request $request)
     {
         $data = $this->normalize($request->validate([
-            'sort_order' => ['required', 'integer', 'min:1', 'max:999999'],
             'payment_method' => ['nullable', 'string', 'max:50'],
             'province' => ['nullable', 'string', 'max:191'],
             'product_code' => ['nullable', 'string', 'max:50'],
@@ -50,17 +62,22 @@ class CourierRuleController extends Controller
         ]));
 
         if ($this->duplicateExists($data)) {
-            return back()->withErrors([
-                'rule' => 'Kombinasi metode bayar + provinsi ini sudah punya aturan. Ubah/hapus aturan lama dulu.',
-            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Kombinasi metode bayar + provinsi ini sudah punya aturan.',
+            ], 422);
         }
+
+        // Auto-set sort_order to bottom
+        $maxOrder = CourierRule::max('sort_order') ?? 0;
+        $data['sort_order'] = $maxOrder + 1;
 
         CourierRule::create($data);
 
-        return redirect()->route('courier-rule.index')->with('success', 'Aturan courier berhasil ditambahkan.');
+        return response()->json(['success' => true, 'message' => 'Aturan courier berhasil ditambahkan.']);
     }
 
-    public function update(Request $request, CourierRule $courierRule): RedirectResponse
+    public function update(Request $request, CourierRule $courierRule)
     {
         $data = $this->normalize($request->validate([
             'sort_order' => ['required', 'integer', 'min:1', 'max:999999'],
@@ -72,34 +89,33 @@ class CourierRuleController extends Controller
         ]));
 
         if ($this->duplicateExists($data, $courierRule->id)) {
-            return back()->withErrors([
-                'rule' => 'Kombinasi metode bayar + provinsi ini sudah punya aturan lain. Ubah/hapus aturan lama dulu.',
-            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Kombinasi metode bayar + provinsi ini sudah punya aturan lain.',
+            ], 422);
         }
 
         $courierRule->update($data);
 
-        return redirect()->route('courier-rule.index')->with('success', 'Aturan courier berhasil diperbarui.');
+        return response()->json(['success' => true, 'message' => 'Aturan courier berhasil diperbarui.']);
     }
 
-    public function destroy(CourierRule $courierRule): RedirectResponse
+    public function destroy(CourierRule $courierRule)
     {
         $courierRule->delete();
 
-        return redirect()->route('courier-rule.index')->with('success', 'Aturan courier berhasil dihapus.');
+        return response()->json(['success' => true, 'message' => 'Aturan courier berhasil dihapus.']);
     }
 
-    public function toggle(CourierRule $courierRule): RedirectResponse
+    public function toggle(CourierRule $courierRule)
     {
         $courierRule->update(['is_active' => ! $courierRule->is_active]);
 
-        return back()->with('success', $courierRule->is_active
-            ? 'Aturan courier diaktifkan.'
-            : 'Aturan courier dinonaktifkan.');
+        return response()->json(['success' => true, 'is_active' => $courierRule->is_active]);
     }
 
     /** Naik/turunkan prioritas (sort_order) dengan menukar rule tetangga. */
-    public function move(CourierRule $courierRule, string $direction): RedirectResponse
+    public function move(CourierRule $courierRule, string $direction)
     {
         if (! in_array($direction, ['up', 'down'], true)) {
             abort(404);
@@ -119,7 +135,16 @@ class CourierRuleController extends Controller
             });
         }
 
-        return back();
+        $rules = CourierRule::orderBy('sort_order')->orderBy('id')->get();
+
+        return response()->json([
+            'success' => true,
+            'html' => view('courier_rule._table', [
+                'rules' => $rules,
+                'couriers' => $this->allCouriers(),
+            ])->render(),
+            'total' => $rules->count(),
+        ]);
     }
 
     private function normalize(array $data): array

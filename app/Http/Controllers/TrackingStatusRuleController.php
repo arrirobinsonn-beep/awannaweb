@@ -188,60 +188,65 @@ class TrackingStatusRuleController extends Controller
             ->with('success', "Mapping header {$source} berhasil disimpan ({$count} kolom).");
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request)
     {
-        $data = $this->normalize($request->validate($this->rules()));
+        $data = $this->normalize($request->validate($this->rules(true)));
 
         if ($this->duplicateExists($data)) {
-            return back()->withErrors([
-                'rule' => 'Aturan dengan kombinasi sumber + raw status + jenis ini sudah ada. Ubah/hapus aturan lama dulu.',
-            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Aturan dengan kombinasi sumber + raw status + jenis ini sudah ada.',
+            ], 422);
         }
+
+        // Auto-set sort_order to bottom
+        $maxOrder = TrackingStatusRule::where('source', $data['source'])->max('sort_order') ?? 0;
+        $data['sort_order'] = $maxOrder + 1;
 
         TrackingStatusRule::create($data);
 
-        return redirect()->route('tracking-status-rule.index')->with('success', 'Aturan status berhasil ditambahkan.');
+        return response()->json(['success' => true, 'message' => 'Aturan status berhasil ditambahkan.', 'source' => $data['source']]);
     }
 
-    public function update(Request $request, TrackingStatusRule $trackingStatusRule): RedirectResponse
+    public function update(Request $request, TrackingStatusRule $trackingStatusRule)
     {
-        $data = $this->normalize($request->validate($this->rules()));
+        $data = $this->normalize($request->validate($this->rules(false)));
 
         if ($this->duplicateExists($data, $trackingStatusRule->id)) {
-            return back()->withErrors([
-                'rule' => 'Aturan dengan kombinasi sumber + raw status + jenis ini sudah ada. Ubah/hapus aturan lama dulu.',
-            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Aturan dengan kombinasi sumber + raw status + jenis ini sudah ada.',
+            ], 422);
         }
 
         $trackingStatusRule->update($data);
 
-        return redirect()->route('tracking-status-rule.index')->with('success', 'Aturan status berhasil diperbarui.');
+        return response()->json(['success' => true, 'message' => 'Aturan status berhasil diperbarui.']);
     }
 
-    public function destroy(TrackingStatusRule $trackingStatusRule): RedirectResponse
+    public function destroy(TrackingStatusRule $trackingStatusRule)
     {
+        $source = $trackingStatusRule->source;
         $trackingStatusRule->delete();
 
-        return redirect()->route('tracking-status-rule.index')->with('success', 'Aturan status berhasil dihapus.');
+        return response()->json(['success' => true, 'message' => 'Aturan status berhasil dihapus.', 'source' => $source]);
     }
 
-    public function toggle(TrackingStatusRule $trackingStatusRule): RedirectResponse
+    public function toggle(TrackingStatusRule $trackingStatusRule)
     {
         $trackingStatusRule->update(['is_active' => ! $trackingStatusRule->is_active]);
 
-        return back()->with('success', $trackingStatusRule->is_active
-            ? 'Aturan status diaktifkan.'
-            : 'Aturan status dinonaktifkan.');
+        return response()->json(['success' => true, 'is_active' => $trackingStatusRule->is_active]);
     }
 
     /** Naik/turunkan prioritas (sort_order) dengan menukar rule tetangga. */
-    public function move(TrackingStatusRule $trackingStatusRule, string $direction): RedirectResponse
+    public function move(TrackingStatusRule $trackingStatusRule, string $direction)
     {
         if (! in_array($direction, ['up', 'down'], true)) {
             abort(404);
         }
 
-        $rules = TrackingStatusRule::orderBy('source')
+        $rules = TrackingStatusRule::where('source', $trackingStatusRule->source)
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
@@ -258,12 +263,50 @@ class TrackingStatusRuleController extends Controller
             });
         }
 
-        return back();
+        $source = $trackingStatusRule->source;
+        $rules = TrackingStatusRule::where('source', $source)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'html' => view('tracking_status_rule._rules_table', [
+                'rules' => $rules,
+                'source' => $source,
+                'statuses' => ShippingOrder::TRACKING_STATUSES,
+                'matchTypes' => TrackingStatusRule::MATCH_TYPES,
+                'problemModes' => TrackingStatusRule::PROBLEM_MODES,
+                'problemMatchTypes' => TrackingStatusRule::PROBLEM_MATCH_TYPES,
+            ])->render(),
+            'total' => $rules->count(),
+        ]);
     }
 
-    private function rules(): array
+    public function filter(string $source)
     {
-        return [
+        $source = strtolower(trim($source));
+        $rules = TrackingStatusRule::where('source', $source)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+
+        return response()->json([
+            'html' => view('tracking_status_rule._rules_table', [
+                'rules' => $rules,
+                'source' => $source,
+                'statuses' => ShippingOrder::TRACKING_STATUSES,
+                'matchTypes' => TrackingStatusRule::MATCH_TYPES,
+                'problemModes' => TrackingStatusRule::PROBLEM_MODES,
+                'problemMatchTypes' => TrackingStatusRule::PROBLEM_MATCH_TYPES,
+            ])->render(),
+            'total' => $rules->count(),
+        ]);
+    }
+
+    private function rules(bool $isStore = false): array
+    {
+        $rules = [
             'source' => ['required', 'string', 'in:'.implode(',', $this->validSources())],
             'raw_status' => ['required', 'string', 'max:191'],
             'match_type' => ['required', 'string', 'in:'.implode(',', TrackingStatusRule::MATCH_TYPES)],
@@ -271,9 +314,15 @@ class TrackingStatusRuleController extends Controller
             'problem_mode' => ['required', 'string', 'in:'.implode(',', TrackingStatusRule::PROBLEM_MODES)],
             'problem_keyword' => ['nullable', 'string', 'max:191'],
             'problem_match_type' => ['required', 'string', 'in:'.implode(',', TrackingStatusRule::PROBLEM_MATCH_TYPES)],
-            'sort_order' => ['required', 'integer', 'min:1', 'max:999999'],
             'is_active' => ['sometimes', 'boolean'],
         ];
+
+        // sort_order: required for edit (sent from modal), optional for add (auto-set to bottom)
+        $rules['sort_order'] = $isStore
+            ? ['nullable', 'integer', 'min:1', 'max:999999']
+            : ['required', 'integer', 'min:1', 'max:999999'];
+
+        return $rules;
     }
 
     private function normalize(array $data): array

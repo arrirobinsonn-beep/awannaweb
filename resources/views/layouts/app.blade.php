@@ -487,17 +487,35 @@
             </div>
             @endif
 
+            {{-- ═══ Bukti Transfer (CS) ═══ --}}
+            @if($u->hasRole('cs'))
+            <div class="nav-group" data-group="cs-bukti">
+                <button type="button" class="nav-group-header sidebar-label" data-tip="Bukti Transfer">
+                    <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;"><x-icon name="receipt-refund" class="icon-sm" /> Bukti Transfer</span>
+                    <span class="nav-chev">▾</span>
+                </button>
+                <div class="nav-group-body">
+                    <a href="{{ route('finance.bank-transfers.index') }}" class="nav-item {{ request()->routeIs('finance.bank-transfers.*') ? 'active' : '' }}" data-page-link>
+                        <span class="nav-icon"><x-icon name="receipt-refund" /></span><span class="sidebar-label">Upload & Riwayat</span>
+                        <span class="bt-pending-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">0</span>
+                    </a>
+                </div>
+            </div>
+            @endif
+
             {{-- ═══ Manajemen ═══ --}}
-            @if($u->hasRole(['owner','super_admin']))
+            @if($u->hasRole(['owner','super_admin','keuangan']))
             <div class="nav-group" data-group="manajemen">
                 <button type="button" class="nav-group-header sidebar-label" data-tip="Manajemen">
                     <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;"><x-icon name="cog-6-tooth" class="icon-sm" /> Manajemen</span>
                     <span class="nav-chev">▾</span>
                 </button>
                 <div class="nav-group-body">
+                    @if($u->hasRole(['owner','super_admin']))
                     <a href="{{ route('user.index') }}" class="nav-item {{ request()->routeIs('user.*') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="users" /></span><span class="sidebar-label">Users & Role</span>
                     </a>
+                    @endif
                     @if($u->hasRole(['owner','super_admin','admin']))
                     <a href="{{ route('team.admin-index') }}" class="nav-item {{ request()->routeIs('team.admin-index') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="map-pin" /></span><span class="sidebar-label">Mapping Tim CS</span>
@@ -977,9 +995,36 @@ _click:ck,_hover:hv
         }
     });
 
+    /* ── Simpan/restore scroll position sidebar ── */
+    var nav = sidebar.querySelector('nav');
+    if (nav) {
+        /* Restore on page load */
+        try {
+            var saved = localStorage.getItem('wa_sidebar_scroll');
+            if (saved !== null) {
+                nav.scrollTop = parseInt(saved, 10) || 0;
+            }
+        } catch(e){}
+
+        /* Save on scroll */
+        nav.addEventListener('scroll', function () {
+            try { localStorage.setItem('wa_sidebar_scroll', nav.scrollTop); } catch(e){}
+        });
+
+        /* Save before navigating away */
+        window.addEventListener('beforeunload', function () {
+            try { localStorage.setItem('wa_sidebar_scroll', nav.scrollTop); } catch(e){}
+        });
+    }
+
     /* ── Tutup sidebar saat klik nav link di layar sempit ── */
     document.querySelectorAll('[data-page-link]').forEach(function (el) {
         el.addEventListener('click', function () {
+            /* Simpan scroll position sebelum navigasi */
+            try {
+                var navEl = sidebar.querySelector('nav');
+                if (navEl) localStorage.setItem('wa_sidebar_scroll', navEl.scrollTop);
+            } catch(e){}
             if (!isDesktop()) closeSidebar();
         });
     });
@@ -1009,6 +1054,15 @@ _click:ck,_hover:hv
             header.addEventListener('click', function(){ apply(g, !g.classList.contains('open')); });
         }
     });
+
+    /* ── Restore sidebar scroll position setelah nav groups expand ── */
+    try {
+        var savedScroll = localStorage.getItem('wa_sidebar_scroll');
+        if (savedScroll !== null) {
+            var sideNav = document.querySelector('#sidebar nav');
+            if (sideNav) sideNav.scrollTop = parseInt(savedScroll, 10) || 0;
+        }
+    } catch(e){}
 })();
 
 {{-- ── Discrepancy Alarm Badge (Spending vs Regional) ── --}}

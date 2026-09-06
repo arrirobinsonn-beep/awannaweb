@@ -66,6 +66,15 @@
 .chart-scroll-wrap::-webkit-scrollbar { height:5px; }
 .chart-scroll-wrap::-webkit-scrollbar-thumb { background:#e2e8f0; border-radius:4px; }
 .chart-inner { min-width:100%; }
+
+.ord-mobile-cards { display:none; }
+.ord-card-item { border-bottom:1px solid #f3f4f6;padding:14px 16px; }
+.ord-card-item:last-child { border-bottom:none; }
+
+@media (max-width: 768px) {
+    .ord-desktop-table { display:none; }
+    .ord-mobile-cards { display:block; }
+}
 </style>
 @endpush
 
@@ -359,138 +368,44 @@
   </div>
   @endif
 
-  {{-- Filter form ── --}}
-  <form method="GET" action="{{ route('orders.index') }}" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 20px;border-bottom:1px solid rgba(0,0,0,.04);">
-    <select name="batch" class="clay-input" style="min-width:180px;" onchange="this.form.submit()">
-      <option value="">Semua Batch</option>
-      @foreach($batches as $b)
-        <option value="{{ $b->id }}" @selected(request('batch') == $b->id)>
-          {{ $b->created_at?->copy()->timezone('Asia/Jakarta')->format('d M Y H:i') }}{{ $b->sender ? ' — '.$b->sender : '' }} ({{ $b->shipping_orders_count }})
-        </option>
-      @endforeach
-    </select>
-    <input type="text" name="search" value="{{ request('search') }}" placeholder="Cari order / nama / telp" class="clay-input" style="flex:1;min-width:160px;">
-    <select name="courier" class="clay-input">
-      <option value="">Semua Courier</option>
-      @foreach($courierList as $c)
-        <option value="{{ $c }}" @selected(request('courier') === $c)>{{ $c }}</option>
-      @endforeach
-    </select>
-    <select name="status" class="clay-input">
-      <option value="">Semua Status</option>
-      @foreach(\App\Models\ShippingOrder::STATUSES as $st)
-        <option value="{{ $st }}" @selected(request('status') === $st)>{{ ucfirst($st) }}</option>
-      @endforeach
-    </select>
-    <select name="product_code" class="clay-input">
-      <option value="">Semua Produk</option>
-      @foreach($productOptions as $code => $label)
-        <option value="{{ $code }}" @selected(request('product_code') === $code)>{{ $label }}</option>
-      @endforeach
-    </select>
-    <button class="clay-btn clay-btn-primary" type="submit">🔍 Filter</button>
-    <a href="{{ route('orders.index') }}" class="clay-btn">Reset</a>
-  </form>
+  {{-- Filter (AJAX + Date Range Picker) ── --}}
+  <div style="padding:14px 20px;border-bottom:1px solid rgba(0,0,0,.04);">
+    <style>.ord-filter .drp-trigger{min-width:0!important;width:100%;}</style>
+    <div class="ord-filter" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:center;">
+      <select id="ord-filter-batch" class="clay-input">
+        <option value="">Semua Batch</option>
+        @foreach($batches as $b)
+          <option value="{{ $b->id }}" @selected(request('batch') == $b->id)>
+            {{ $b->created_at?->copy()->timezone('Asia/Jakarta')->format('d M Y H:i') }}{{ $b->sender ? ' — '.$b->sender : '' }} ({{ $b->shipping_orders_count }})
+          </option>
+        @endforeach
+      </select>
+      <input type="text" id="ord-filter-search" class="clay-input" placeholder="🔍 Cari order / nama / telp" value="{{ request('search') }}">
+      <select id="ord-filter-courier" class="clay-input">
+        <option value="">Semua Courier</option>
+        @foreach($courierList as $c)
+          <option value="{{ $c }}" @selected(request('courier') === $c)>{{ $c }}</option>
+        @endforeach
+      </select>
+      <select id="ord-filter-status" class="clay-input">
+        <option value="">Semua Status</option>
+        @foreach(\App\Models\ShippingOrder::STATUSES as $st)
+          <option value="{{ $st }}" @selected(request('status') === $st)>{{ ucfirst($st) }}</option>
+        @endforeach
+      </select>
+      <select id="ord-filter-product" class="clay-input">
+        <option value="">Semua Produk</option>
+        @foreach($productOptions as $code => $label)
+          <option value="{{ $code }}" @selected(request('product_code') === $code)>{{ $label }}</option>
+        @endforeach
+      </select>
+      <x-date-range-picker :dari="request('dari', now()->startOfMonth()->format('Y-m-d'))" :sampai="request('sampai', now()->format('Y-m-d'))" form-id="ord-filter-form" />
+    </div>
+  </div>
 
-  {{-- Tabel order ── --}}
-  <div class="table-scroll">
-    <table class="clay-table" style="min-width:1000px;">
-      <thead>
-        <tr>
-          <th>Order</th>
-          <th>Nama</th>
-          <th>Telp</th>
-          <th>Provinsi</th>
-          <th>Produk</th>
-          <th>Status</th>
-          <th>Pay</th>
-          <th>Courier</th>
-          <th>Aksi</th>
-        </tr>
-      </thead>
-      <tbody>
-        @forelse($orders as $o)
-          <tr>
-            <td class="sel-nowrap" style="font-size:.75rem;">{{ $o->order_id }}</td>
-            <td>
-              <a href="{{ route('orders.show', $o->id) }}" style="color:var(--color-primary,#FF6B6B);font-weight:700;text-decoration:none;">
-                {{ $o->customer_name }}
-              </a>
-            </td>
-            <td class="sel-nowrap" style="font-size:.75rem;">
-              <a href="{{ route('orders.show', $o->id) }}" style="color:var(--color-primary,#FF6B6B);font-weight:700;text-decoration:none;">
-                {{ $o->phone }}
-              </a>
-            </td>
-            <td style="font-size:.78rem;">{{ $o->province }}</td>
-            <td>
-              <div style="font-size:.78rem;">{{ $o->product_name }}</div>
-              @if($o->product_code)
-                <div style="font-size:.65rem;color:#6b7280;">{{ $o->product_code }}</div>
-              @endif
-              @if($o->stock_note)
-                <div class="stock-note">⚠ {{ $o->stock_note }}</div>
-              @endif
-            </td>
-            <td>
-              <span class="badge-order-status st-{{ $o->status }}">{{ $o->status ? str_replace('_', ' ', ucwords($o->status, '_')) : '-' }}</span>
-            </td>
-            <td style="font-size:.75rem;">{{ strtoupper($o->payment_method ?? '-') }}</td>
-            <td>
-              <span class="badge-courier cou-{{ $o->courier }}">{{ $o->courier ?? '-' }}</span>
-              @if($o->courier === 'undeliverable' && $o->courier_note)
-                <div style="font-size:.65rem;color:#b91c1c;margin-top:2px;">{{ $o->courier_note }}</div>
-              @endif
-            </td>
-            <td>
-              @if(!empty($o->awb))
-                <div>
-                  <span class="badge-courier" style="background:#d1fae5;color:#065f46;">✓ {{ $o->awb }}</span>
-                  @if($o->aggregator_status)
-                    @php
-                      $aggColor = match($o->aggregator_status) {
-                        'waiting_pickup', 'in_transit', 'delivered' => 'background:#dcfce7;color:#15803d;',
-                        'problem' => 'background:#fee2e2;color:#b91c1c;',
-                        'returning', 'returned' => 'background:#fef3c7;color:#92400e;',
-                        default => 'background:#f3f4f6;color:#6b7280;',
-                      };
-                    @endphp
-                    <span class="badge-courier" style="{{ $aggColor }}margin-top:2px;">{{ str_replace('_', ' ', $o->aggregator_status) }}</span>
-                  @endif
-                </div>
-              @else
-                @if(!$isCs)
-                <details style="font-size:.78rem;">
-                  <summary style="cursor:pointer;color:var(--color-primary,#FF6B6B);font-weight:700;">Edit</summary>
-                  <form method="POST" action="{{ route('orders.update', $o->id) }}" class="courier-edit-form" style="margin-top:6px;flex-wrap:wrap;">
-                    @csrf @method('PUT')
-                    <select name="courier">
-                      <option value="">— Pilih —</option>
-                      @foreach($courierList as $cc)
-                        <option value="{{ $cc }}" @selected($o->courier === $cc)>{{ $cc }}</option>
-                      @endforeach
-                    </select>
-                    <input type="text" name="courier_note" value="{{ $o->courier_note }}" placeholder="Catatan" style="width:110px;padding:2px 4px;font-size:.72rem;border:1px solid #d1d5db;border-radius:6px;">
-                    <select name="product_code">
-                      <option value="">— Produk —</option>
-                      @foreach($products as $p)
-                        @foreach($p->variants as $v)
-                          <option value="{{ $v->code }}" @selected($o->product_code === $v->code)>{{ $v->code }} — {{ $p->name }}</option>
-                        @endforeach
-                      @endforeach
-                    </select>
-                    <button class="clay-btn clay-btn-primary" style="padding:2px 8px;font-size:.72rem;">Simpan</button>
-                  </form>
-                </details>
-                @endif
-              @endif
-            </td>
-          </tr>
-        @empty
-          <tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:24px;">Belum ada order{{ request('batch') ? ' di batch ini' : '' }}.</td></tr>
-        @endforelse
-      </tbody>
-    </table>
+  {{-- Tabel order (AJAX) ── --}}
+  <div id="ord-table-wrap">
+    @include('order._table', ['orders' => $orders, 'courierList' => $courierList, 'products' => $products, 'isCs' => $isCs, 'selectedBatch' => $selectedBatch])
   </div>
   <div style="padding:12px 20px;">{{ $orders->links() }}</div>
 </div>
@@ -843,6 +758,74 @@
       resultBox.className = 'clay-alert clay-alert-error';
       resultBox.innerHTML = '<span>⚠️</span><span>Gagal import tracking.</span>';
     });
+  });
+})();
+
+/* ══════════════════════════════════════════════════
+   4. AJAX FILTER (no page reload)
+══════════════════════════════════════════════════ */
+(function () {
+  var CSRF = document.querySelector('meta[name="csrf-token"]').content;
+
+  function fetchOrderTable() {
+    var params = new URLSearchParams();
+    var fields = [
+      ['ord-filter-batch', 'batch'],
+      ['ord-filter-search', 'search'],
+      ['ord-filter-courier', 'courier'],
+      ['ord-filter-status', 'status'],
+      ['ord-filter-product', 'product_code'],
+    ];
+    fields.forEach(function(f) {
+      var v = document.getElementById(f[0]).value;
+      if (v) params.set(f[1], v);
+    });
+
+    // Date range from DRP hidden inputs
+    var dariInput = document.querySelector('input[name="dari"]');
+    var sampaiInput = document.querySelector('input[name="sampai"]');
+    if (dariInput && dariInput.value) params.set('dari', dariInput.value);
+    if (sampaiInput && sampaiInput.value) params.set('sampai', sampaiInput.value);
+
+    fetch('{{ route("orders.filter") }}?' + params.toString(), {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('ord-table-wrap').innerHTML = data.html;
+    });
+  }
+  window._ordFetchTable = fetchOrderTable; // expose for DRP override in body-end
+
+  // Filter: auto-apply on change
+  ['ord-filter-batch', 'ord-filter-courier', 'ord-filter-status', 'ord-filter-product'].forEach(function(id) {
+    document.getElementById(id).addEventListener('change', fetchOrderTable);
+  });
+
+  // Search: debounced
+  var searchEl = document.getElementById('ord-filter-search');
+  if (searchEl) {
+    searchEl.addEventListener('input', function() {
+      clearTimeout(this._debounce);
+      this._debounce = setTimeout(fetchOrderTable, 400);
+    });
+  }
+  // Override DRP applyAndSubmit — wait for DRP to be defined
+  window.addEventListener('load', function() {
+    if (!window.DRP) return;
+    var _origApply = window.DRP.applyAndSubmit;
+    window.DRP.applyAndSubmit = function(pid, formId) {
+      var form = formId ? document.getElementById(formId) : null;
+      var formParent = form ? form.parentNode : null;
+      var formNext = form ? form.nextSibling : null;
+      if (form) form.remove();
+      _origApply.call(window.DRP, pid, formId);
+      if (form && formParent) {
+        if (formNext) formParent.insertBefore(form, formNext);
+        else formParent.appendChild(form);
+      }
+      fetchOrderTable();
+    };
   });
 })();
 </script>
