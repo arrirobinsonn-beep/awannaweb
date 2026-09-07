@@ -79,7 +79,7 @@ class OrderOnlineTest extends TestCase
         $handle = fopen($path, 'w');
         fputcsv($handle, [
             'order_id', 'product', 'name', 'phone', 'province', 'status',
-            'payment_status', 'payment_method', 'product_code', 'quantity', 'address', 'variation',
+            'payment_status', 'payment_method', 'product_code', 'quantity', 'address', 'variation', 'created_at',
         ]);
         foreach ($rows as $row) {
             fputcsv($handle, array_values($row));
@@ -104,6 +104,7 @@ class OrderOnlineTest extends TestCase
             'quantity' => 1,
             'address' => $address,
             'variation' => $variation,
+            'created_at' => '',
         ];
     }
 
@@ -533,6 +534,65 @@ class OrderOnlineTest extends TestCase
         $this->assertSame($this->variant($product)->id, $known->product_variant_id);
         $this->assertNull($unknown->product_id);
         $this->assertNull($unknown->product_variant_id);
+    }
+
+    public function test_import_sets_order_at_from_csv_created_at(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        $r = $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code);
+        $r['created_at'] = '29-07-2026 - 23:38';
+        $path = $this->writeTempCsv([$r]);
+
+        $svc = new OrderOnlineImportService;
+        $svc->import($path, 'eresgestore');
+
+        $order = ShippingOrder::where('order_id', $uid.'-1')->first();
+        $this->assertSame('2026-07-29', $order->order_at?->format('Y-m-d'));
+        $this->assertSame('23:38', $order->order_at?->format('H:i'));
+    }
+
+    public function test_import_without_csv_date_falls_back_to_import_time(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        $path = $this->writeTempCsv([
+            $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $svc->import($path, 'eresgestore');
+
+        $order = ShippingOrder::where('order_id', $uid.'-1')->first();
+        $this->assertNotNull($order->order_at);
+        $this->assertSame(now()->format('Y-m-d'), $order->order_at->format('Y-m-d'));
+    }
+
+    public function test_trend_chart_groups_by_order_date_not_import_date(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        // Dua order dari tanggal BERBEDA (1-08 dan 5-08) di-import sekaligus
+        $r1 = $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code);
+        $r1['created_at'] = '01-08-2026 - 10:00';
+        $r2 = $this->row($uid.'-2', '0812', 'processing', 'paid', $product->code);
+        $r2['created_at'] = '05-08-2026 - 11:30';
+        $path = $this->writeTempCsv([$r1, $r2]);
+
+        $svc = new OrderOnlineImportService;
+        $svc->import($path, 'eresgestore');
+
+        $this->actingAs($this->adminUser())
+            ->get(route('orders.index'))
+            ->assertOk()
+            ->assertSee(\Carbon\Carbon::parse('2026-08-01')->format('d M'))
+            ->assertSee(\Carbon\Carbon::parse('2026-08-05')->format('d M'));
     }
 
     public function test_order_page_renders(): void

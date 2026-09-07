@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
  * Impor data mentah order online (CSV dari toko) ke tabel `shipping_orders`.
  *
  * - 1 baris CSV = 1 order = 1 produk (tabel lebar + `raw_payload` untuk arsip).
+ * - `order_at` diisi dari kolom CSV `created_at` (tanggal ORDER asli); kolom DB
+ *   `created_at` tetap waktu import (audit) — dipakai window duplikat 14 hari.
  * - Kunci unik per batch: (order_online_import_batch_id, order_id).
  * - Provinsi dikalibrasi ke daftar master (config/regional.php).
  * - `handled_by` disimpan apa adanya; `handled_by_user_id` di-resolve batch.
@@ -163,6 +165,8 @@ class OrderOnlineImportService
 
         return [
             'order_id' => $orderId,
+            'order_at' => $this->parseOrderDate($this->text($row, $colMap, 'created_at'))
+                ?? now()->format('Y-m-d H:i:s'), // fallback: waktu import (baris tanpa tanggal CSV)
             'awb' => $this->text($row, $colMap, 'receipt_number'),
             'customer_name' => $this->text($row, $colMap, 'name'),
             'phone' => $phone,
@@ -539,6 +543,42 @@ class OrderOnlineImportService
         }
 
         return null;
+    }
+
+    /**
+     * Parse tanggal order dari kolom CSV `created_at` (day-first, format toko,
+     * contoh "29-07-2026 - 23:38"). Hasil 'Y-m-d H:i:s' atau null bila tak ter-parse.
+     */
+    protected function parseOrderDate(string $dateStr): ?string
+    {
+        $dateStr = trim($dateStr);
+        if ($dateStr === '') {
+            return null;
+        }
+
+        // "29-07-2026 - 23:38" → "29-07-2026 23:38"; ISO "T" → spasi
+        $clean = str_replace('T', ' ', $dateStr);
+        $clean = preg_replace('/\s*-\s*(\d{1,2}:\d{2})/', ' $1', $clean);
+        $clean = trim((string) $clean);
+
+        $formats = [
+            'd-m-Y H:i:s', 'd-m-Y H:i', 'd/m/Y H:i:s', 'd/m/Y H:i',
+            'd.m.Y H:i', 'Y-m-d H:i:s', 'Y-m-d H:i', 'Y/m/d H:i',
+            'd-m-Y', 'd/m/Y', 'Y-m-d', 'Y/m/d', 'd.m.Y',
+        ];
+
+        foreach ($formats as $format) {
+            $dt = \DateTime::createFromFormat($format, $clean);
+            if ($dt && $dt->format($format) === $clean) {
+                return $dt->format('Y-m-d H:i:s');
+            }
+        }
+
+        try {
+            return (new \DateTime($clean))->format('Y-m-d H:i:s');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     protected function normalizeAddress(?string $address): string

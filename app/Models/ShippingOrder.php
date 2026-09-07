@@ -41,6 +41,7 @@ class ShippingOrder extends Model
         'aggregator_status',
         'last_synced_at',
         'delivered_at',
+        'order_at',
         'raw_payload',
     ];
 
@@ -53,6 +54,7 @@ class ShippingOrder extends Model
         'raw_payload' => 'array',
         'last_synced_at' => 'datetime',
         'delivered_at' => 'datetime',
+        'order_at' => 'datetime',
     ];
 
     public const EXPORTABLE_STATUSES = ['real', 'tembakan'];

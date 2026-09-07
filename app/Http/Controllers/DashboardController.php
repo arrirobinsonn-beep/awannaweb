@@ -54,8 +54,8 @@ class DashboardController extends Controller
 
         // ── 2) REVENUE BULAN INI ──
         $revenueBulan = ShippingOrder::processed()
-            ->where('created_at', '>=', $startMonth)
-            ->where('created_at', '<=', $endDay)
+            ->where('order_at', '>=', $startMonth)
+            ->where('order_at', '<=', $endDay)
             ->selectRaw('SUM(amount) as total, COUNT(*) as jumlah')
             ->first();
 
@@ -76,8 +76,8 @@ class DashboardController extends Controller
             ->first();
 
         $orderHariIni = ShippingOrder::processed()
-            ->where('created_at', '>=', $today)
-            ->where('created_at', '<=', $endDay)
+            ->where('order_at', '>=', $today)
+            ->where('order_at', '<=', $endDay)
             ->selectRaw('COUNT(*) as total,
                 SUM(CASE WHEN awb IS NOT NULL AND awb != \'\' THEN 1 ELSE 0 END) as resi,
                 SUM(CASE WHEN payment_method = \'cod\' THEN 1 ELSE 0 END) as cod,
@@ -95,9 +95,9 @@ class DashboardController extends Controller
 
         // ── 6) CHART DATA ──
         $chartRevenue30 = ShippingOrder::processed()
-            ->selectRaw('DATE(created_at) as tanggal, SUM(amount) as total')
-            ->where('created_at', '>=', $dari)
-            ->where('created_at', '<=', $endDay)
+            ->selectRaw('DATE(order_at) as tanggal, SUM(amount) as total')
+            ->where('order_at', '>=', $dari)
+            ->where('order_at', '<=', $endDay)
             ->groupBy('tanggal')->orderBy('tanggal')->get();
 
         $chartSpending30 = SpendingHarian::selectRaw('DATE(tanggal) as tanggal, SUM(spending) as total_spending')
@@ -113,14 +113,14 @@ class DashboardController extends Controller
             ->groupBy('date')->orderBy('date')->get();
 
         $orderPerCourier = ShippingOrder::processed()
-            ->where('created_at', '>=', $startMonth)
-            ->where('created_at', '<=', $endDay)
+            ->where('order_at', '>=', $startMonth)
+            ->where('order_at', '<=', $endDay)
             ->selectRaw('courier, COUNT(*) as jumlah')
             ->groupBy('courier')->orderByDesc('jumlah')->get();
 
         $orderPerPayment = ShippingOrder::processed()
-            ->where('created_at', '>=', $startMonth)
-            ->where('created_at', '<=', $endDay)
+            ->where('order_at', '>=', $startMonth)
+            ->where('order_at', '<=', $endDay)
             ->selectRaw('payment_method, COUNT(*) as jumlah')
             ->groupBy('payment_method')->orderByDesc('jumlah')->get();
 
@@ -137,9 +137,9 @@ class DashboardController extends Controller
 
         // ── 8) RECENT DATA ──
         $recentOrders = ShippingOrder::with('importBatch')
-            ->where('created_at', '>=', $dari)
-            ->where('created_at', '<=', $endDay)
-            ->latest('created_at')->limit(6)->get();
+            ->where('order_at', '>=', $dari)
+            ->where('order_at', '<=', $endDay)
+            ->latest('order_at')->limit(6)->get();
 
         $recentShipments = Shipment::where('created_date', '>=', $dari)
             ->where('created_date', '<=', $sampai)
@@ -188,8 +188,8 @@ class DashboardController extends Controller
             ->first();
 
         $orderHariIni = ShippingOrder::processed()
-            ->where('created_at', '>=', $today)
-            ->where('created_at', '<=', $endDay)
+            ->where('order_at', '>=', $today)
+            ->where('order_at', '<=', $endDay)
             ->selectRaw('COUNT(*) as total,
                 SUM(CASE WHEN awb IS NOT NULL AND awb != \'\' THEN 1 ELSE 0 END) as resi,
                 SUM(CASE WHEN payment_method = \'cod\' THEN 1 ELSE 0 END) as cod,
@@ -206,8 +206,8 @@ class DashboardController extends Controller
         ];
 
         $revenueBulan = ShippingOrder::processed()
-            ->where('created_at', '>=', $startMonth)
-            ->where('created_at', '<=', $endDay)
+            ->where('order_at', '>=', $startMonth)
+            ->where('order_at', '<=', $endDay)
             ->selectRaw('SUM(amount) as total, COUNT(*) as jumlah')
             ->first();
 
@@ -220,20 +220,20 @@ class DashboardController extends Controller
         ];
 
         $chartRevenue30 = ShippingOrder::processed()
-            ->selectRaw('DATE(created_at) as tanggal, SUM(amount) as total')
-            ->where('created_at', '>=', $dari)
-            ->where('created_at', '<=', $endDay)
+            ->selectRaw('DATE(order_at) as tanggal, SUM(amount) as total')
+            ->where('order_at', '>=', $dari)
+            ->where('order_at', '<=', $endDay)
             ->groupBy('tanggal')->orderBy('tanggal')->get();
 
         $orderPerCourier = ShippingOrder::processed()
-            ->where('created_at', '>=', $startMonth)
-            ->where('created_at', '<=', $endDay)
+            ->where('order_at', '>=', $startMonth)
+            ->where('order_at', '<=', $endDay)
             ->selectRaw('courier, COUNT(*) as jumlah')
             ->groupBy('courier')->orderByDesc('jumlah')->get();
 
         $orderPerPayment = ShippingOrder::processed()
-            ->where('created_at', '>=', $startMonth)
-            ->where('created_at', '<=', $endDay)
+            ->where('order_at', '>=', $startMonth)
+            ->where('order_at', '<=', $endDay)
             ->selectRaw('payment_method, COUNT(*) as jumlah')
             ->groupBy('payment_method')->orderByDesc('jumlah')->get();
 
@@ -245,9 +245,9 @@ class DashboardController extends Controller
             ->groupBy('date')->orderBy('date')->get();
 
         $recentOrders = ShippingOrder::with('importBatch')
-            ->where('created_at', '>=', $dari)
-            ->where('created_at', '<=', $endDay)
-            ->latest('created_at')->limit(8)->get();
+            ->where('order_at', '>=', $dari)
+            ->where('order_at', '<=', $endDay)
+            ->latest('order_at')->limit(8)->get();
 
         $recentShipments = Shipment::where('created_date', '>=', $dari)
             ->where('created_date', '<=', $sampai)

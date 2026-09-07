@@ -48,9 +48,9 @@
                     @if($shippingOrder->importBatch)
                         🗂 {{ $shippingOrder->importBatch->original_filename }}
                         @if($shippingOrder->importBatch->sender) • {{ $shippingOrder->importBatch->sender }} @endif
-                        • {{ $shippingOrder->created_at?->format('d/m/Y H:i') }}
+                        • 📅 {{ ($shippingOrder->order_at ?? $shippingOrder->created_at)?->format('d/m/Y H:i') }}
                     @else
-                        {{ $shippingOrder->created_at?->format('d/m/Y H:i') }}
+                        📅 {{ ($shippingOrder->order_at ?? $shippingOrder->created_at)?->format('d/m/Y H:i') }}
                     @endif
                 </div>
             </div>
