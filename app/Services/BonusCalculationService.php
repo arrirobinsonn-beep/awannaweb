@@ -15,7 +15,9 @@ class BonusCalculationService
     private const PAID_THRESHOLD = 500;
 
     /**
-     * Hitung bonus secara real-time dari spending_harians (tanpa simpan ke DB).
+     * Hitung bonus secara real-time.
+     * - spending: dari spending_harians (ad spend dari Meta Ads)
+     * - lead & paid: dari regional_cs_stats (data per daerah, sumber yang sama dgn alokasi bonus)
      */
     public function calculateRealtime(string $period): Collection
     {
@@ -24,10 +26,18 @@ class BonusCalculationService
 
         $advertisers = User::where('role', 'advertiser')->get(['id', 'nama', 'panggilan']);
 
+        // Spending dari spending_harians (untuk CPA)
         $spendingTotals = DB::table('spending_harians')
             ->whereBetween('tanggal', [$start, $end])
+            ->selectRaw('user_id, COALESCE(SUM(spending), 0) as spending')
+            ->groupBy('user_id')
+            ->get()
+            ->keyBy('user_id');
+
+        // Lead & paid dari regional_cs_stats (sumber yang sama dgn alokasi bonus)
+        $csTotals = DB::table('regional_cs_stats')
+            ->whereBetween('tanggal', [$start, $end])
             ->selectRaw('user_id,
-                COALESCE(SUM(spending), 0) as spending,
                 COALESCE(SUM(`lead`), 0) as `lead`,
                 COALESCE(SUM(paid), 0) as paid')
             ->groupBy('user_id')
@@ -42,10 +52,11 @@ class BonusCalculationService
         $results = collect();
 
         foreach ($advertisers as $adv) {
-            $row = $spendingTotals->get($adv->id);
-            $spending = (float) ($row->spending ?? 0);
-            $lead = (int) ($row->lead ?? 0);
-            $paid = (int) ($row->paid ?? 0);
+            $spendingRow = $spendingTotals->get($adv->id);
+            $csRow = $csTotals->get($adv->id);
+            $spending = (float) ($spendingRow->spending ?? 0);
+            $lead = (int) ($csRow->lead ?? 0);
+            $paid = (int) ($csRow->paid ?? 0);
 
             $paidRatio = $lead > 0 ? $paid / $lead : 0;
             $adjustment = $paidRatio * self::ADJUSTMENT_RATE;
