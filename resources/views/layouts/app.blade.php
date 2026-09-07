@@ -487,6 +487,26 @@
             </div>
             @endif
 
+            {{-- ── Bonus (standalone) ─────────────────────────────── --}}
+            @if($u->hasRole(['owner','super_admin','keuangan']))
+            <a href="{{ route('finance.bonus.index') }}"
+               class="nav-item {{ request()->routeIs('finance.bonus.*') ? 'active' : '' }}"
+               data-page-link data-tip="Rekap bonus penjualan per periode">
+                <span class="nav-icon">🎁</span>
+                <span class="sidebar-label">Bonus</span>
+            </a>
+            <a href="{{ route('finance.bonus-allocation.index') }}"
+               class="nav-item {{ request()->routeIs('finance.bonus-allocation.*') ? 'active' : '' }}"
+               data-page-link data-tip="Alokasi bonus per tim advertiser">
+                <span class="nav-icon">💎</span>
+                <span class="sidebar-label">Alokasi Bonus</span>
+            </a>
+            @endif
+
+            {{-- ── Manajemen (owner, super_admin) ─────────── --}}
+            @if($u->hasRole(['owner','super_admin']))
+            <div class="sidebar-label nav-divider" style="padding:14px 10px 4px;">
+                <span style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;">Manajemen</span>
             {{-- ═══ Bukti Transfer (CS) ═══ --}}
             @if($u->hasRole('cs'))
             <div class="nav-group" data-group="cs-bukti">
