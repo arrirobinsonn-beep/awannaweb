@@ -37,7 +37,11 @@ class OrderOnlineController extends Controller
         // Query orders — filter by batch if selected, otherwise show all
         $ordersQuery = $this->buildOrderQuery($request, $selectedBatch);
 
-        $orders = $ordersQuery->paginate(25)->withQueryString();
+        // NOTE: `paginate()` MUTASI builder asal (set LIMIT/OFFSET 25). Paginate
+        // lewat CLONE agar $ordersQuery tetap murni — kalau tidak, clone untuk
+        // summary/chart di bawah mewarisi LIMIT 25 dan query GROUP BY terpotong
+        // (chart hanya menampilkan sebagian tanggal, total summary salah).
+        $orders = $ordersQuery->clone()->paginate(25)->withQueryString();
 
         // ── Summary cards: aggregate counts per courier & status (follows filters) ──
         $summaryQuery = clone $ordersQuery;
@@ -57,9 +61,10 @@ class OrderOnlineController extends Controller
         $summaryTotal = $summaryRows->sum('cnt');
 
         // ── Chart Data ──
+        // Grup per tanggal ORDER (`order_at` dari CSV), bukan waktu import (`created_at`).
         $chartQuery = clone $ordersQuery;
         $chartQuery->reorder();
-        $chartQuery->selectRaw("DATE(created_at) as date, status, COUNT(*) as cnt");
+        $chartQuery->selectRaw("DATE(order_at) as date, status, COUNT(*) as cnt");
         $chartRows = $chartQuery->groupBy('date', 'status')->get();
 
         $chartData = collect();
@@ -156,8 +161,8 @@ class OrderOnlineController extends Controller
     {
         return ShippingOrder::query()
             ->when($selectedBatch, fn ($q) => $q->where('order_online_import_batch_id', $selectedBatch->id))
-            ->when($request->filled('dari'), fn ($q) => $q->where('created_at', '>=', $request->dari))
-            ->when($request->filled('sampai'), fn ($q) => $q->where('created_at', '<=', $request->sampai.' 23:59:59'))
+            ->when($request->filled('dari'), fn ($q) => $q->where('order_at', '>=', $request->dari))
+            ->when($request->filled('sampai'), fn ($q) => $q->where('order_at', '<=', $request->sampai.' 23:59:59'))
             ->when($request->filled('search'), fn ($q) => $q->where(function ($qq) use ($request) {
                 $qq->where('order_id', 'like', '%'.$request->search.'%')
                     ->orWhere('customer_name', 'like', '%'.$request->search.'%')

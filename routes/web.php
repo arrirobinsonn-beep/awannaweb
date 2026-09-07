@@ -70,6 +70,7 @@ Route::middleware('auth')->group(function () {
         // Produk & Varian — dikelola DI DALAM halaman Gudang (inventory otomatis = gudang yang dibuka)
 
         // Aturan Courier (auto-mapping kurir berdasarkan provinsi — dinamis dari DB)
+        Route::get('/courier-rules/filter', [CourierRuleController::class, 'filter'])->name('courier-rule.filter');
         Route::get('/courier-rules', [CourierRuleController::class, 'index'])->name('courier-rule.index');
         Route::post('/courier-rules', [CourierRuleController::class, 'store'])->name('courier-rule.store');
         Route::put('/courier-rules/{courierRule}', [CourierRuleController::class, 'update'])->name('courier-rule.update');
@@ -168,6 +169,7 @@ Route::middleware('auth')->group(function () {
 
         // Master Produk — halaman produk sendiri (CRUD produk & varian).
         // Produk dibuat DI SINI; halaman Gudang hanya meng-attach produk yang sudah ada.
+        Route::get('/product/filter', [ProductController::class, 'filter'])->name('product.filter');
         Route::get('/product', [ProductController::class, 'index'])->name('product.index');
         Route::post('/product', [ProductController::class, 'store'])->name('product.store');
         Route::put('/product/{product}', [ProductController::class, 'update'])->name('product.update');
