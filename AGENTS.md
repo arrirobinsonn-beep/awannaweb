@@ -1255,3 +1255,41 @@ payment_orang   = %pembagian × nominal_cs
 - **Search**: filter tim by nama advertiser (JS client-side, `data-team-name`).
 - Sidebar visible: owner/super_admin/keuangan.
 - 32/32 finance tests pass.
+
+---
+
+## W. 📋 Rekap Topup Advertiser (Rencana)
+
+### Deskripsi
+Halaman **Rekap Topup** menampilkan ringkasan topup per advertiser: total topup, total spending, sisa saldo, dan rincian per whitelist. Berguna untuk keuangan/owner melihat sudah berapa banyak advertiser topup dan sisa saldonya.
+
+### Alur Topup (refererensi)
+```
+Advertiser buat proposal (pending)
+  → Admin approve (approved)
+  → Advertiser isi nomor VA (menunggu_pembayaran) ← whitelist.total_topup diupdate di sini
+  → Admin mark VA sudah dibayar
+  → Advertiser laporkan sisa saldo (completed)
+```
+
+### Skema yang Relevan
+| Tabel | Kolom Kunci | Keterangan |
+|-------|-------------|------------|
+| `top_up_proposals` | `user_id`, `status`, `total_nominal`, `previous_topup_total`, `today_spending/lead/paid` | Header proposal |
+| `top_up_proposal_items` | `proposal_id`, `whitelist_id`, `nominal`, `va_number`, `payment_status`, `sisa_saldo_dilaporkan` | Detail per whitelist |
+| `whitelists` | `user_id`, `total_topup`, `total_spending`, `nominal_terakhir_topup` | Master whitelist |
+| `spending_harians` | `whitelist_id`, `spending`, `lead`, `paid`, `tanggal` | Data spending harian |
+
+### Key Point
+- `whitelist.total_topup` **hanya di-update** saat advertiser submit VA (step 3), bukan saat approve
+- `sisa_saldo` = `total_topup - total_spending` (computed accessor di Whitelist model)
+- `spending_harians` → `total_spending` dihitung via `recalculateWhitelistTotals()` (perubahan spending)
+
+### Rencana Implementasi
+- **Endpoint**: `/keuangan/rekap-topup` (owner/super_admin/keuangan)
+- **Data**: query whitelists + group by user_id (advertiser) + aggregate total_topup, total_spending, sisa_saldo
+- **Tabel**: No | Advertiser | Jumlah WL | Total Topup | Total Spending | Sisa Saldo
+- **Detail**: klik baris → expand/modal rincian per whitelist
+- **Filter**: periode (bulan) berdasarkan `top_up_proposals.completed_at` atau `whitelists.updated_at`
+
+### Status: RENCANA (belum diimplementasi)

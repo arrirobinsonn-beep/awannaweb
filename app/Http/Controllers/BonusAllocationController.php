@@ -232,8 +232,18 @@ class BonusAllocationController extends Controller
             ]);
         }
 
+        // Rekap pengeluaran: flatten semua anggota, group by nama, sum payment
+        $recap = $teams->flatMap(fn ($t) => $t->members)
+            ->groupBy(fn ($m) => strtoupper(trim($m->name)))
+            ->map(fn ($rows, $name) => (object) [
+                'name' => $rows->first()->name,
+                'total_payment' => round($rows->sum('payment')),
+            ])
+            ->sortByDesc('total_payment')
+            ->values();
+
         return view('bonus-allocation.index', compact(
-            'teams', 'period', 'keuanganPct', 'adminPct', 'grandTotal', 'advPctDefault', 'csPctDefault'
+            'teams', 'period', 'keuanganPct', 'adminPct', 'grandTotal', 'advPctDefault', 'csPctDefault', 'recap'
         ));
     }
 
