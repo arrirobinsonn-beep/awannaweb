@@ -41,6 +41,7 @@ class ShippingOrder extends Model
         'aggregator_status',
         'last_synced_at',
         'delivered_at',
+        'order_at',
         'raw_payload',
     ];
 
@@ -53,11 +54,20 @@ class ShippingOrder extends Model
         'raw_payload' => 'array',
         'last_synced_at' => 'datetime',
         'delivered_at' => 'datetime',
+        'order_at' => 'datetime',
     ];
 
     public const EXPORTABLE_STATUSES = ['real', 'tembakan'];
 
     public const STATUSES = ['real', 'tembakan', 'belum_diproses', 'cancel', 'duplikat'];
+
+    public const STATUS_LABELS = [
+        'real' => 'Real',
+        'tembakan' => 'Tembakan',
+        'belum_diproses' => 'Belum Diproses',
+        'cancel' => 'Cancel',
+        'duplikat' => 'Duplikat',
+    ];
 
     /** Nilai aggregator_status (tracking dari dashboard FLIK/SiCepat/SPX). */
     public const TRACKING_STATUSES = ['waiting_pickup', 'in_transit', 'delivered', 'returning', 'returned', 'problem'];

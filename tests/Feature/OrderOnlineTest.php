@@ -79,7 +79,7 @@ class OrderOnlineTest extends TestCase
         $handle = fopen($path, 'w');
         fputcsv($handle, [
             'order_id', 'product', 'name', 'phone', 'province', 'status',
-            'payment_status', 'payment_method', 'product_code', 'quantity', 'address', 'variation',
+            'payment_status', 'payment_method', 'product_code', 'quantity', 'address', 'variation', 'created_at',
         ]);
         foreach ($rows as $row) {
             fputcsv($handle, array_values($row));
@@ -104,6 +104,7 @@ class OrderOnlineTest extends TestCase
             'quantity' => 1,
             'address' => $address,
             'variation' => $variation,
+            'created_at' => '',
         ];
     }
 
@@ -533,6 +534,65 @@ class OrderOnlineTest extends TestCase
         $this->assertSame($this->variant($product)->id, $known->product_variant_id);
         $this->assertNull($unknown->product_id);
         $this->assertNull($unknown->product_variant_id);
+    }
+
+    public function test_import_sets_order_at_from_csv_created_at(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        $r = $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code);
+        $r['created_at'] = '29-07-2026 - 23:38';
+        $path = $this->writeTempCsv([$r]);
+
+        $svc = new OrderOnlineImportService;
+        $svc->import($path, 'eresgestore');
+
+        $order = ShippingOrder::where('order_id', $uid.'-1')->first();
+        $this->assertSame('2026-07-29', $order->order_at?->format('Y-m-d'));
+        $this->assertSame('23:38', $order->order_at?->format('H:i'));
+    }
+
+    public function test_import_without_csv_date_falls_back_to_import_time(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        $path = $this->writeTempCsv([
+            $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $svc->import($path, 'eresgestore');
+
+        $order = ShippingOrder::where('order_id', $uid.'-1')->first();
+        $this->assertNotNull($order->order_at);
+        $this->assertSame(now()->format('Y-m-d'), $order->order_at->format('Y-m-d'));
+    }
+
+    public function test_trend_chart_groups_by_order_date_not_import_date(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        // Dua order dari tanggal BERBEDA (1-08 dan 5-08) di-import sekaligus
+        $r1 = $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code);
+        $r1['created_at'] = '01-08-2026 - 10:00';
+        $r2 = $this->row($uid.'-2', '0812', 'processing', 'paid', $product->code);
+        $r2['created_at'] = '05-08-2026 - 11:30';
+        $path = $this->writeTempCsv([$r1, $r2]);
+
+        $svc = new OrderOnlineImportService;
+        $svc->import($path, 'eresgestore');
+
+        $this->actingAs($this->adminUser())
+            ->get(route('orders.index'))
+            ->assertOk()
+            ->assertSee(\Carbon\Carbon::parse('2026-08-01')->format('d M'))
+            ->assertSee(\Carbon\Carbon::parse('2026-08-05')->format('d M'));
     }
 
     public function test_order_page_renders(): void
@@ -1404,7 +1464,7 @@ class OrderOnlineTest extends TestCase
         $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-KMP-1', 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+        $order = $this->createOrder($batch->id, 'PKG-KMP-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
         $variantId = $order->product_variant_id;
         $kdf = ProductVariant::where('product_id', Product::where('code', 'KDF')->firstOrFail()->id)
             ->where('power', ProductVariant::find($variantId)->power)
@@ -1482,7 +1542,7 @@ class OrderOnlineTest extends TestCase
         $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-KBJ-1', 'Pkg Customer', 'flix-tf', 'real', $kbj->id, 'KBJ', 3);
+        $order = $this->createOrder($batch->id, 'PKG-KBJ-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kbj->id, 'KBJ', 3);
         $order->update(['product_variant_id' => $kbjVariant->id]);
 
         $before = [
@@ -1514,7 +1574,7 @@ class OrderOnlineTest extends TestCase
         $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-KBJ-0', 'Pkg Customer', 'flix-tf', 'real', $kbj->id, 'KBJ', 1);
+        $order = $this->createOrder($batch->id, 'PKG-KBJ0-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kbj->id, 'KBJ', 1);
         $order->update(['product_variant_id' => $kbjVariant->id]);
 
         $before = [
@@ -1542,7 +1602,7 @@ class OrderOnlineTest extends TestCase
         $lap = ProductVariant::where('code', 'LAP')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-UND-1', 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+        $order = $this->createOrder($batch->id, 'PKG-UND-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
         $variantId = $order->product_variant_id;
 
         $before = [
@@ -1574,7 +1634,7 @@ class OrderOnlineTest extends TestCase
         $box = ProductVariant::where('code', 'BOX')->firstOrFail();
 
         $batch = $this->newBatch();
-        $order = $this->createOrder($batch->id, 'PKG-NOBOX', 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+        $order = $this->createOrder($batch->id, 'PKG-NOBOX-'.uniqid(), 'Pkg Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
         $variantId = $order->product_variant_id;
         $beforeKmp = $stock->stockOf($variantId);
 
@@ -2198,7 +2258,7 @@ class OrderOnlineTest extends TestCase
         ProductInventory::create(['product_id' => $product->id, 'inventory_id' => $invA->id, 'is_primary' => true]);
 
         $this->actingAs($user)
-            ->post(route('purchase.store'), [
+            ->postJson(route('purchase.store'), [
                 'date' => now()->format('Y-m-d'),
                 'product_variant_id' => $variant->id,
                 'inventory_id' => $invB->id,
@@ -2206,11 +2266,25 @@ class OrderOnlineTest extends TestCase
                 'unit_price' => 5000,
                 'shipping_cost' => 0,
             ])
-            ->assertRedirect();
+            ->assertJson(['success' => true]);
 
         $purchase = Purchase::where('product_variant_id', $variant->id)->latest('id')->first();
         $this->assertNotNull($purchase);
         $this->assertSame((int) $invB->id, (int) $purchase->inventory_id);
+        $this->assertSame('in_transit', $purchase->status);
+        // Stok BELUM masuk karena masih dalam perjalanan
+        $this->assertSame(0, $stock->stockOf($variant->id, $invB->id));
+
+        // Terima barang → stok masuk ke gudang B
+        $this->actingAs($user)
+            ->patchJson(route('purchase.receive', $purchase), [
+                'received_qty' => 10,
+                'received_note' => 'Barang lengkap',
+            ])
+            ->assertJson(['success' => true]);
+
+        $purchase = $purchase->fresh();
+        $this->assertSame('received', $purchase->status);
         $this->assertSame(10, $stock->stockOf($variant->id, $invB->id));
         $this->assertSame(0, $stock->stockOf($variant->id, $invA->id)); // gudang utama TIDAK terisi
 
@@ -2219,7 +2293,7 @@ class OrderOnlineTest extends TestCase
             ->get(route('purchase.index', ['inventory_id' => $invB->id]))
             ->assertOk()
             ->assertSee($invB->name)
-            ->assertSee('Barang Masuk');
+            ->assertSee('Pembelian Barang');
     }
 
     public function test_product_master_variant_crud(): void
@@ -2280,7 +2354,7 @@ class OrderOnlineTest extends TestCase
                 'status' => 'active',
                 'min_stock' => 4,
             ])
-            ->assertRedirect(route('product.index'));
+            ->assertOk()->assertJson(['success' => true]);
 
         $product = Product::where('code', $code)->firstOrFail();
         $this->assertSame('core', $product->goods_type);
@@ -2299,7 +2373,7 @@ class OrderOnlineTest extends TestCase
                 'unit' => 'pcs',
                 'status' => 'active',
             ])
-            ->assertRedirect(route('product.index'));
+            ->assertOk()->assertJson(['success' => true]);
         $product->refresh();
         $this->assertSame('Produk Master Diubah', $product->name);
         $this->assertSame('additional', $product->goods_type);
@@ -2309,11 +2383,38 @@ class OrderOnlineTest extends TestCase
             ->patchJson(route('product.toggle-status', $product))
             ->assertJson(['success' => true, 'status' => 'inactive']);
 
-        // Hapus (soft delete)
+        // Hapus
         $this->actingAs($user)
             ->delete(route('product.destroy', $product))
-            ->assertRedirect(route('product.index'));
+            ->assertOk()->assertJson(['success' => true]);
         $this->assertNull(Product::find($product->id));
+    }
+
+    public function test_product_store_via_json_returns_json_not_type_error(): void
+    {
+        $this->ensureCatalog();
+        $user = $this->adminUser();
+        $code = 'MPJ-'.strtoupper(substr(uniqid(), -5));
+
+        // Form modal produk dikirim via fetch (Accept: application/json) → store()
+        // HARUS mengembalikan JsonResponse, bukan TypeError (regresi: deklarasi
+        // return type lama hanya RedirectResponse padahal data tetap tersimpan).
+        $this->actingAs($user)
+            ->postJson(route('product.store'), [
+                'code' => $code,
+                'name' => 'Produk JSON Store',
+                'goods_type' => 'core',
+                'selling_price' => 30000,
+                'purchase_price' => 8000,
+                'unit' => 'pcs',
+                'status' => 'active',
+            ])
+            ->assertOk()
+            ->assertJson(['success' => true]);
+
+        $product = Product::where('code', $code)->first();
+        $this->assertNotNull($product, 'Produk harus tersimpan saat store() lewat JSON');
+        $this->assertNotNull($product->defaultVariant());
     }
 
     private function createOrder(int $batchId, string $orderId, string $name, string $courier, string $status, ?int $productId, ?string $productCode, int $qty, string $province = 'JAWA BARAT', string $city = 'Bandung', string $subdistrict = 'Coblong'): ShippingOrder
@@ -2394,5 +2495,311 @@ class OrderOnlineTest extends TestCase
         @unlink($tmp);
 
         return $spreadsheet->getActiveSheet()->toArray();
+    }
+
+    // ── Batch delete: paksa hapus semua data ──────────────────────────
+
+    public function test_batch_delete_removes_all_data_permanently(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+
+        $admin = $this->adminUser();
+        $product = $this->makeProduct(100);
+        $variant = $this->variant($product);
+        $batch = $this->makeBatch();
+
+        $stockService = app(StockService::class);
+        $stockService->recordIn($variant->id, now()->toDateString(), 100, 10000, 'adjustment', $variant->id, 'opening');
+
+        $orderIds = [];
+        for ($i = 1; $i <= 3; $i++) {
+            $order = ShippingOrder::create([
+                'order_online_import_batch_id' => $batch->id,
+                'order_id' => 'DEL-'.uniqid(),
+                'customer_name' => 'Customer '.$i,
+                'phone' => '08123456'.str_pad($i, 4, '0', STR_PAD_LEFT),
+                'phone_normalized' => '628123456'.str_pad($i, 4, '0', STR_PAD_LEFT),
+                'status' => 'real',
+                'courier' => 'spx',
+                'product_code' => $variant->code,
+                'product_id' => $product->id,
+                'product_variant_id' => $variant->id,
+                'quantity' => 1,
+                'amount' => 100000,
+            ]);
+            $stockService->recordOut($variant->id, now()->toDateString(), 1, 'order_online', $order->id);
+            $orderIds[] = $order->id;
+        }
+
+        $this->assertDatabaseHas('order_online_import_batches', ['id' => $batch->id]);
+        $this->assertCount(3, ShippingOrder::where('order_online_import_batch_id', $batch->id)->get());
+        $this->assertEquals(3, StockMovement::where('reference', 'order_online')
+            ->whereIn('reference_id', $orderIds)->count());
+
+        // Act — assert redirect + flash success message
+        $response = $this->actingAs($admin)
+            ->delete(route('order-batch.destroy', $batch->id));
+        $response->assertRedirect();
+        $response->assertSessionHas('success');
+
+        // Assert: ALL data is gone
+        $this->assertDatabaseMissing('order_online_import_batches', ['id' => $batch->id]);
+        $this->assertCount(0, ShippingOrder::where('order_online_import_batch_id', $batch->id)->get());
+        $this->assertEquals(0, StockMovement::where('reference', 'order_online')
+            ->whereIn('reference_id', $orderIds)->count());
+    }
+
+    public function test_batch_delete_reverse_stock_correctly(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+
+        $admin = $this->adminUser();
+        $product = $this->makeProduct(100);
+        $variant = $this->variant($product);
+        $batch = $this->makeBatch();
+
+        $stockService = app(StockService::class);
+        $stockService->recordIn($variant->id, now()->toDateString(), 100, 10000, 'adjustment', $variant->id, 'opening');
+
+        $order = ShippingOrder::create([
+            'order_online_import_batch_id' => $batch->id,
+            'order_id' => 'REV-'.uniqid(),
+            'customer_name' => 'Customer Rev',
+            'phone' => '081999999999',
+            'phone_normalized' => '6281999999999',
+            'status' => 'real',
+            'courier' => 'spx',
+            'product_code' => $variant->code,
+            'product_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'quantity' => 2,
+            'amount' => 200000,
+        ]);
+
+        $stockService->recordOut($variant->id, now()->toDateString(), 2, 'order_online', $order->id);
+
+        $stockBefore = $variant->fresh()->stock;
+        $this->assertEquals(98, $stockBefore);
+
+        // Act — assert redirect + flash success
+        $response = $this->actingAs($admin)
+            ->delete(route('order-batch.destroy', $batch->id));
+        $response->assertRedirect();
+        $response->assertSessionHas('success');
+
+        // Stock must be restored
+        $stockAfter = $variant->fresh()->stock;
+        $this->assertEquals(100, $stockAfter);
+    }
+
+    // ── Varian non-power (motif) ──────────────────────────────────────
+
+    /**
+     * Produk non-kacamata (mis. celengan) punya varian berdasarkan motif
+     * (Bunga, Kartun, Polos) — BUKAN power. Kolom variation tidak punya
+     * keyword "Dapat" sehingga qty = 1. Sistem harus bisa membedakan
+     * varian berdasarkan nama varian yang muncul di kolom variation.
+     */
+    public function test_variant_resolved_by_name_for_non_power_product(): void
+    {
+        $product = Product::create([
+            'code' => 'CLG'.strtoupper(substr(uniqid(), -4)),
+            'name' => 'Celengan Celengan',
+            'status' => 'active',
+        ]);
+
+        $vBunga = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+BUNGA',
+            'name' => 'Bunga',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+        $vKartun = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+KARTUN',
+            'name' => 'Kartun',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+        $vPolos = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+POLOS',
+            'name' => 'Polos',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+
+        $admin = $this->adminUser();
+        $uid = strtoupper(substr(uniqid(), -6));
+        $phone1 = '62812'.rand(10000000, 99999999);
+        $phone2 = '62813'.rand(10000000, 99999999);
+        $phone3 = '62814'.rand(10000000, 99999999);
+
+        $csv = $this->writeTempCsv([
+            $this->row('CLG-001-'.$uid, $phone1, 'processing', 'paid', $product->code, 'Jl. A', 'Motif: Bunga', 'Celengan Celengan'),
+            $this->row('CLG-002-'.$uid, $phone2, 'processing', 'paid', $product->code, 'Jl. B', 'Motif: Kartun', 'Celengan Celengan'),
+            $this->row('CLG-003-'.$uid, $phone3, 'processing', 'paid', $product->code, 'Jl. C', 'Motif: Polos', 'Celengan Celengan'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($csv, 'TestSender', 'celengan_test.csv');
+
+        $this->assertEquals(3, $result['inserted']);
+        $this->assertEquals(0, $result['duplicates']);
+
+        // CLG-001 → varian Bunga
+        $o1 = ShippingOrder::where('order_id', 'CLG-001-'.$uid)->first();
+        $this->assertNotNull($o1);
+        $this->assertEquals($vBunga->id, $o1->product_variant_id);
+        $this->assertEquals($vBunga->code, $o1->product_code);
+
+        // CLG-002 → varian Kartun
+        $o2 = ShippingOrder::where('order_id', 'CLG-002-'.$uid)->first();
+        $this->assertNotNull($o2);
+        $this->assertEquals($vKartun->id, $o2->product_variant_id);
+        $this->assertEquals($vKartun->code, $o2->product_code);
+
+        // CLG-003 → varian Polos
+        $o3 = ShippingOrder::where('order_id', 'CLG-003-'.$uid)->first();
+        $this->assertNotNull($o3);
+        $this->assertEquals($vPolos->id, $o3->product_variant_id);
+        $this->assertEquals($vPolos->code, $o3->product_code);
+    }
+
+    /**
+     * Produk non-power tanpa keyword "Dapat" → qty tetap 1 (dari CSV).
+     */
+    public function test_non_power_variant_qty_default_one(): void
+    {
+        $product = Product::create([
+            'code' => 'CLG'.strtoupper(substr(uniqid(), -4)),
+            'name' => 'Celengan',
+            'status' => 'active',
+        ]);
+
+        ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+BUNGA',
+            'name' => 'Bunga',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+
+        $uid = strtoupper(substr(uniqid(), -6));
+        $phone = '62815'.rand(10000000, 99999999);
+
+        $csv = $this->writeTempCsv([
+            $this->row('CLG-Q1-'.$uid, $phone, 'processing', 'paid', $product->code, 'Jl. Q', 'Motif: Bunga', 'Celengan'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($csv, 'TestSender', 'celengan_qty.csv');
+
+        $this->assertEquals(1, $result['inserted']);
+
+        $order = ShippingOrder::where('order_id', 'CLG-Q1-'.$uid)->first();
+        $this->assertNotNull($order);
+        $this->assertEquals(1, $order->quantity);
+        $this->assertStringNotContainsString('pcs', strtolower((string) $order->product_name));
+    }
+
+    /**
+     * Variasi kosong / tak dikenal → fallback ke varian default.
+     */
+    public function test_non_power_variant_fallback_to_default(): void
+    {
+        $product = Product::create([
+            'code' => 'CLG'.strtoupper(substr(uniqid(), -4)),
+            'name' => 'Celengan',
+            'status' => 'active',
+        ]);
+
+        $v1 = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+POLOS',
+            'name' => 'Polos',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+        ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+BUNGA',
+            'name' => 'Bunga',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+
+        $uid = strtoupper(substr(uniqid(), -6));
+        $phone = '62816'.rand(10000000, 99999999);
+
+        $csv = $this->writeTempCsv([
+            $this->row('CLG-F1-'.$uid, $phone, 'processing', 'paid', $product->code, 'Jl. F', '', 'Celengan'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($csv, 'TestSender', 'celengan_fallback.csv');
+
+        $order = ShippingOrder::where('order_id', 'CLG-F1-'.$uid)->first();
+        $this->assertNotNull($order);
+        // Fallback ke varian default (power terkecil, id terkecil)
+        $this->assertEquals($v1->id, $order->product_variant_id);
+    }
+
+    /**
+     * Produk non-power dengan nama varian berisi spasi (multi-kata)
+     * tetap bisa dicocokkan. Contoh: varian "Kartun Polos" cocok
+     * dengan variation "Motif: Kartun Polos".
+     */
+    public function test_non_power_variant_multi_word_name(): void
+    {
+        $product = Product::create([
+            'code' => 'CLG'.strtoupper(substr(uniqid(), -4)),
+            'name' => 'Celengan',
+            'status' => 'active',
+        ]);
+
+        $vBunga = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+BUNGA',
+            'name' => 'Bunga',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+        $vKartunPolos = ProductVariant::create([
+            'product_id' => $product->id,
+            'code' => $product->code.'+KARTUNPOLOS',
+            'name' => 'Kartun Polos',
+            'power' => 0,
+            'stock' => 100,
+            'status' => 'active',
+        ]);
+
+        $uid = strtoupper(substr(uniqid(), -6));
+        $phone1 = '62817'.rand(10000000, 99999999);
+        $phone2 = '62818'.rand(10000000, 99999999);
+
+        $csv = $this->writeTempCsv([
+            $this->row('CLG-M1-'.$uid, $phone1, 'processing', 'paid', $product->code, 'Jl. M1', 'Motif: Bunga', 'Celengan'),
+            $this->row('CLG-M2-'.$uid, $phone2, 'processing', 'paid', $product->code, 'Jl. M2', 'Motif: Kartun Polos', 'Celengan'),
+        ]);
+
+        $svc = new OrderOnlineImportService;
+        $result = $svc->import($csv, 'TestSender', 'celengan_multi.csv');
+
+        $this->assertEquals(2, $result['inserted']);
+
+        $o1 = ShippingOrder::where('order_id', 'CLG-M1-'.$uid)->first();
+        $this->assertEquals($vBunga->id, $o1->product_variant_id);
+
+        $o2 = ShippingOrder::where('order_id', 'CLG-M2-'.$uid)->first();
+        $this->assertEquals($vKartunPolos->id, $o2->product_variant_id);
     }
 }

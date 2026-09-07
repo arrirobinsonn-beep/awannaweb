@@ -57,6 +57,24 @@ tbody .cs-name-sticky { z-index: 2; }
     pointer-events: none;
 }
 
+/* ── Batas tinggi tabel performa (±7 baris data, sisanya scroll vertikal) ── */
+.perf-scroll-limit { overflow-y: auto; overscroll-behavior: contain; }
+.perf-scroll-limit::-webkit-scrollbar { width: 8px; }
+.perf-scroll-limit::-webkit-scrollbar-track { background: transparent; }
+.perf-scroll-limit::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 999px; }
+.perf-scroll-limit::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
+.perf-scroll-limit { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; }
+
+/* ── Sticky HEADER (2 baris) menempel utuh saat scroll vertikal di dalam container ──
+   thead dibuat sticky sebagai satu kesatuan — ini pola kanonik yang andal lintas
+   browser. Sticky horizontal kolom kiri (.cs-name-sticky) & kanan (.cs-total-*) tetap
+   dipegang per-sel di bawah. z-index tinggi agar selalu di atas konten tbody. */
+.perf-scroll-limit thead {
+    position: sticky;
+    top: 0;
+    z-index: 8;
+}
+
 /* ── Doughnut porsi lead per CS ── */
 .cs-donut-seg {
     transition: opacity .15s ease;
@@ -132,7 +150,7 @@ tbody .cs-name-sticky { z-index: 2; }
         @if($u->hasRole('cs'))
             {{-- ═══════ SISI CS: satu tabel — tim di bawah advertiser tempat bernaung ═══════ --}}
             <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
-                <div style="overflow-x:auto;">
+                <div class="perf-scroll-limit" style="overflow-x:auto;">
                     <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
                         @include('team.partials.performa-head', ['allDates' => $allDates, 'csCount' => $mainMembers->count()])
                         <tbody>
@@ -154,7 +172,7 @@ tbody .cs-name-sticky { z-index: 2; }
                         <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">👥 Performa Semua CS</span>
                         <span class="clay-badge clay-badge-green" style="font-size:.65rem;">CS Utama paling atas · urut porsi penerimaan data</span>
                     </div>
-                    <div style="overflow-x:auto;">
+                    <div class="perf-scroll-limit" style="overflow-x:auto;">
                         <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
                             @include('team.partials.performa-head', ['allDates' => $allDates, 'csCount' => $members->count()])
                             <tbody>
@@ -268,6 +286,63 @@ tbody .cs-name-sticky { z-index: 2; }
 
 </div>
 @endsection
+
+@push('scripts')
+<script>
+(() => {
+    'use strict';
+    // ── Batas tinggi tabel: tampilkan ±7 baris data, sisanya scroll vertikal ──
+    // Header sticky + kolom sticky + baris GRAND TOTAL (sticky bottom) tetap berfungsi
+    // di dalam container scroll ini. Baris data = baris tbody non-sticky.
+    // Catatan: deteksi baris total memakai inline position:sticky (baris GRAND TOTAL) —
+    // jika nanti dipindah ke CSS class, sesuaikan filter di sini.
+    const MAX_ROWS = 7;
+
+    document.querySelectorAll('.perf-scroll-limit').forEach((scrollEl) => {
+        const table = scrollEl.querySelector('table');
+        if (!table || !table.tBodies.length) return;
+        const tbody = table.tBodies[0];
+
+        // Baris data: tbody tanpa posisi sticky (grand total) & tanpa display:none
+        const dataRows = Array.prototype.filter.call(tbody.rows, (r) => (
+            r.style.position !== 'sticky' && r.style.display !== 'none'
+        ));
+        if (dataRows.length <= MAX_ROWS) return;
+
+        const footerRow = () => {
+            for (let j = 0; j < tbody.rows.length; j++) {
+                if (tbody.rows[j].style.position === 'sticky') return tbody.rows[j];
+            }
+            return null;
+        };
+
+        const measure = () => {
+            let h = table.tHead ? table.tHead.offsetHeight : 0;
+            for (let i = 0; i < MAX_ROWS; i++) h += dataRows[i].offsetHeight;
+            // Grand total sticky-bottom ikut dihitung agar tidak menutupi baris ke-7
+            const ft = footerRow();
+            if (ft) h += ft.offsetHeight;
+            return h;
+        };
+
+        scrollEl.style.maxHeight = measure() + 'px';
+
+        // Pass 2: scrollbar vertikal muncul → lebar konten menyusut → ukur ulang
+        requestAnimationFrame(() => {
+            scrollEl.style.maxHeight = measure() + 'px';
+        });
+
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                scrollEl.style.maxHeight = measure() + 'px';
+            }, 150);
+        });
+    });
+})();
+</script>
+@endpush
 
 @push('scripts')
 <script>

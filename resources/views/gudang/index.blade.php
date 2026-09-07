@@ -5,69 +5,7 @@
 
 @push('styles')
 <style>
-    /* ── Modal ─────────────────────────────────────── */
-    .pv-modal {
-        position: fixed; inset: 0; z-index: 9999;
-        display: none; align-items: center; justify-content: center; padding: 16px;
-    }
-    .pv-modal.active { display: flex; }
-    .pv-modal .pv-backdrop {
-        position: absolute; inset: 0;
-        background: rgba(15,23,42,.55); backdrop-filter: blur(2px);
-    }
-    .pv-modal .pv-container {
-        position: relative; background: #fff; border-radius: 18px;
-        width: 100%; max-width: 520px; overflow: hidden;
-        display: flex; flex-direction: column;
-        box-shadow: 0 25px 60px rgba(0,0,0,.25);
-        animation: pvIn .22s ease;
-    }
-    @keyframes pvIn {
-        from { opacity: 0; transform: translateY(10px) scale(.98); }
-        to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .pv-modal .pv-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
-        background: linear-gradient(135deg, #FFF5F5, #fff);
-    }
-    .pv-modal .pv-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
-    .pv-modal .pv-close {
-        background: #f3f4f6; border: none; border-radius: 8px;
-        width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280;
-        transition: background .15s;
-    }
-    .pv-modal .pv-close:hover { background: #e5e7eb; }
-    .pv-modal .pv-body { padding: 18px 20px; max-height: 62vh; overflow-y: auto; }
-    .pv-modal .pv-body label {
-        display: block; font-size: .72rem; font-weight: 700; color: #6b7280; margin-bottom: 4px;
-    }
-    .pv-modal .pv-body .clay-input { font-size: .85rem; padding: 7px 10px; }
-    .pv-modal .pv-footer {
-        display: flex; justify-content: flex-end; gap: 10px;
-        padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
-    }
-
-    /* ── Toggle Status ─────────────────────────────── */
-    .clay-toggle {
-        position: relative; display: inline-block;
-        width: 36px; height: 20px; vertical-align: middle; cursor: pointer;
-    }
-    .clay-toggle input {
-        position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer;
-    }
-    .clay-toggle .clay-toggle-slider {
-        position: absolute; inset: 0; background: #d1d5db; border-radius: 999px;
-        transition: background .18s;
-    }
-    .clay-toggle .clay-toggle-slider::before {
-        content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px;
-        background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,.3);
-        transition: transform .18s;
-    }
-    .clay-toggle input:checked + .clay-toggle-slider { background: var(--color-primary, #FF6B6B); }
-    .clay-toggle input:checked + .clay-toggle-slider::before { transform: translateX(16px); }
-    .clay-toggle-sm { transform: scale(.85); transform-origin: center; }
+    /* Modal & toggle styles — centralized in clay.css (clay-modal, clay-toggle) */
 </style>
 @endpush
 
@@ -416,7 +354,7 @@
                     <td>
                         <form method="POST" action="{{ route('gudang.packaging-update', $rule) }}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
                             @csrf @method('PUT')
-                            <select name="rule_type" class="clay-input" style="width:130px;padding:4px 8px;font-size:.72rem;">
+                            <select name="rule_type" class="clay-input" style="width:130px;">
                                 <option value="additional" {{ $rule->rule_type === 'additional' ? 'selected' : '' }}>Additional</option>
                                 <option value="split" {{ $rule->rule_type === 'split' ? 'selected' : '' }}>Split (1:1 bonus)</option>
                             </select>
@@ -451,16 +389,16 @@
 @endif
 
 {{-- ═══════════════ MODAL TAMBAH PRODUK KE GUDANG ═══════════════ --}}
-<div class="pv-modal" id="modal-attach" role="dialog" aria-modal="true">
-    <div class="pv-backdrop" onclick="closeAttachModal()"></div>
-    <div class="pv-container" style="max-width:520px;">
-        <div class="pv-header">
+<div class="clay-modal" id="modal-attach" role="dialog" aria-modal="true">
+    <div class="clay-modal-backdrop" onclick="closeAttachModal()"></div>
+    <div class="clay-modal-container" style="max-width:520px;">
+        <div class="clay-modal-header">
             <h2>➕ Tambah Produk ke Gudang</h2>
-            <button class="pv-close" onclick="closeAttachModal()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeAttachModal()" type="button">✕</button>
         </div>
         <form method="POST" action="{{ route('gudang.product.attach') }}">
             @csrf
-            <div class="pv-body">
+            <div class="clay-modal-body">
                 <label style="display:block;font-size:.72rem;font-weight:700;color:#6b7280;margin-bottom:4px;">PILIH PRODUK (sudah ada di halaman Produk) <span style="color:#f87171;">*</span></label>
                 <select name="product_id" id="am-product-id" required class="clay-input" style="width:100%;">
                     <option value="">— Pilih produk —</option>
@@ -492,7 +430,7 @@
                     <a href="{{ route('product.index') }}" data-page-link style="color:#7c3aed;font-weight:700;">Buat produk baru →</a>
                 </div>
             </div>
-            <div class="pv-footer">
+            <div class="clay-modal-footer">
                 <button class="clay-btn clay-btn-outline" onclick="closeAttachModal()" type="button">Batal</button>
                 <button class="clay-btn clay-btn-primary" type="submit">💾 Tambah ke Gudang</button>
             </div>
@@ -501,16 +439,16 @@
 </div>
 
 {{-- ═══════════════ MODAL KELOLA GUDANG PRODUK ═══════════════ --}}
-<div class="pv-modal" id="modal-warehouse" role="dialog" aria-modal="true">
-    <div class="pv-backdrop" onclick="closeWarehouseModal()"></div>
-    <div class="pv-container" style="max-width:480px;">
-        <div class="pv-header">
+<div class="clay-modal" id="modal-warehouse" role="dialog" aria-modal="true">
+    <div class="clay-modal-backdrop" onclick="closeWarehouseModal()"></div>
+    <div class="clay-modal-container" style="max-width:480px;">
+        <div class="clay-modal-header">
             <h2>🏷 Kelola Gudang Produk</h2>
-            <button class="pv-close" onclick="closeWarehouseModal()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeWarehouseModal()" type="button">✕</button>
         </div>
         <form method="POST" id="wm-form" action="{{ route('gudang.product.warehouses', 0) }}">
             @csrf @method('PUT')
-            <div class="pv-body">
+            <div class="clay-modal-body">
                 <label style="display:block;font-size:.72rem;font-weight:700;color:#6b7280;margin-bottom:6px;">Gudang tempat produk terdaftar
                     <span style="font-weight:400;color:#9ca3af;">— centang gudang & pilih gudang utama (export/pengambilan)</span>
                 </label>
@@ -528,17 +466,13 @@
                     Melepas centang = produk dilepas dari gudang tsb (stok cache ikut dihapus, jurnal tetap tersimpan).
                 </div>
             </div>
-            <div class="pv-footer">
+            <div class="clay-modal-footer">
                 <button class="clay-btn clay-btn-outline" onclick="closeWarehouseModal()" type="button">Batal</button>
                 <button class="clay-btn clay-btn-primary" type="submit">💾 Simpan Gudang</button>
             </div>
         </form>
     </div>
 </div>
-
-<style>
-.field-label { display:block;font-size:.75rem;font-weight:700;margin-bottom:4px;color:#374151; }
-</style>
 @endsection
 
 @push('scripts')

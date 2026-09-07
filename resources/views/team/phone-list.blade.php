@@ -41,7 +41,7 @@ $perCs = $phoneList->groupBy('cs_name');
             <strong style="font-size:.85rem;">{{ $csGroup }}</strong>
             <span style="font-size:.72rem;color:#6b7280;">{{ $contacts->count() }} nomor</span>
         </div>
-        <input type="text" class="clay-input phone-filter" placeholder="Cari nomor..." style="padding:4px 8px;font-size:.72rem;width:100%;box-sizing:border-box;margin-bottom:6px;">
+        <input type="text" class="clay-input phone-filter" placeholder="Cari nomor..." style="margin-bottom:6px;">
         <div style="overflow-x:auto;">
             <table class="clay-table" style="font-size:.72rem;">
                 <thead>

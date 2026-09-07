@@ -21,11 +21,13 @@ use Illuminate\View\View;
  * ada query per baris/per pengirim di dalam loop (pola batch AGENTS.md):
  *   - stok hari ini : 1 aggregate `stock_movements` (index `date` + `type`)
  *   - laporan       : 1 aggregate `shipping_orders` JOIN batches JOIN products
- *                     (index `order_online_import_batch_id` + `created_at`)
+ *                     (index `order_online_import_batch_id` + `order_at`)
  * Total keseluruhan dihitung dari hasil GROUP BY (sum kolom di collection).
  *
  * Filter tanggal memakai RANGE (`>=`/`<`) bukan `whereDate()` agar index
- * `created_at` tetap terpakai (whereDate → DATE() → index mati → full scan).
+ * `order_at` tetap terpakai (whereDate → DATE() → index mati → full scan).
+ * `order_at` = tanggal ORDER asli dari CSV; `created_at` (waktu import) TIDAK
+ * dipakai di sini agar laporan "hari ini" memakai tanggal transaksi sebenarnya.
  */
 class OperationalReportController extends Controller
 {
@@ -53,8 +55,8 @@ class OperationalReportController extends Controller
             ->first();
 
         $orderPeriode = ShippingOrder::processed()
-            ->where('created_at', '>=', $dariStart)
-            ->where('created_at', '<', $sampaiEnd)
+            ->where('order_at', '>=', $dariStart)
+            ->where('order_at', '<', $sampaiEnd)
             ->selectRaw('COUNT(*) as total,
                 SUM(CASE WHEN awb IS NOT NULL AND awb != \'\' THEN 1 ELSE 0 END) as resi,
                 SUM(CASE WHEN payment_method = \'cod\' THEN 1 ELSE 0 END) as cod,
@@ -65,8 +67,8 @@ class OperationalReportController extends Controller
         $rows = ShippingOrder::processed()
             ->join('order_online_import_batches as b', 'b.id', '=', 'shipping_orders.order_online_import_batch_id')
             ->leftJoin('products', 'products.id', '=', 'shipping_orders.product_id')
-            ->where('shipping_orders.created_at', '>=', $dari->copy()->startOfDay())
-            ->where('shipping_orders.created_at', '<', $sampaiEnd)
+            ->where('shipping_orders.order_at', '>=', $dari->copy()->startOfDay())
+            ->where('shipping_orders.order_at', '<', $sampaiEnd)
             ->selectRaw('b.id as batch_id,
                 b.sender as sender,
                 COUNT(*) as total_order,
@@ -121,11 +123,11 @@ class OperationalReportController extends Controller
         $sampaiEnd = $sampai->copy()->addDay(); // range eksklusif < besok
         $dariStart = $dari->copy()->startOfDay();
 
-        // ── Detail per produk + varian (1 aggregate; batch + index created_at) ──
+        // ── Detail per produk + varian (1 aggregate; batch + index order_at) ──
         $rows = ShippingOrder::processed()
             ->where('order_online_import_batch_id', $batch->id)
-            ->where('shipping_orders.created_at', '>=', $dariStart)
-            ->where('shipping_orders.created_at', '<', $sampaiEnd)
+            ->where('shipping_orders.order_at', '>=', $dariStart)
+            ->where('shipping_orders.order_at', '<', $sampaiEnd)
             ->leftJoin('products', 'products.id', '=', 'shipping_orders.product_id')
             ->leftJoin('product_variants', 'product_variants.id', '=', 'shipping_orders.product_variant_id')
             ->selectRaw("
@@ -168,8 +170,8 @@ class OperationalReportController extends Controller
             'hpp' => $rows->sum('hpp'),
             'resi' => ShippingOrder::processed()
                 ->where('order_online_import_batch_id', $batch->id)
-                ->where('created_at', '>=', $dariStart)
-                ->where('created_at', '<', $sampaiEnd)
+                ->where('order_at', '>=', $dariStart)
+                ->where('order_at', '<', $sampaiEnd)
                 ->whereNotNull('awb')
                 ->where('awb', '!=', '')
                 ->count(),

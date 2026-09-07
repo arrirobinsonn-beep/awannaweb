@@ -350,6 +350,35 @@ class OperationalReportTest extends TestCase
         }
     }
 
+    public function test_batch_detail_has_whatsapp_copy_text(): void
+    {
+        $product = $this->makeProduct(70000);
+        $day = $this->uniqueDate(19);
+        $batch = $this->makeBatch('Copy Sender '.uniqid());
+        $this->createOrder($batch, 'CP-1-'.uniqid(), $product, 'cod', 2, 238000, 'AWB-CP', $day.' 10:00:00');
+
+        try {
+            $response = $this->actingAs($this->adminUser())
+                ->get(route('operational-report.batch', ['batch' => $batch->id, 'dari' => $day, 'sampai' => $day]))
+                ->assertOk()
+                // Tombol + textarea tersembunyi ada di halaman
+                ->assertSee('btn-copy-report', false)
+                ->assertSee('copy-report-text', false)
+                ->assertSee('copy-report-fallback', false);
+
+            // Isi teks copy memuat ringkasan & rincian baris produk
+            $response->assertSee('LAPORAN PENGIRIM', false)
+                ->assertSee($batch->sender)
+                ->assertSee('BARANG TERJUAL', false)
+                // qty 2 pcs, uang 238000, HPP 2*70000 = 140000
+                ->assertSee('2 pcs')
+                ->assertSee('238.000')
+                ->assertSee('140.000');
+        } finally {
+            $batch->delete();
+        }
+    }
+
     public function test_report_empty_state_for_old_date(): void
     {
         // Tanggal di masa lalu yang tidak punya data (pakai 2019)

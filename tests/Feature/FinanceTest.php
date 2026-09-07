@@ -373,7 +373,7 @@ class FinanceTest extends TestCase
 
     public function test_cs_upload_pending_balance_unchanged(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $account = $this->makeAccount(0);
         $category = $this->makeCategory('in');
@@ -391,7 +391,7 @@ class FinanceTest extends TestCase
         $bt = BankTransfer::where('account_id', $account->id)->first();
         $this->assertSame('pending', $bt->status);
         $this->assertNotNull($bt->image_url);
-        Storage::disk('public')->assertExists($bt->image_url);
+        Storage::disk('local')->assertExists($bt->image_url);
 
         // Saldo belum berubah
         $this->assertSame('0.00', (string) $account->fresh()->current_balance);
@@ -402,7 +402,7 @@ class FinanceTest extends TestCase
 
     public function test_cs_upload_notifies_all_approver_roles(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $keu = $this->makeUser('keuangan');
         $owner = $this->makeUser('owner');
@@ -429,7 +429,7 @@ class FinanceTest extends TestCase
 
     public function test_download_bukti_ok_before_approve_404_after(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $keu = $this->makeUser('keuangan');
         $account = $this->makeAccount(0);
@@ -465,7 +465,7 @@ class FinanceTest extends TestCase
 
     public function test_approve_adds_balance_and_keeps_image_until_manual_delete(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $keu = $this->makeUser('keuangan');
         $account = $this->makeAccount(0);
@@ -506,7 +506,7 @@ class FinanceTest extends TestCase
 
     public function test_reject_saves_note_balance_unchanged_and_notifies_cs(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $keu = $this->makeUser('keuangan');
         $account = $this->makeAccount(0);
@@ -544,7 +544,7 @@ class FinanceTest extends TestCase
         $this->assertSame('Nominal tidak sesuai bukti', $bt->rejection_note);
         $this->assertSame('0.00', (string) $account->fresh()->current_balance);
         $this->assertNotNull($bt->image_url); // gambar disimpan agar CS bisa lihat buktinya
-        Storage::disk('public')->assertExists($bt->image_url);
+        Storage::disk('local')->assertExists($bt->image_url);
 
         $this->assertDatabaseHas('notifications', [
             'user_id' => $cs->id,
@@ -555,7 +555,7 @@ class FinanceTest extends TestCase
         $this->actingAs($cs)->get(route('finance.bank-transfers.index'))->assertSee('Nominal tidak sesuai bukti');
     }
 
-    public function test_approver_out_decreases_balance_immediately(): void
+    public function test_approver_out_decreases_balance_after_approve(): void
     {
         $keu = $this->makeUser('keuangan');
         $account = $this->makeAccount(500000);
@@ -571,13 +571,24 @@ class FinanceTest extends TestCase
         ])->assertRedirect()->assertSessionHas('success');
 
         $bt = BankTransfer::where('account_id', $account->id)->first();
+        $this->assertSame('pending', $bt->status);
+        $this->assertSame('500000.00', (string) $account->fresh()->current_balance); // belum berubah
+
+        // Approve oleh keuangan — pengeluaran langsung approved (skip confirmed)
+        $this->actingAs($keu)
+            ->from(route('finance.bank-transfers.index'))
+            ->post(route('finance.bank-transfers.approve', $bt))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $bt->refresh();
         $this->assertSame('approved', $bt->status);
         $this->assertSame('300000.00', (string) $account->fresh()->current_balance);
     }
 
     public function test_long_chat_template_description_stored_fully_and_detail_modal_renders(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $keu = $this->makeUser('keuangan');
         $account = $this->makeAccount(0);
@@ -620,7 +631,7 @@ class FinanceTest extends TestCase
 
     public function test_cs_upload_with_product_stored_and_shown(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $keu = $this->makeUser('keuangan');
         $account = $this->makeAccount(0);
@@ -789,7 +800,7 @@ class FinanceTest extends TestCase
 
     public function test_cs_cannot_upload_out(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $account = $this->makeAccount(0);
         $category = $this->makeCategory('out');
@@ -825,6 +836,15 @@ class FinanceTest extends TestCase
         ]);
 
         $bt = BankTransfer::where('account_id', $account->id)->first();
+        $this->assertSame('pending', $bt->status);
+        $this->assertSame('1000000.00', (string) $account->fresh()->current_balance); // belum berubah
+
+        // Approve transaksi masuk (perlu confirm dulu)
+        $bankOwner = $this->makeUser('owner');
+        $bt->account->owners()->attach($bankOwner->id);
+        $this->actingAs($bankOwner)->post(route('finance.bank-transfers.confirm', $bt));
+        $this->actingAs($keu)->post(route('finance.bank-transfers.approve', $bt));
+
         $this->assertSame('1300000.00', (string) $account->fresh()->current_balance);
 
         $this->actingAs($keu)
@@ -850,7 +870,7 @@ class FinanceTest extends TestCase
 
     public function test_approve_only_for_approver_roles(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $otherCs = $this->makeUser('cs');
         $account = $this->makeAccount(0);
@@ -879,7 +899,7 @@ class FinanceTest extends TestCase
 
     public function test_pemilik_bank_can_confirm_pending_transfer(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $owner = $this->makeUser('pemilik_bank');
         $account = $this->makeAccount(0);
@@ -914,7 +934,7 @@ class FinanceTest extends TestCase
 
     public function test_non_owner_cannot_confirm(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $other = $this->makeUser('cs');
         $account = $this->makeAccount(0);
@@ -938,7 +958,7 @@ class FinanceTest extends TestCase
 
     public function test_approve_requires_confirmed_status(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $keu = $this->makeUser('keuangan');
         $account = $this->makeAccount(0);
@@ -963,7 +983,7 @@ class FinanceTest extends TestCase
 
     public function test_delete_image_on_approved_transfer(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $keu = $this->makeUser('keuangan');
         $owner = $this->makeUser('pemilik_bank');
@@ -1005,7 +1025,7 @@ class FinanceTest extends TestCase
 
     public function test_approve_from_confirmed_notifies_cs(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $cs = $this->makeUser('cs');
         $keu = $this->makeUser('keuangan');
         $owner = $this->makeUser('pemilik_bank');

@@ -1,4 +1,194 @@
+# MEMORY — 3 September 2026
+
+## Session: Regional Running-Only — Lead/Paid produk Testing dilewati
+
+- **Latar**: user minta halaman Detail Per Daerah tahu mana lead/paid produk Running vs Testing. Setelah analisa (informasi halaman, keterkaitan data: spending → discrepancy, team/performance → regional_cs_stats, order online → order_online_contacts, cs_assignments → guard upload), user memutuskan lewat Q&A: **tabel utama hanya menampilkan produk Running; lead/paid produk Testing tidak diperlukan**.
+- **Key insight**: file regional = file yang sama dengan input regional halaman spending (kolom `product` berformat `P.1 - Nama Produk - WL`).
+- **Implementasi**: `RegionalImportService` — deteksi kolom product (exact/contains), pecah nama 3 area `-`, `ProductNameMatcher::match` (sama persis spending), `product_status` via `Product::pluck('ad_status','id')` 1 query; `previewData` skip baris testing di agregasi provinsi (CS stats & phone tetap semua baris); `skipped_testing` di parse + preview + JSON; view preview modal catatan amber `.preview-testing-note`; save/index TIDAK berubah.
+- **Keputusan penting**: produk tak dikenal tetap dihitung (hanya testing yang dilewati); kolom product opsional (tanpa kolom → semua dihitung). **Konsekuensi**: discrepancy regional vs spending bisa nyala saat spending punya testing di tanggal sama (regional running vs spending semua status) — disetujui user.
+- **Test**: `RegionalImportTest` baru 3 test (preview exclude testing 2/1 + skipped_testing 2, save hanya running, tanpa kolom product backward-compatible). Suite **148 pass** (ExampleTest 302 pre-existing). AGENTS.md section V ditulis.
+
+## Follow-up (hari yang sama): Chart 4 garis — Lead/Paid Running & Testing
+
+- **Latar**: user minta diagram (chart card di atas summary) menambah 2 data: lead testing & paid testing → total **4 garis** indikator spending (Lead Running, Paid Running, Lead Testing, Paid Testing).
+- **View `index-advertiser`**: blok data chart dihitung ulang — `$chartDates = $summaries->keys()->sort()->values()` (semua tanggal berdata) + 4 array `$chartRunLead/RunPaid/TestLead/TestPaid` dihitung **per produk** dari `by_product` (filter `ad_status`) per tanggal. **Bonus fix**: garis Running dulu pakai `$runningSummaries[$d]['lead']` = total harian (ikut testing di hari campuran) → kini murni running.
+- **JS Chart.js**: 4 datasets — Running solid + fill (ungu `#8b5cf6`, teal `#4ECDC4`), Testing putus-putus `borderDash:[6,4]` tanpa fill (oranye `#f97316`, kuning `#fbbf24`); label 'Lead (Running)'/'Paid (Running)'/'Lead (Testing)'/'Paid (Testing)'; chart-sub ditambah '· Lead/Paid Running & Testing'.
+- **Test**: assertion baru di `test_testing_tab_counts_cpa_but_global_summary_only_running` — 4 label dataset + `var runLead = [10]`/`var runPaid = [4]`/`var testLead = [7]`/`var testPaid = [3]` (running 10/4 vs testing 7/3 di tanggal sama). SpendingSummaryTest 3/3 (36 assertions). AGENTS.md section U & MEMORY di-update.
+
+## Follow-up (hari yang sama): Kartu summary mengikuti tab aktif (Running/Testing)
+
+- **Latar**: user minta 4 kartu summary (di sebelah chart) peka terhadap tab aktif — tab Running aktif → rangkuman spending produk Running; tab Testing aktif → rangkuman spending produk Testing.
+- **Implementasi view `index-advertiser`**: helper `$cardData()` (closure pakai `use ($fmtRp, $gradRatio, $periodeLabel)` — closure di view TIDAK menangkap variabel luar tanpa `use`, 2× ErrorException saat pertama jalan) menghasilkan kedua set nilai (spending/lead/paid/conv/cpa_lead/cpa_paid/ratio/days/fill) utk `$runCards` & `$testCards`. Setiap elemen kartu diberi id + `data-run`/`data-test` (mis. `#sum-spending data-run="Rp 100.000" data-test="Rp 60.000"`); `#sum-ratio-fill` menyimpan style gradient per tab.
+- **JS**: `applySummary(tab)` dipanggil dari `switchAdTab` — swap `textContent` via `data-*` untuk 8 elemen, style fill, warna teks badge `.sc-tab-badge` (🟢 Running `#065f46` / 🔬 Testing `#92400e`), dan `title` kartu.
+- **Follow-up**: badge silang di kartu Paid Ratio (`#sum-cross-test`/`#sum-cross-run` = info nominal tab tidak aktif) DIHAPUS atas permintaan user (sudah tidak diperlukan; kartu sendiri sudah mengikuti tab aktif). Test assertion `id="sum-cross-*"` diganti `assertDontSee('sum-cross')`.
+- **Detail kecil**: sub-label hari "N hari berisi data" kini per tab (`count($runningSummaries)` vs `count($testingSummaries)`), bukan `count($summaries)`; kartu 4 ratio awal tetap pakai `$pr` (running).
+- **Test**: assertion baru di `test_testing_tab_counts_cpa_but_global_summary_only_running` — `assertSee('data-run="Rp 100.000"', false)`, `data-test="Rp 60.000"`, `data-run="40%"`/`data-test="43%"`, `id="sum-cross-test"`/`id="sum-cross-run"`. SpendingSummaryTest 3/3 (29 assertions) + Upload/BulkUpdate 9/9. AGENTS.md section U & MEMORY di-update.
+
+## Session: Tab Testing hitung CPA sendiri, global tetap Running saja (follow-up fitur U)
+
+- **Latar**: user minta di tab 🔬Testing, CPA Lead & CPA Paid TETAP dihitung dan ditampilkan (untuk evaluasi fase uji), tapi TIDAK masuk hitungan global (4 kartu summary sebelah diagram) — kartu global memang sudah hanya pakai `$runningSummary`, jadi yang berubah hanya sisi tab Testing.
+- **View `spending/index-advertiser.blade.php`**: blok `$testingSummaries` yang tadinya memaksa `lead/paid/paid_ratio/cpa_lead/cpa_paid = 0` kini menghitung dari produk testing (pola sama `$runningSummaries`: sum spending/lead/paid + ratio + cpa round 2). Header tabel Testing ganti `colspan=4 "Lead/Paid/CPA tidak dihitung"` → 4 kolom asli (Lead, Paid, Paid Ratio, CPA Lead, CPA Paid); baris tanggal tampil nilai asli; expand per-produk tampil 6 metrik; `colspan` expand & empty-state 8 → 9. Badge di kartu Paid Ratio direword: "(tidak masuk hitungan global — CPA lihat tab Testing)".
+- **Controller TIDAK berubah** — `computeSummary($testingRows)` sudah menghitung CPA; `$displaySummary = $runningSummary` (global) & chart tetap Running saja.
+- **Test**: `SpendingSummaryTest::test_testing_tab_counts_cpa_but_global_summary_only_running` — running 100.000/10/4 vs testing 60.000/7/3 di tanggal sama: `assertSee('Rp 100.000')` + `assertDontSee('Rp 160.000')` (testing tak masuk global) + `assertSee('Rp 8.571')`/`'Rp 20.000'`/`'43%'`/`'Rp 60.000'` (CPA testing dihitung). **Trap**: jangan `assertDontSee` angka testing — keduanya di halaman yang sama (tab Testing memang menampilkannya).
+- **Verifikasi**: SpendingSummaryTest 3/3 · SpendingUploadTest + SpendingBulkUpdateTest 9/9 (total 12 pass, 92 assertions). AGENTS.md section U & MEMORY di-update.
+
+## Follow-up (hari yang sama): expand tab Testing ditiru dari tab Running (Level 2 + Level 3)
+
+- **Latar**: user lihat expand tab Testing (yang tadinya cuma daftar div per produk) tidak serapih tab Running — minta ditiru persis.
+- **View `index-advertiser`**: blok expand tab Testing diganti struktur identik tab Running: **Level 2** header produk (checkbox `.bd-check-all` bulk delete, chevron, badge 🔬 Testing, nama+kode produk, sub-label "N whitelist mengiklankan produk ini", summary Spending/Lead-Paid/badge Paid Ratio) → klik expand **Level 3** tabel `.lvl3` kolom Whitelist/Spending/Lead/Paid/Paid Ratio/CPA Lead/CPA Paid/Aksi (checkbox `.bd-check` + tombol ✏️ edit `openSpendingEdit` + 🗑 hapus) + baris **Total Produk**. Palet diadaptasi amber (bg `#fffbeb`, hover `#fef3c7`, badge `#f59e0b`, teks `#92400e`/`#b45309`/`#d97706`, border dashed `rgba(217,119,6,.25)`).
+- **Jebakan**: (1) id Level 2 tab Testing diprefiks `tlvl2-{tanggal}-{produk}` agar tidak tabrakan dengan `lvl2-` tab Running (keduanya di DOM yang sama); chevron tetap `chev-{id}` karena `toggle()` mencari `document.getElementById('chev-'+id)`. (2) `toggle()` cuma `id.startsWith('lvl1')` → `table-row`, padahal id Level 1 Testing `tlvl1-` → diubah jadi `startsWith('lvl1') || startsWith('tlvl1')`. (3) Checkbox bulk-delete & tombol edit bekerja otomatis di tab Testing karena JS memakai `document.querySelectorAll('.bd-check'/' .bd-check-all')` global.
+- **Test**: SpendingSummaryTest +1 assertion `assertSee('tlvl2-20260801')` (bukti struktur Level 2 tab Testing ada) → 3/3; SpendingUpload/BulkUpdate 9/9. AGENTS.md section U & MEMORY di-update.
+
+## Follow-up (hari yang sama): fix bug laten key tanggal integer di tab Running/Testing
+
+- **Temuan**: `$runningSummaries`/`$testingSummaries` di view melalui `->values()` → key jadi INTEGER (0,1,2...). Akibatnya di tab RUNNING pun: `openDateChange('0')` (Ubah Tanggal rusak — `parse('0')` = Invalid Date), `data-tanggal="0"` (grouping bulk edit salah), link "＋" `?tanggal=0`, dan flag `$isDisc = isset($discrepantDates[0])` tidak pernah true (badge ⚠️ DATA TIDAK SESUAI per baris tidak muncul). Terbukti via render HTML: `openDateChange('0')`.
+- **Fix**: buang `->values()` dari kedua assignment tab (Running & Testing) → key tetap string tanggal `Y-m-d`. `$dateKey` kembali dipakai benar: `openDateChange('2026-08-01')`, `data-tanggal="2026-08-01"`, id `lvl1-20260801`/`lvl2-20260801-{id}`/`tlvl1-...`/`tlvl2-...`, `?tanggal=2026-08-01`, `isset($discrepantDates['2026-08-01'])` benar. Chart tidak terpengaruh (dihitung sebelum reassignment, pakai `keys()->sort()->values()` sendiri).
+- **Verifikasi render**: `openDateChange('2026-08-01')`, `tlvl2-20260801-48`, `data-tanggal="2026-08-01"`. Suite Spending 12/12 hijau.
+
+## Follow-up: Banner discrepancy 2 kelompok — "Ketidaksesuaian" vs "Data Belum Ditambahkan"
+
+- **Latar**: user minta perbedaan antara data spending yang TIDAK SELARAS (kedua sisi ada data tapi beda) vs yang BELUM DIISI (regional ada, spending kosong) — tetap 1 banner, tapi area berbeda. Contoh: tanggal 1 running vs regional beda → "ketidakselarasan data"; spending belum diisi tanggal X → "Data belum ditambahkan — anda belum mengisi data spending iklan tanggal X".
+- **Implementasi**: `computeDiscrepancy`/`computeDiscrepancyBatch` (SpendingHarianController) & `RegionalController::index` kini menambah `missingSpendingDates` (reg ada >0, spending 0/0) dipisah dari `discrepancies` (kedua sisi ada data tapi selisih); `hasDiscrepancy` true bila salah satu terisi. View 3 file (index-advertiser, index-general via `data['missing_spending_dates']`, regional/index) — 1 banner merah, 2 area dipisah `border-top dashed`; baris bawah "📅 {d M Y} — ...belum mengisi data spending iklan tanggal {d M Y}".
+- **Jebakan teknis (penting)**: (1) **inline `@php(...)` Blade** compile error (unexpected EOF) bila ekspresi memuat array literal + chained index — debug: kompilasi view via `blade.compiler` + `php -l`; (2) `translatedFormat` ikut locale app (test=english) dan paket carbon locale id TIDAK ada (`locale('id')` → "02 Agt" aneh) → format manual pakai array bulan Indonesia (`$tglLbl = (int) substr($tgl,8,2) . ' ' . $BULAN_ID[...] . ...`); (3) badge baris "DATA BELUM DIISI" dihapus — tanggal spending kosong tidak punya baris tabel (mustahil tampil).
+- **Test**: SpendingSummaryTest +1 `test_discrepancy_banner_separates_mismatch_from_missing_spending` — tanggal 1 (regional 6/3 vs spending 5/2) masuk area Ketidaksesuaian + tanggal 2 (regional 4/1, spending kosong) masuk area Belum Ditambahkan; kedua halaman (spending + regional) diverifikasi. 5/5 (53 assertions); Regional/Upload/BulkUpdate 13/13.
+
+## Follow-up: Discrepancy diselaraskan — spending pembanding HANYA produk Running
+
+- **Latar**: setelah regional running-only, total spending (running + testing) tidak bisa dibandingkan dengan regional (running saja) → alarm ketidaksesuaian selalu nyala walau data sebenarnya selaras. User minta perhitungan peringatan dimodifikasi.
+- **Implementasi**: filter `whereHas('product', ad_status=running)` ditambahkan ke query TOTAL SPENDING di 4 titik perbandingan regional-vs-spending: (1) `SpendingHarianController::computeDiscrepancy` (halaman advertiser), (2) `computeDiscrepancyBatch` (halaman general/CS), (3) `RegionalController::index` alarm banner, (4) `RegionalController::checkDiscrepancy` badge sidebar. Regional_report TIDAK difilter (sudah running-only dari upload). CS-discrepancy (CS team vs advertiser) TIDAK disentuh — bukan perbandingan regional.
+- **Test**: `SpendingSummaryTest` +1 `test_discrepancy_ignores_testing_product_spending` — running 5/2 + testing 5/2 di tanggal sama, regional 5/2 → TIDAK ada alarm di spending.index & regional.index; update regional ke 6 → alarm muncul (sanity check). Suite 4/4 (42 assertions) + Regional/Upload/BulkUpdate 13/13.
+
+## Follow-up: Konfirmasi tanggal sebelum simpan + investigasi data "nyasar" ke tanggal 2 Sep
+
+- **Latar**: user unggah file regional (file berisi data tanggal 1 Sep, tabel tanggal 1 sudah ada isian) → setelah simpan, isian malah muncul di baris tanggal 2. User sempat curiga sistem menggeser tanggal.
+- **Investigasi (bukti kuat TIDAK ada pergeseran)**: (1) `parseDate` diuji 8 format (`01-09-2026 - 23:38` dll) akurat; (2) end-to-end `parseExcel` dgn file asli `training/DataDariOrderOnline(mentah).csv` → tanggal ter-parse persis isi file (2026-07-07 s/d 2026-07-29); (3) DB: data lama Sept 1 (23 provinsi, 120/80, created 01-09 23:20) TIDAK tersentuh, data baru di Sept 2 (30 provinsi, 164/117, created 03-09 00:06 = persis waktu user simpan) → **file yang diunggah memang memuat tanggal 2 September**; (4) jalur update (upload ulang tanggal sama → replace, bukan dobel) terbukti lewat test baru `test_save_updates_existing_date_rows...` — awalnya gagal karena test mengirim provinsi isi-0 (JS asli memfilter `lead>0 || paid>0`), diperbaiki → `updated=1, imported=0`.
+- **Tindakan (3 permintaan user)**: (1) **Konfirmasi tanggal saat simpan** — view `regional/index.blade.php`: modal `#modal-save-confirm` (daftar tanggal hijau/merah: BARU → AKAN DITAMBAH / SUDAH ADA → AKAN DIGANTI + warning bila ada existing), JS handler `previewSave` kini POST ke `regional.check-existing` (route sudah ada, `checkExistingDates` di controller) lalu tampilkan modal; tombol Ya → `doSave()`. Data tanggal diambil PERSIS dari `data-tanggal` tabel preview (bukan dihitung ulang). (2) Cek file & preview — diserahkan ke user. (3) **Bersihkan data uji coba**: hapus `regional_reports` + `regional_cs_stats` user 6 tanggal 2026-09-02 (kontak tidak disentuh).
+- **Test**: RegionalImportTest 4/4 (30 assertions). AGENTS.md section V & MEMORY di-update.
+
+# MEMORY — 20 Agustus 2026
+
+## Session: Iklan Produk Testing — Status iklan testing/running + CPA terpisah (fitur U)
+
+- **Latar**: user minta mekanisme "Iklan produk testing" — produk baru default status `testing`, admin ubah ke `running` setelah fase testing selesai. Spending produk testing tidak masuk perhitungan CPA Lead/Paid.
+- **Migrasi `2026_08_20_000000`**: kolom `products.ad_status` varchar(10) default `testing` + index. Backfill existing → `running`.
+- **Product model**: constants `AD_STATUS_TESTING`/`AD_STATUS_RUNNING`, `scopeAdStatus()`, `isTesting()`, `isRunning()`.
+- **ProductController**: `validateProduct()` + `ad_status` in validation; default `testing` saat create; `toggleAdStatus()` flip via PATCH route.
+- **SpendingHarianController::indexAdvertiser()**: `computeSummary()` helper; split rows → `$runningRows`/`$testingRows`; 2 summary: `$runningSummary` (Spending+Lead+Paid+CPA) & `$testingSummary` (Spending saja, CPA=0).
+- **View index-advertiser**: tab 🔵Running/🔬Testing di atas tabel (polafolder tabs index-general); kartu summary = Running; badge 🔬Testing di Paid Ratio card; tabel Testing terpisah (spending saja).
+- **View index-general**: badge 🔬Testing di samping nama produk (CS/admin).
+- **View product/index**: kolom "Iklan" toggle + badge; filter "Semua Iklan"; modal form + ad_status field.
+- **Chart**: hanya data produk running (testing tidak masuk chart).
+- **parseUpload**: tidak berubah — semua produk tetap ter-cocokkan.
+- **Seeder**: existing products di-backfill ke `running` (sudah melalui fase testing).
+- **Test**: SpendingSummaryTest/SpendingUploadTest/SpendingBulkUpdateTest + `ad_status => 'running'`. Suite **143 pass** (ExampleTest 302 pre-existing). AGENTS.md section U ditulis.
+# MEMORY — 15 Agustus 2026 (lanjutan)
+
+## Session: Multi-perbaikan — raw_status case, scope narrowing, badge warna, IDX, WIB, test DB
+
+- **raw_status case sensitivity**: Controller `normalize()` tidak lagi `strtolower()` raw_status → disimpan dengan huruf asli. Service `TrackingStatusRuleService::resolve()` bandingkan case-insensitive (`strtolower($rule->raw_status)` saat perbandingan). Seeder diupdate pakai huruf asli ("Dikonfirmasi" bukan "dikonfirmasi"). MySQL collation `utf8mb4_unicode_ci` di unique constraint juga case-insensitive.
+- **Narrow scope tracking import**: `import()` menerima param `?string $courier`. Kandidat difilter: `EXPORTABLE_STATUSES` (real/tembakan) + `when($courier, where('courier', $courier))`. View order/index.blade.php: dropdown courier di section tracking import (data dari `ExportTemplate.couriers`). JS sertakan `courier` di FormData saat kirim. Tujuan: cegah order yang sudah pindah courier tidak kena tracking lama.
+- **Badge warna aggregator status**: order/index.blade.php + show.blade.php: `waiting_pickup`/`in_transit`/`delivered` → hijau, `problem` → merah, `returning`/`returned` → kuning.
+- **IDX ke seeder**: TrackingHeaderMappingSeeder tambah `'idx' => $dir.'/header_idx.csv'` (6 kolom di-seed). TrackingStatusRuleSeeder tambah 8 rules IDX (Pending/Pickup→waiting_pickup, In Transit/Out For Delivery→in_transit, Delivered→delivered, Return→returning, Returned→returned, Undeliverable→problem). `detectSource()` otomatis kenali IDX dari mapping header.
+- **Riwayat upload WIB**: batch list tampilkan waktu `->copy()->timezone('Asia/Jakarta')->format('d M Y H:i')` + nama sender dalam kurung. Hapus emoji 🗓. Berlaku di batch list + batch detail header.
+- **Test DB terpisah**: `phpunit.xml` diupdate: `DB_CONNECTION=mysql`, `DB_DATABASE=awannatestlaravel`, `DB_HOST/PORT/USERNAME/PASSWORD`. Database `awannatestlaravel` di-create + `migrate:fresh --seed`. Semua test sekarang jalan di DB terpisah → bebas migrate/hapus data tanpa ganggu dev.
+- **Hasil**: Tracking tests 15/15, suite 158 pass (ExampleTest pre-existing), pipeline 104/104 PASS.
+
+## Follow-up (hari yang sama): Simplify resolveOrder — hanya phone + customer_name
+
+- **Latar**: user minta pencocokan tracking hanya pakai phone + customer_name (data dianggap sudah aman). Multi-tier (address, product, quantity) dihapus — hanya 2 kolom yang dibandingkan.
+- **Perubahan `resolveOrder()`**: Hapus tier2 (address), product match, quantity match. Sekarang: (1) `name_norm` kosong → unmatched; (2) filter kandidat by `normalizeName(customer_name) === nameNorm`; (3) 1 match → ok; >1 → ambiguous; 0 → unmatched.
+- **Test rewrite**: 9 test gagal karena: (a) CSV tidak sertakan kolom nama (`Nama Penerima`/`Nama Shopper`/`Recipient Name`) → `name_norm` kosong → unmatched; (b) phone `6281234567890` sudah terkontaminasi ratusan order dari run berulang → banyak kandidat nama sama → ambiguous. **Fix**: semua test pakai phone unik via `uniqid()` + sertakan kolom nama di CSV.
+- **Test baru**: `test_import_matches_by_phone_and_name_regardless_of_address`, `test_import_matches_even_with_unrecognizable_product_name`, `test_import_extracts_qty_from_dapat_promo_text`, `test_import_ambiguous_when_same_name_multiple_orders` — sesuai logika baru.
+- **Hasil**: Tracking tests 15/15 pass, suite 158 pass (hanya ExampleTest pre-existing), pipeline 104/104 PASS. Tidak ada migrasi baru.
+
+## Follow-up (hari yang sama): Hapus hardcode detectSource — 100% DB-driven
+
+- **Latar**: user minta "hapus saja detect source, kalau memang hardcode hapus saja — sistem ini dirancang untuk dinamis". `detectSource()` punya fallback hardcoded flik/sicepat/spx yang menimpa deteksi DB.
+- **Fix**: Hapus SEMUA hardcoded di `detectSource()` — sekarang 100% dari `tracking_header_mappings`. Jika tidak ada mapping di DB → RuntimeException "Belum ada mapping header". Jika file tidak match ≥2 header → RuntimeException "Sumber file tidak dikenali".
+- **Chicken-and-egg**: seeder `TrackingHeaderMappingSeeder` panggil `extractDefaultMapping()` yang panggil `detectSource()` → gagal karena belum ada mapping. **Fix**: `extractDefaultMapping()` + `extractHeaders()` + `parse()` + `import()` semua terima param opsional `?string $source = null` — jika source di-pass, skip `detectSource()` (seeder/pipeline passed source eksplisit). View edit.blade.php kirim `source` via FormData saat upload.
+- **Pipeline**: `verify_pipeline.php` cleanup delete tracking_header_mappings → seed ulang via `extractDefaultMapping(path, source)` langsung (bukan lewat Seeder class).
+- **Test**: 3 test upload diperbaiki — kirim `source` param saat upload/parse. Semua 34 tracking tests pass, suite 158 pass, pipeline 104/104 PASS.
+
+## Follow-up (hari yang sama): Fix 3 masalah tracking/export
+
+- **Masalah 1 — FLIX tidak baca template export** di halaman tracking-status-rule: `$templateMap` di controller di-build dengan key courier names (`flix-tf`, `sicepat`, `spx`) tapi view lookup dengan source key (`flik`, `sicepat`, `spx`). **Fix**: `$templateMap = $exportTemplates->keyBy('key')->all()` — key = template key (flik/sicepat/spx/idxe).
+- **Masalah 2 — Upload tracking IDX terdeteksi sebagai SPX**: `detectSource()` hardcoded hanya kenali flik/sicepat/spx → fallback ke `spx`. **Fix**: deteksi DB-driven dari `tracking_header_mappings` — hitung berapa header ter-map per source muncul di file CSV → source terbanyak menang (≥2 match). Fallback ke hardcoded tetap ada untuk backward-compat tanpa mapping DB.
+- **Masalah 3 — 'tidak ada template export'**: error dari `OrderTemplateExportService::buildRows()` saat `mappingFor($template)` kosong. Dikarenakan `mappingFor()` cache per-request dan grouped by `template` key — jika user baru buat template tapi belum upload/save mapping, `$mapping->isEmpty()` = true → RuntimeException. Ini bukan bug kode, tapi UX: admin harus upload mapping dulu setelah buat template. Tidak perlu fix kode.
+- **Verifikasi**: 34 tracking tests pass, suite 158 pass (ExampleTest pre-existing), pipeline 104/104 PASS.
+
+## Follow-up (hari yang sama): Fix ProductController — return JSON untuk AJAX (store/update/destroy)
+
+- **Latar**: user lapor edit produk error "The PUT method is not supported for route product. Supported methods: GET, HEAD, POST." Akar masalah: JS memakai `fetch()` (AJAX) tapi controller `store()`/`update()`/`destroy()` return `redirect()` → fetch mengikuti redirect 302 ke `/product` (GET only) → method PUT tidak ada di sana.
+- **Fix controller**: `ProductController::store/update/destroy` return `response()->json(['success' => true, 'message' => ...])` alih-alih `redirect()->route('product.index')`. Hapus import `RedirectResponse` yang tidak dipakai.
+- **Fix view**: delete button di `product/index.blade.php` diubah dari `<form>` HTML ke button AJAX (`deleteProduct(url, name)`) + JS function `deleteProduct` yang pakai `post(url, 'DELETE')`. 
+- **Fix test**: `OrderOnlineTest::test_product_master_page_create_update_toggle_destroy` — 3 assertion `assertRedirect(route('product.index'))` diganti `assertOk()->assertJson(['success' => true])`.
+- **Verifikasi**: `test_product*` 6/6 pass, pipeline 104/104 PASS. 10 test gagal = packaging/export pre-existing (stok DB dev terkuras, bukan regresi).
+
+## Session: Courier dropdown dinamis dari export_templates + Tracking rules validasi template export
+
+- **Latar**: user baru tambah template export `idxeveropro` (courier `IDEXPRESS`) tapi courier dropdown di halaman Data Mentah masih pakai hardcode `CourierRuleService::COURIERS` (7 value lama, tidak ada IDEXPRESS). Tracking status rules juga `SOURCES` hardcode `[flik,sicepat,spx]`.
+- **Fix courier dropdown**: `OrderOnlineController::index()` kini kumpulkan courier dari `ExportTemplate::where('is_active')` → `flatMap(couriers)` → unique + push `undeliverable` → pass `$courierList`. View `order/index.blade.php` ganti `CourierRuleService::COURIERS` → `$courierList`. `update()` validasi courier juga dinamis dari `ExportTemplate`.
+- **Fix tracking SOURCES**: `TrackingStatusRuleController` tambah `validSources()` — gabungan `TrackingStatusRule::SOURCES` + `ExportTemplate::pluck('key')` (unique). Semua validasi `in_array($source, ...)` diganti pakai `validSources()`. Index view kini render **template export reference** (nama, couriers) + tombol ➕ untuk template baru yang belum punya tracking rules.
+- **Verifikasi**: 34 tracking tests pass, suite 158 pass (ExampleTest 302 pre-existing), pipeline 104/104 PASS. Tidak ada migrasi baru.
+- **Deploy**: `git pull` di VPS (tidak perlu migrate — tidak ada schema change).
+
+## Follow-up (hari yang sama): CourierRuleController juga harus dinamis
+
+- **Latar**: user lapor "halaman courier-rules dropdown courier masih hardcode". Cek `CourierRuleController` — masih pakai `CourierRuleService::COURIERS` di 3 tempat: `index()` (pass ke view), `store()` (validasi), `update()` (validasi).
+- **Fix**: tambah `use App\Models\ExportTemplate;` + method `allCouriers()` (kumpulkan dari `ExportTemplate::where('is_active')` + push `undeliverable` + sort). Ganti 3 titik hardcode → `$this->allCouriers()`. Sekarang saat admin tambah template baru (mis. `idxeveropro` → `IDEXPRESS`), courier itu langsung muncul di dropdown courier-rules.
+- **Test**: `CourierRuleTest` **13/13 pass**. Suite **158 pass** (ExampleTest 302 pre-existing). Pipeline **104/104 PASS**.
+
+## Session: Fallback produk tak dikenal di import tracking + seeder template header (FLIK gagal terus)
+
+- **Latar**: user lapor "FLIK gagal terus". Saya cek `training/flix.xlsx` (dashboard FLIK asli 2.404 baris) & `training/02_flik.csv` (7 baris — BUKAN konversi xlsx, isinya beda: produknya nama PROMO). Import `02_flik.csv` → 0 matched padahal 7 order-nya ADA di DB.
+- **Akar masalah**: kolom "Nama Produk" dashboard FLIK berisi **nama PROMO** bukan nama produk → matcher gagal. Dengan matching sekarang yang hanya pakai phone + customer_name, produk tidak relevan untuk pencocokan.
+- Dengan matching phone + customer_name, produk tidak lagi relevan untuk pencocokan.
+- **Jebakan test**: phone `6281234567890` terkontaminasi 171 order sisa di DB dev (test lama tidak cleanup) → test fallback baru WAJIB phone unik (`62812`.substr(uniqid(),-8)) + nama unik.
+- **Test**: `AggregatorTrackingImportTest` +3 → **15/15** (fallback promo tetap match; qty "Dapat 2"; ambiguous dipertahankan). Suite **158 pass** (ExampleTest 302 pre-existing) · pipeline **104/104 PASS**.
+
+## Session: Seeder template tracking — `TrainingHeaderMappingSeeder` (dari training/templateTracking)
+
+- **Latar**: user simpan template header dashboard di `training/templateTracking/` (header_flix.csv, header_sicepat.csv, header_spx.csv) → jadikan seeder.
+- **`AggregatorTrackingImportService::extractDefaultMapping(filePath)`** (baru, publik): baca file → `detectSource` + `cleanHeaders` + `mapHeaders($headers, $source, [])` (param baru `$dbMap` opsional, `[]` = murni alias tanpa DB) → `[source, mapping: header→db_column]`.
+- **`TrackingHeaderMappingSeeder`** (baru): loop 3 file → `extractDefaultMapping` → `updateOrCreate` per (source, header) (idempotent, mapping admin tidak dihapus). Hasil: FLIK 8 kolom, SiCepat 8, SPX 9. Terdaftar di `DatabaseSeeder` (8d).
+- **Test lama diperbaiki** (kini ada data bawaan di DB dev): `test_upload_parses_csv_headers_with_carry_over` & `test_save_mapping_rejects_duplicate_header` harus delete mapping flik di awal+finally. +`test_seeder_populates_default_header_mappings_from_templates` (cek mapping kunci tiap source + idempotent 2× jalankan). `TrackingStatusRuleTest` **19/19**.
+
 # MEMORY — 14 Agustus 2026
+
+## Fix: test packaging OrderOnlineTest tidak idempotent (order_id tetap → stok terkontaminasi)
+
+- **Gejala**: `test_undeliverable_restores_packaging_stock` gagal konsisten bahkan dijalankan sendiri (stok BOX −2 ekstra: 872 vs 870). Test packaging lama memakai `order_id` TETAP (`PKG-UND-1`, `PKG-KMP-1`, `PKG-KBJ-1`, `PKG-NOBOX`) tanpa cleanup — sisa order dari run sebelumnya yang gagal di tengah ikut ke-export (courier=flix-tf, EXPORTABLE) → `recordOutWithPackaging` memotong stok 2×. DB dev tidak di-refresh, jadi run berikutnya terkontaminasi.
+- **Fix**: semua `order_id` di test packaging (`PKG-*`) diganti `uniqid('PKG-')` (+ pastikan `ensureCatalog`/`makeProduct` dsb tetap jalan) — pola sama dengan test lain yang memakai `uniqid()`.
+- **Verifikasi**: `test_undeliverable_restores_packaging_stock` 1/1, `OrderOnlineTest` **66/66** (356 assertions), suite penuh **154 pass** (hanya ExampleTest 302 pre-existing), pipeline **104/104 PASS**.
+
+## Session: Aturan Status — UI mapping DIBALIK + matching NAMA + kolom masalah data-driven (follow-up)
+
+- **Latar (klarifikasi user)**: konsep tracking = upload CSV dashboard; header file tracking & export template bisa beda walau satu dashboard. Pencocokan ingin pakai **no HP + NAMA** pelanggan. Mapping DIBALIK: **kolom kiri = kolom DATABASE (teks statis, BUKAN form — DB tidak berubah), kolom kanan = header CSV dari file upload**. Konversi status tetap (raw → status unik standar). Kolom masalah HARUS dinamis termasuk keunikan FLIK (status normal di kolom A, masalah di kolom B header beda yang isinya DIAWALI "Problem") → aggregator baru cukup konfigurasi, tanpa ubah kode.
+- **`TrackingHeaderMapping::COLUMNS`** + `customer_name` (Nama Pelanggan) → registry **9 kolom**. `aliasMap` + customer_name (`nama shopper`/`recipient name`/`nama penerima`/`customer name`/`buyer name`/`nama pelanggan` — TIDAK pakai `penerima` sendirian: menangkap "alamat penerima" → salah map ke nama).
+- **`AggregatorTrackingImportService::normalizeRow`** + baca `customer_name`/`name_norm`; **`resolveOrder`** hanya pakai **phone + customer_name** — nama kosong → unmatched; >1 kandidat nama sama → ambiguous.
+- **`problem_match_type`** (migration `2026_08_14_100001`, default `contains`): cara cocok kolom masalah → `starts_with` = DIAWALI keyword (FLIK 3PL "Problem..."). `TrackingStatusRuleService::problemColumnMatches(column, keyword, matchType)`. Seeder FLIK problem → `starts_with`, sisanya `contains`. Form tambah/modal edit + select Cara Cocok Kolom Masalah (muncul saat problem_mode=required).
+- **UI dibalik**: `extractHeaders` return `{source, headers[] (array string), mapping{db_column=>header}}` (carry-over per kolom DB); `saveHeaderMapping` terima items `{db_column, header}` + **RuntimeException bila 1 header dipakai 2 kolom** (unique `(source,header)`); controller `saveMapping` validasi `db_column required in:COLUMNS`, header nullable + catch RuntimeException → error mapping. View `edit.blade.php`: tabel kiri kolom DB teks statis, kanan select header; upload isi dropdown + pre-select; JS cegah duplikat header (option disabled); submit items per kolom DB.
+- **Test**: `TrackingStatusRuleTest` 14 → **17** (upload carry-over per db_column, save mapping incl. customer_name, duplikat header ditolak, `starts_with` diawali vs mengandung); `AggregatorTrackingImportTest` +2 (matching nama: nama memutuskan 2 order HP+produk+qty sama; nama menang walau alamat file beda). Suite **151 pass** (ExampleTest 302 pre-existing); pipeline **104/104 PASS**.
+- AGENTS.md section S di-update (deskripsi UI dibalik, implementasi, Penting, suite count).
+
+## Session: Halaman Aturan Status → mapping HEADER CSV per DASHBOARD (koreksi arah)
+
+- **Koreksi user**: interpretasi pertama saya (upload file → map STATUS VALUE) SALAH. Maksud sebenarnya: user ingin mencocokkan **header CSV** dengan **kolom yang ingin diisi di database** (persis pola export-mapping), dan tampilan dipisah **per dashboard** (FLIK/SiCepat/SPX) — bukan disatukan.
+- **`tracking_header_mappings`** (migration `2026_08_14_100000`): `source`, `header` (normalized), `db_column`; UNIQUE `(source, header)` nama eksplisit `tracking_header_mappings_combo_unique`. Model `TrackingHeaderMapping` + konstanta **`COLUMNS`** (registry 8 kolom: tracking_number/phone/address/product_name/quantity/status/problem/delivered_date) — sumber kebenaran dropdown & validasi.
+- **Service**: `mapHeaders` kini DB-aware — `headerMappingFor(source)` (cache per instance) → mapping DB **menang per header**, header lain fallback alias hardcoded (mapping sebagian tidak memutus kolom lain). `extractHeaders(filePath)` (header unik + carry-over db_column) + `saveHeaderMapping(source, items)` (bulk replace 1 transaksi). `extractStatuses` dihapus.
+- **Controller**: `index` → kartu per dashboard (hitungan via 2 aggregate groupBy); `edit($source)` → halaman per dashboard (mapping header + rules khusus sumber); `upload` (JSON `{source, headers[]}`, file di-`store` dulu agar path punya ekstensi — pola `trackingImport`, `createWithContent` juga pathname tanpa ekstensi); `saveMapping` (validasi `db_column in:COLUMNS`, redirect ke edit). `parse`/`apply` (flow status-value lama) DIHAPUS beserta routes-nya.
+- **Views**: `index` → kartu dashboard (gradient per ekspedisi, jumlah mapping + rules, tombol Edit); `edit` (baru) → kartu Mapping Header CSV (upload → tabel header → dropdown kolom DB, simpan via JS hidden `items[]`, validasi sumber file = dashboard dibuka) + kartu Aturan Status (tabel rule khusus sumber + form manual `source` hidden + modal edit).
+- **Test** `TrackingStatusRuleTest` 14: index kartu, edit scoped per dashboard (rule flik tak tampil di spx), upload header + carry-over, **save mapping → import parse pakai header tak standar** (RESI001/hp customer/status paket dll, cleanup mapping & rule di finally), + 10 test lama tetap hijau. Pipeline + cleanup `TrackingHeaderMapping::query()->delete()` di awal (agar import tracking selalu pakai alias bawaan).
+- **Verifikasi**: suite **147 pass** (hanya ExampleTest 302 pre-existing) · pipeline **104/104 PASS**. AGENTS.md section S di-update (deskripsi per dashboard, implementasi, Penting).
+
+## Session: Fitur Copy ke WhatsApp di detail laporan operasional
+
+- **Latar**: user minta tombol copy di halaman detail laporan (`/laporan-operasional/{batch}`) yang mengubah SEMUA isinya jadi teks untuk di-paste di WhatsApp (bukan screenshot).
+- **Implementasi (view-only, tanpa controller)**: teks dibangun **server-side di `@php`** view `laporan/batch.blade.php` — `$copyText` memakai `$rows`/`$grouped` yang SAMA dengan tabel (format angka identik `number_format(...,0,',','.')`; pemisah varian pcs 2 vs 4 tetap baris terpisah). Format WA: header (pengirim, rentang, batch) → ringkasan (order/resi, qty, uang masuk, HPP, margin %) → `━━━ BARANG TERJUAL ━━━` per produk + baris varian (`kode (+power) | nama | N pcs/order ×J = Q pcs — Rp (HPP)`) → `━━━ TOTAL ━━━`.
+- **Mekanisme copy**: teks disimpan di `<textarea id="copy-report-text" hidden>` (dibaca `.value` — HTML-escape ter-decode otomatis oleh browser) + `<pre id="copy-report-fallback">`. JS: `navigator.clipboard.writeText` (cek `window.isSecureContext` — di HTTP non-localhost clipboard API undefined) → fallback `document.execCommand('copy')` dengan `select()`+`setSelectionRange` → gagal total → `<pre>` fallback tampil utk blok manual. Textarea pakai `position:fixed;left:-9999px` (BUKAN `display:none`) agar select/execCommand tetap jalan.
+- **Tombol**: `📋 Copy ke WhatsApp` (`#btn-copy-report`, `clay-btn-primary`) di header batch samping tombol Kembali; feedback "✅ Tersalin — paste di WhatsApp!" / "❌ Gagal — blok teks di bawah manual".
+- **Test** `OperationalReportTest` +1 → 11/11: `test_batch_detail_has_whatsapp_copy_text` — halaman memuat btn/textarea/pre + isi teks (LAPORAN PENGIRIM, BARANG TERJUAL, 2 pcs, 238.000, HPP 140.000).
+- **Verifikasi**: suite **145 pass** (hanya ExampleTest 302 pre-existing) · pipeline **104/104 PASS**. AGENTS.md section T di-update.
 
 ## Session: Laporan hanya hitung order yang DIPROSES (cancel/belum_diproses/duplikat/undeliverable dikecualikan)
 

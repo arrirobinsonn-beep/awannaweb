@@ -48,6 +48,7 @@ class SpendingUploadTest extends TestCase
             'code' => $code,
             'name' => 'Produk Test '.$code,
             'status' => 'active',
+            'ad_status' => 'running',
         ]);
     }
 

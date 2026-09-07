@@ -12,20 +12,7 @@
     .src-spx    { background:#ede9fe; color:#6d28d9; }
     .sel-nowrap { white-space:nowrap; }
 
-    /* ── Dropzone upload ─────────────────────────── */
-    .dropzone {
-        border: 2px dashed #d1d5db; border-radius: 14px;
-        padding: 38px 20px; text-align: center;
-        transition: all .25s ease; cursor: pointer; background: #fafafa;
-    }
-    .dropzone:hover, .dropzone.drag-over {
-        border-color: var(--color-primary, #FF6B6B); background: #fef2f2;
-    }
-    .dropzone.has-file { border-color: #059669; background: #f0fdf4; }
-    .dropzone-icon { font-size: 2.4rem; margin-bottom: 6px; display: block; }
-    .dropzone-title { font-weight: 700; font-size: .9rem; color: #374151; }
-    .dropzone-hint  { font-size: .72rem; color: #9ca3af; margin-top: 2px; }
-    .dropzone-file  { font-size: .78rem; color: #059669; font-weight: 600; margin-top: 6px; }
+    /* Dropzone styles — centralized in clay.css (clay-dropzone) */
 </style>
 @endpush
 
@@ -40,11 +27,11 @@
         </div>
     </div>
 
-    <div class="dropzone" id="csv-dropzone">
-        <span class="dropzone-icon" id="csv-icon">📂</span>
-        <div class="dropzone-title">Klik atau tarik file CSV ke sini</div>
-        <div class="dropzone-hint" id="csv-hint">.csv / teks — maks 10MB. Sumber otomatis dikenali dari header.</div>
-        <div class="dropzone-file" id="csv-filename" style="display:none;"></div>
+    <div class="clay-dropzone" id="csv-dropzone">
+        <span class="clay-dropzone-icon" id="csv-icon">📂</span>
+        <div class="clay-dropzone-title">Klik atau tarik file CSV ke sini</div>
+        <div class="clay-dropzone-hint" id="csv-hint">.csv / teks — maks 10MB. Sumber otomatis dikenali dari header.</div>
+        <div class="clay-dropzone-file" id="csv-filename" style="display:none;"></div>
     </div>
     <input type="file" id="csv-file" accept=".csv,text/csv,text/plain" style="display:none;">
 

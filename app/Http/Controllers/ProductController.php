@@ -6,7 +6,6 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -22,6 +21,24 @@ class ProductController extends Controller
 {
     public function index(Request $request): View
     {
+        $products = $this->getFilteredProducts($request, 15);
+
+        return view('product.index', compact('products'));
+    }
+
+    public function filter(Request $request)
+    {
+        $products = $this->getFilteredProducts($request, 15);
+
+        return response()->json([
+            'html' => view('product._table', compact('products'))->render(),
+            'pagination' => $products->links()->render(),
+            'total' => $products->total(),
+        ]);
+    }
+
+    private function getFilteredProducts(Request $request, int $perPage)
+    {
         $query = Product::with(['variants', 'inventories', 'primaryInventory'])->latest('id');
 
         $query->when($request->filled('search'), fn (Builder $q) => $q->where(function (Builder $w) use ($request) {
@@ -30,14 +47,13 @@ class ProductController extends Controller
                 ->orWhere('category', 'like', '%'.$request->search.'%');
         }))
             ->when($request->filled('goods_type'), fn (Builder $q) => $q->where('goods_type', $request->goods_type))
-            ->when($request->filled('status'), fn (Builder $q) => $q->where('status', $request->status));
+            ->when($request->filled('status'), fn (Builder $q) => $q->where('status', $request->status))
+            ->when($request->filled('ad_status'), fn (Builder $q) => $q->where('ad_status', $request->ad_status));
 
-        $products = $query->paginate(15)->withQueryString();
-
-        return view('product.index', compact('products'));
+        return $query->paginate($perPage)->withQueryString();
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request)
     {
         $data = $this->validateProduct($request);
 
@@ -59,27 +75,24 @@ class ProductController extends Controller
             return $product;
         });
 
-        return redirect()->route('product.index')
-            ->with('success', 'Produk '.$product->name.' berhasil ditambahkan (varian default dibuat).');
+        return response()->json(['success' => true, 'message' => 'Produk '.$product->name.' berhasil ditambahkan (varian default dibuat).']);
     }
 
-    public function update(Request $request, Product $product): RedirectResponse
+    public function update(Request $request, Product $product)
     {
         $data = $this->validateProduct($request, $product);
 
         $product->update($data);
 
-        return redirect()->route('product.index')
-            ->with('success', 'Produk '.$product->name.' berhasil diperbarui.');
+        return response()->json(['success' => true, 'message' => 'Produk '.$product->name.' berhasil diperbarui.']);
     }
 
-    public function destroy(Product $product): RedirectResponse
+    public function destroy(Product $product)
     {
         $name = $product->name;
         $product->delete();
 
-        return redirect()->route('product.index')
-            ->with('success', 'Produk '.$name.' berhasil dihapus.');
+        return response()->json(['success' => true, 'message' => 'Produk '.$name.' berhasil dihapus.']);
     }
 
     public function toggleStatus(Product $product): JsonResponse
@@ -89,6 +102,17 @@ class ProductController extends Controller
         ]);
 
         return response()->json(['success' => true, 'status' => $product->status]);
+    }
+
+    public function toggleAdStatus(Product $product): JsonResponse
+    {
+        $newStatus = $product->ad_status === Product::AD_STATUS_TESTING
+            ? Product::AD_STATUS_RUNNING
+            : Product::AD_STATUS_TESTING;
+
+        $product->update(['ad_status' => $newStatus]);
+
+        return response()->json(['success' => true, 'ad_status' => $newStatus]);
     }
 
     // ─── Varian Produk ─────────────────────────────────────────────────────
@@ -158,9 +182,18 @@ class ProductController extends Controller
             'selling_price' => ['required', 'numeric', 'min:0'],
             'unit' => ['required', 'string', 'max:30'],
             'status' => ['required', 'in:active,inactive'],
+            'ad_status' => ['nullable', 'in:'.implode(',', Product::AD_STATUSES)],
         ]);
 
         $data['min_stock'] = (int) ($data['min_stock'] ?? 0);
+
+        // Default ad_status: testing (produk baru belum melalui fase testing)
+        if (! $product) {
+            $data['ad_status'] = $data['ad_status'] ?? Product::AD_STATUS_TESTING;
+        } else {
+            // Saat edit: ad_status diambil dari input (bisa diubah admin)
+            $data['ad_status'] = $data['ad_status'] ?? $product->ad_status;
+        }
 
         return $data;
     }

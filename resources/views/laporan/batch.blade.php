@@ -18,7 +18,10 @@
                 🗂 {{ $batch->original_filename }} • Batch #{{ $batch->id }} • diimport {{ $batch->created_at?->format('d/m/Y H:i') }}
             </div>
         </div>
-        <a href="{{ route('operational-report.index', ['dari' => $dari, 'sampai' => $sampai]) }}" class="clay-btn" data-page-link>← Kembali ke Laporan</a>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="clay-btn clay-btn-primary" id="btn-copy-report">📋 Copy ke WhatsApp</button>
+            <a href="{{ route('operational-report.index', ['dari' => $dari, 'sampai' => $sampai]) }}" class="clay-btn" data-page-link>← Kembali ke Laporan</a>
+        </div>
     </div>
 </div>
 
@@ -61,6 +64,44 @@
 {{-- ── Barang terjual & rincian varian ──────────────────────── --}}
 @php
     $grouped = $rows->groupBy('kode_master');
+
+    // ── Teks siap-copy (format WhatsApp) — dibangun dari $rows yang SAMA ──
+    $fmt = fn ($n) => number_format((float) $n, 0, ',', '.');
+    $powerTxt = function ($r) {
+        if ((float) $r->power <= 0) return '';
+        return ' (+'.rtrim(rtrim(number_format((float) $r->power, 2, '.', ''), '0'), '.').')';
+    };
+    $copyLines = [];
+    $copyLines[] = '🧾 LAPORAN PENGIRIM — '.($batch->sender ?: '(tanpa pengirim)');
+    $copyLines[] = '📅 '.\Carbon\Carbon::parse($dari)->translatedFormat('d M Y').' — '.\Carbon\Carbon::parse($sampai)->translatedFormat('d M Y');
+    $copyLines[] = '🗂 '.$batch->original_filename.' • Batch #'.$batch->id;
+    $copyLines[] = '';
+    $copyLines[] = '📦 Order: '.$fmt($summary->total_order).' | Resi: '.$fmt($summary->resi);
+    $copyLines[] = '🎁 Qty Terjual: '.$fmt($summary->qty).' pcs';
+    $copyLines[] = '💰 Uang Masuk: Rp '.$fmt($summary->uang_masuk);
+    $copyLines[] = '📉 HPP: Rp '.$fmt($summary->hpp);
+    $copyMargin = (float) $summary->uang_masuk - (float) $summary->hpp;
+    $copyPersen = (float) $summary->uang_masuk > 0 ? round($copyMargin / (float) $summary->uang_masuk * 100, 1) : 0;
+    $copyLines[] = '📈 Margin: Rp '.$fmt($copyMargin).' ('.$copyPersen.'%)';
+    $copyLines[] = '';
+    $copyLines[] = '━━━ BARANG TERJUAL ━━━';
+    foreach ($grouped as $kodeMaster => $group) {
+        $first = $group->first();
+        $copyLines[] = '📦 '.($first->nama_master ?? '(produk tak dikenal)').' ('.$kodeMaster.')'
+            .' — '.$fmt($group->sum('qty')).' pcs — Rp '.$fmt($group->sum('uang_masuk'));
+        foreach ($group as $r) {
+            $copyLines[] = '  • '.($r->kode_varian ?: '-').$powerTxt($r)
+                .' | '.($r->nama_terjual ?? '-')
+                .' | '.$fmt($r->qty_per_order).' pcs/order ×'.$fmt($r->total_order)
+                .' = '.$fmt($r->qty).' pcs — Rp '.$fmt($r->uang_masuk)
+                .' (HPP Rp '.$fmt($r->hpp).')';
+        }
+    }
+    $copyLines[] = '';
+    $copyLines[] = '━━━ TOTAL ━━━';
+    $copyLines[] = '🧮 '.$fmt($summary->qty).' pcs — Rp '.$fmt($summary->uang_masuk)
+        .' — HPP Rp '.$fmt($summary->hpp);
+    $copyText = implode("\n", $copyLines);
 @endphp
 <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
     <div style="padding:16px 20px;border-bottom:1px solid rgba(0,0,0,.06);">
@@ -138,5 +179,50 @@
     ⚠️ Qty / Order = jumlah pcs dalam satu order (mis. promo "Dapat 2" → 2). Qty Terjual = total pcs semua order baris itu.
     HPP dihitung dari <code>products.purchase_price × qty</code>.
 </div>
+
+{{-- ── Teks siap-copy (dibaca JS) + fallback tampil manual bila clipboard gagal ── --}}
+<textarea id="copy-report-text" readonly aria-hidden="true"
+          style="position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;">{{ $copyText }}</textarea>
+<pre id="copy-report-fallback" style="display:none;margin-top:14px;padding:14px;background:#f8f8fc;border:1px dashed #d1d5db;border-radius:10px;font-size:.78rem;white-space:pre-wrap;word-break:break-word;">{{ $copyText }}</pre>
+
+<script>
+(function () {
+    var btn = document.getElementById('btn-copy-report');
+    var ta = document.getElementById('copy-report-text');
+    var fallback = document.getElementById('copy-report-fallback');
+    if (!btn || !ta) { return; }
+
+    function fallbackCopy() {
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        return ok;
+    }
+
+    btn.addEventListener('click', function () {
+        var old = btn.textContent;
+        function done(ok) {
+            btn.textContent = ok ? '✅ Tersalin — paste di WhatsApp!' : '❌ Gagal — blok teks di bawah & salin manual';
+            if (!ok && fallback) { fallback.style.display = 'block'; }
+            setTimeout(function () {
+                btn.textContent = old;
+                if (fallback) { fallback.style.display = 'none'; }
+            }, 3000);
+        }
+
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(ta.value)
+                .then(function () { done(true); })
+                .catch(function () { done(fallbackCopy()); });
+        } else {
+            done(fallbackCopy());
+        }
+    });
+})();
+</script>
 
 @endsection

@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
  * Impor data mentah order online (CSV dari toko) ke tabel `shipping_orders`.
  *
  * - 1 baris CSV = 1 order = 1 produk (tabel lebar + `raw_payload` untuk arsip).
+ * - `order_at` diisi dari kolom CSV `created_at` (tanggal ORDER asli); kolom DB
+ *   `created_at` tetap waktu import (audit) — dipakai window duplikat 14 hari.
  * - Kunci unik per batch: (order_online_import_batch_id, order_id).
  * - Provinsi dikalibrasi ke daftar master (config/regional.php).
  * - `handled_by` disimpan apa adanya; `handled_by_user_id` di-resolve batch.
@@ -163,6 +165,8 @@ class OrderOnlineImportService
 
         return [
             'order_id' => $orderId,
+            'order_at' => $this->parseOrderDate($this->text($row, $colMap, 'created_at'))
+                ?? now()->format('Y-m-d H:i:s'), // fallback: waktu import (baris tanpa tanggal CSV)
             'awb' => $this->text($row, $colMap, 'receipt_number'),
             'customer_name' => $this->text($row, $colMap, 'name'),
             'phone' => $phone,
@@ -425,8 +429,8 @@ class OrderOnlineImportService
             return null;
         }
 
+        // 1. Coba cocokkan power (kacamata: "Plus +1.50")
         $power = $this->extractPower($variation);
-
         if ($power !== null) {
             foreach ($variants as $variant) {
                 if ((float) $variant->power === $power) {
@@ -435,6 +439,17 @@ class OrderOnlineImportService
             }
         }
 
+        // 2. Coba cocokkan berdasarkan nama/kode varian (non-kacamata:
+        //    "Motif: Bunga", "Warna: Merah", "Bunga", dll.)
+        $keyword = $this->extractVariantKeyword($variation);
+        if ($keyword !== '') {
+            $match = $this->matchVariantByKeyword($variants, $keyword);
+            if ($match !== null) {
+                return $match;
+            }
+        }
+
+        // 3. Fallback ke varian default (power terkecil)
         $default = $variants
             ->where('status', 'active')
             ->sortBy(fn ($v) => [(float) $v->power, $v->id])
@@ -457,6 +472,113 @@ class OrderOnlineImportService
         }
 
         return null;
+    }
+
+    /**
+     * Ekstrak kata kunci varian dari teks variasi (non-power).
+     * Contoh:
+     *  - "Motif: Bunga" → "bunga"
+     *  - "Warna: Merah, Motif: Kartun" → "merah" (token pertama)
+     *  - "Bunga" → "bunga"
+     *  - "" → ""
+     */
+    protected function extractVariantKeyword(string $variation): string
+    {
+        $variation = trim($variation);
+        if ($variation === '') {
+            return '';
+        }
+
+        // Buang prefix "Ukuran:" / "Size:" karena itu untuk power/kacamata
+        $variation = preg_replace('/^(Ukuran|Size)\s*:\s*/i', '', $variation);
+
+        // Ambil token pertama (pisah koma/semikolon)
+        $parts = preg_split('/[,;\-]/', $variation);
+        $first = trim($parts[0] ?? '');
+        if ($first === '') {
+            return '';
+        }
+
+        // Bila ada "Key: Value", ambil Value-nya
+        if (preg_match('/^\w+\s*:\s*(.+)$/i', $first, $m)) {
+            $first = trim($m[1]);
+        }
+
+        return mb_strtolower($first);
+    }
+
+    /**
+     * Cocokkan keyword varian terhadap koleksi varian produk.
+     * Prioritas: exact → contains (keyword dalam nama) → contains (nama dalam keyword).
+     */
+    protected function matchVariantByKeyword(Collection $variants, string $keyword): ?int
+    {
+        $active = $variants->where('status', 'active');
+        if ($active->isEmpty()) {
+            return null;
+        }
+
+        // Exact match (nama atau kode)
+        foreach ($active as $variant) {
+            if (mb_strtolower(trim((string) $variant->name)) === $keyword
+                || mb_strtolower(trim((string) $variant->code)) === $keyword) {
+                return $variant->id;
+            }
+        }
+
+        // Keyword mengandung nama varian (mis. "bunga kartun" mengandung "bunga")
+        foreach ($active as $variant) {
+            $name = mb_strtolower(trim((string) $variant->name));
+            if ($name !== '' && mb_strpos($keyword, $name) !== false) {
+                return $variant->id;
+            }
+        }
+
+        // Nama varian mengandung keyword (mis. varian "Bunga" cocok "bunga")
+        foreach ($active as $variant) {
+            $name = mb_strtolower(trim((string) $variant->name));
+            if ($name !== '' && mb_strpos($name, $keyword) !== false) {
+                return $variant->id;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Parse tanggal order dari kolom CSV `created_at` (day-first, format toko,
+     * contoh "29-07-2026 - 23:38"). Hasil 'Y-m-d H:i:s' atau null bila tak ter-parse.
+     */
+    protected function parseOrderDate(string $dateStr): ?string
+    {
+        $dateStr = trim($dateStr);
+        if ($dateStr === '') {
+            return null;
+        }
+
+        // "29-07-2026 - 23:38" → "29-07-2026 23:38"; ISO "T" → spasi
+        $clean = str_replace('T', ' ', $dateStr);
+        $clean = preg_replace('/\s*-\s*(\d{1,2}:\d{2})/', ' $1', $clean);
+        $clean = trim((string) $clean);
+
+        $formats = [
+            'd-m-Y H:i:s', 'd-m-Y H:i', 'd/m/Y H:i:s', 'd/m/Y H:i',
+            'd.m.Y H:i', 'Y-m-d H:i:s', 'Y-m-d H:i', 'Y/m/d H:i',
+            'd-m-Y', 'd/m/Y', 'Y-m-d', 'Y/m/d', 'd.m.Y',
+        ];
+
+        foreach ($formats as $format) {
+            $dt = \DateTime::createFromFormat($format, $clean);
+            if ($dt && $dt->format($format) === $clean) {
+                return $dt->format('Y-m-d H:i:s');
+            }
+        }
+
+        try {
+            return (new \DateTime($clean))->format('Y-m-d H:i:s');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     protected function normalizeAddress(?string $address): string

@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\ShippingOrder;
+use App\Models\TrackingHeaderMapping;
+use App\Models\TrackingSourceConfig;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -12,8 +14,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
  * dari file dashboard aggregator (FLIK / SiCepat / SPX) yang di-upload admin.
  *
  * Baris file dihubungkan ke order lewat signature:
- *   Tier 1: phone_normalized + product_id + quantity + alamat (dinormalisasi)
- *   Tier 2 (fallback): phone_normalized + product_id + quantity (bila tier 1 kosong)
+ * Pencocokan hanya pakai 2 kolom: phone_normalized + customer_name
  *
  * `aggregator_status` dinormalisasi ke 6 nilai Inggris (ShippingOrder::TRACKING_STATUSES).
  * Ketika status berubah menjadi `returned`, stok yang di-reserve saat export
@@ -30,19 +31,35 @@ class AggregatorTrackingImportService
         private readonly TrackingStatusRuleService $statusRules = new TrackingStatusRuleService,
     ) {}
 
+    /** @var array<string, array<string, string>> header normal → db_column per source (cache per instance) */
+    private array $headerMapCache = [];
+
+    /** @var array<string, string> source → phone_format (cache per instance) */
+    private array $phoneFormatCache = [];
+
     /**
      * Baca & normalisasi file dashboard menjadi baris tracking (belum disimpan).
      *
      * @return array{source:?string, data:Collection, skips:array, total:int}
      */
-    public function parse(string $filePath): array
+    public function parse(string $filePath, ?string $source = null): array
     {
         $rows = $this->readRows($filePath);
         if (empty($rows)) {
             throw new \RuntimeException('File kosong atau tidak memiliki baris.');
         }
 
-        [$source, $headerIndex] = $this->detectSource($rows);
+        if ($source !== null) {
+            $headerIndex = 0;
+            foreach (array_slice($rows, 0, 8) as $i => $row) {
+                if (count(array_filter($row)) >= 3) {
+                    $headerIndex = $i;
+                    break;
+                }
+            }
+        } else {
+            [$source, $headerIndex] = $this->detectSource($rows);
+        }
         $headers = $this->cleanHeaders($rows[$headerIndex]);
         $colMap = $this->mapHeaders($headers, $source);
 
@@ -82,14 +99,97 @@ class AggregatorTrackingImportService
     }
 
     /**
+     * Ekstrak daftar HEADER unik dari file dashboard (halaman Aturan Status —
+     * pola upload-mapping seperti export template, tapi UI dibalik: kolom kiri
+     * = kolom DATABASE (tetap, teks), kolom kanan = pilih header CSV dari file).
+     * Mapping lama ikut terbawa per kolom database (db_column => header).
+     *
+     * @return array{source:?string, headers: array<int,string>, mapping: array<string,string>}
+     */
+    public function extractHeaders(string $filePath, ?string $source = null): array
+    {
+        $rows = $this->readRows($filePath);
+        if (empty($rows)) {
+            throw new \RuntimeException('File kosong atau tidak memiliki baris.');
+        }
+
+        if ($source !== null) {
+            $headerIndex = 0;
+            foreach (array_slice($rows, 0, 8) as $i => $row) {
+                if (count(array_filter($row)) >= 3) {
+                    $headerIndex = $i;
+                    break;
+                }
+            }
+        } else {
+            [$source, $headerIndex] = $this->detectSource($rows);
+        }
+        $headers = $this->cleanHeaders($rows[$headerIndex]);
+        $existing = $this->headerMappingFor($source); // header => db_column
+
+        // Balik: db_column => header (carry-over untuk UI yang dibalik)
+        $mapping = [];
+        foreach ($existing as $header => $column) {
+            if (! isset($mapping[$column]) && in_array($header, $headers, true)) {
+                $mapping[$column] = $header;
+            }
+        }
+
+        return ['source' => $source, 'headers' => array_values($headers), 'mapping' => $mapping];
+    }
+
+    /**
+     * Simpan mapping header CSV → kolom database untuk satu sumber (bulk
+     * replace: hapus semua mapping lama sumber itu, lalu buat dari items).
+     *
+     * Items datang dari UI yang dibalik: tiap item = {db_column, header}.
+     * Satu header hanya boleh dipakai untuk SATU kolom database (unique
+     * `(source, header)` di DB) — dipakai dua kali → RuntimeException.
+     *
+     * @param  array<int, array{db_column:string, header:string}>  $items
+     */
+    public function saveHeaderMapping(string $source, array $items): int
+    {
+        $source = strtolower(trim($source));
+        $count = 0;
+
+        DB::transaction(function () use ($source, $items, &$count) {
+            TrackingHeaderMapping::where('source', $source)->delete();
+
+            $seenHeaders = [];
+            foreach ($items as $item) {
+                $column = trim((string) ($item['db_column'] ?? ''));
+                $header = strtolower(trim((string) ($item['header'] ?? '')));
+                if ($column === '' || $header === '') {
+                    continue;
+                }
+                if (isset($seenHeaders[$header])) {
+                    throw new \RuntimeException("Header \"{$header}\" dipakai untuk lebih dari satu kolom database.");
+                }
+                $seenHeaders[$header] = true;
+
+                TrackingHeaderMapping::create([
+                    'source' => $source,
+                    'header' => $header,
+                    'db_column' => $column,
+                ]);
+                $count++;
+            }
+        });
+
+        return $count;
+    }
+
+    /**
      * Proses satu file di dalam satu transaksi: cocokkan tiap baris ke
      * shipping_orders dan isi awb / aggregator_status / delivered_at.
      *
+     * @param  ?string  $courier  filter courier eksplisit (opsional — fallback: courier dari file)
      * @return array{source:?string,total:int,matched:int,updated:int,stock_returned:int,unmatched:array,ambiguous:array}
      */
-    public function import(string $filePath): array
+    public function import(string $filePath, ?string $source = null, ?string $courier = null): array
     {
-        $parsed = $this->parse($filePath);
+        $parsed = $this->parse($filePath, $source);
         $rows = $parsed['data'];
 
         if ($rows->isEmpty()) {
@@ -106,11 +206,12 @@ class AggregatorTrackingImportService
 
         $source = $rows->first()['source'];
 
-        return DB::transaction(function () use ($rows, $source) {
-            $productIndex = $this->matcher->buildIndex();
+        return DB::transaction(function () use ($rows, $source, $courier) {
+            $phones = $rows->pluck('phone_normalized')->unique()->all();
 
-            $candidates = ShippingOrder::whereIn('phone_normalized', $rows->pluck('phone_normalized')->unique()->all())
+            $candidates = ShippingOrder::whereIn('phone_normalized', $phones)
                 ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
+                ->when($courier, fn ($q) => $q->where('courier', $courier))
                 ->get()
                 ->groupBy('phone_normalized');
 
@@ -121,8 +222,7 @@ class AggregatorTrackingImportService
             $ambiguous = [];
 
             foreach ($rows as $row) {
-                $product = $this->matcher->match($row['product_text'] ?? '', $productIndex);
-                $resolved = $this->resolveOrder($candidates->get($row['phone_normalized'], collect()), $product?->id, $row);
+                $resolved = $this->resolveOrder($candidates->get($row['phone_normalized'], collect()), $row);
 
                 if ($resolved['ambiguous']) {
                     $ambiguous[] = $row['awb'];
@@ -173,40 +273,36 @@ class AggregatorTrackingImportService
     }
 
     /**
-     * Cari 1 order yang cocok dengan baris tracking (tier 1 lalu tier 2).
+     * Cari 1 order yang cocok dengan baris tracking.
      *
-     * @param  Collection<int, ShippingOrder>  $candidates
+     * Pencocokan hanya berdasarkan 2 kolom:
+     * - `phone_normalized` (sudah di-filter di batch query)
+     * - `customer_name` (dari kolom "Nama Penerima" / "Customer Name" file)
+     *
+     * @param  Collection<int, ShippingOrder>  $candidates  kandidat dengan phone SAMA
      * @return array{order:?ShippingOrder,ambiguous:bool}
      */
-    protected function resolveOrder(Collection $candidates, ?int $productId, array $row): array
+    protected function resolveOrder(Collection $candidates, array $row): array
     {
-        if ($productId === null) {
+        $nameNorm = trim((string) ($row['name_norm'] ?? ''));
+        if ($nameNorm === '') {
+            // Nama kosong di file → tidak bisa match
             return ['order' => null, 'ambiguous' => false];
         }
 
-        $sameProduct = $candidates->filter(
-            fn ($o) => (int) $o->product_id === $productId && (int) $o->quantity === $row['quantity']
+        $byName = $candidates->filter(
+            fn ($o) => $this->normalizeName($o->customer_name) === $nameNorm
         );
-        if ($sameProduct->isEmpty()) {
-            return ['order' => null, 'ambiguous' => false];
-        }
 
-        $byAddress = $sameProduct->filter(
-            fn ($o) => $this->normalizeAddress($o->address) === $row['address_norm']
-        );
-        if ($byAddress->count() === 1) {
-            return ['order' => $byAddress->first(), 'ambiguous' => false];
+        if ($byName->count() === 1) {
+            return ['order' => $byName->first(), 'ambiguous' => false];
         }
-        if ($byAddress->count() > 1) {
+        if ($byName->count() > 1) {
             return ['order' => null, 'ambiguous' => true];
         }
 
-        // Tier 2: tanpa alamat, hanya bila unik
-        if ($sameProduct->count() === 1) {
-            return ['order' => $sameProduct->first(), 'ambiguous' => false];
-        }
-
-        return ['order' => null, 'ambiguous' => true];
+        // Nama tidak cocok dengan siapa pun
+        return ['order' => null, 'ambiguous' => false];
     }
 
     /**
@@ -215,7 +311,7 @@ class AggregatorTrackingImportService
     protected function normalizeRow(array $row, array $colMap, string $source): ?array
     {
         $awb = trim($this->text($row, $colMap, 'tracking_number'));
-        $phone = OrderOnlineImportService::normalizePhone($this->text($row, $colMap, 'phone'));
+        $phone = $this->normalizePhoneFor($source, $this->text($row, $colMap, 'phone'));
         if ($awb === '' || $phone === '') {
             return null;
         }
@@ -236,6 +332,8 @@ class AggregatorTrackingImportService
             'source' => $source,
             'awb' => $awb,
             'phone_normalized' => $phone,
+            'customer_name' => $this->text($row, $colMap, 'customer_name'),
+            'name_norm' => $this->normalizeName($this->text($row, $colMap, 'customer_name')),
             'product_text' => $productText,
             'quantity' => $quantity,
             'address_norm' => $this->normalizeAddress($this->text($row, $colMap, 'address')),
@@ -269,6 +367,12 @@ class AggregatorTrackingImportService
 
     protected function extractQuantity(string $productText): int
     {
+        // Pola promo "Dapat N" (Beli 1 Dapat 2, PAKET 1 DAPAT 9 PCS) — qty terjual
+        // = angka setelah "Dapat" (konsisten dgn OrderOnlineImportService).
+        if (preg_match('/dapat\s*(\d+)/i', $productText, $m)) {
+            return (int) $m[1];
+        }
+
         if (preg_match('/(\d+)\s*pcs/i', $productText, $m)) {
             return (int) $m[1];
         }
@@ -279,6 +383,59 @@ class AggregatorTrackingImportService
     protected function normalizeAddress(?string $address): string
     {
         return mb_strtolower(preg_replace('/\s+/', ' ', trim((string) $address)) ?? '');
+    }
+
+    protected function normalizeName(?string $name): string
+    {
+        return mb_strtolower(preg_replace('/\s+/', ' ', trim((string) $name)) ?? '');
+    }
+
+    /**
+     * Normalisasi nomor HP file dashboard → format 62 (cocok dgn DB).
+     *
+     * Format dikonfigurasi per dashboard di tabel `tracking_source_configs`
+     * (opsi "Format No HP di File" di halaman Aturan Status):
+     *
+     *   - auto (default): `OrderOnlineImportService::normalizePhone` — 0/8/62 → 62
+     *   - 8  : nomor file berawalan 8 (SPX) → tambah 62 di depan
+     *   - 0  : nomor file berawalan 0 → ganti dengan 62
+     *   - 62 : nomor file sudah berawalan 62 → dipakai apa adanya
+     *
+     * Semua arah tetap menghasilkan awalan 62 agar merge dengan
+     * `phone_normalized` berhasil.
+     */
+    protected function normalizePhoneFor(string $source, string $raw): string
+    {
+        $phone = preg_replace('/[^0-9]/', '', $raw);
+        if (strlen($phone) < 8) {
+            return '';
+        }
+
+        $format = $this->phoneFormatFor($source);
+
+        return match ($format) {
+            '8' => str_starts_with($phone, '0')
+                ? '62'.substr($phone, 1)
+                : (str_starts_with($phone, '62') ? $phone : '62'.$phone),
+            '0' => str_starts_with($phone, '62')
+                ? $phone
+                : '62'.ltrim($phone, '0'),
+            '62' => $phone,
+            default => OrderOnlineImportService::normalizePhone($phone),
+        };
+    }
+
+    /**
+     * Format No HP untuk satu sumber (dari DB, cache per instance — anti N+1).
+     */
+    protected function phoneFormatFor(string $source): string
+    {
+        if (! isset($this->phoneFormatCache[$source])) {
+            $this->phoneFormatCache[$source] = TrackingSourceConfig::where('source', $source)
+                ->value('phone_format') ?? 'auto';
+        }
+
+        return $this->phoneFormatCache[$source];
     }
 
     // ─── File / header helpers ─────────────────────────────────
@@ -305,30 +462,40 @@ class AggregatorTrackingImportService
      */
     protected function detectSource(array $rows): array
     {
-        foreach (array_slice($rows, 0, 8) as $i => $row) {
-            $joined = implode(' ', $this->cleanHeaders($row));
+        // Deteksi 100% dari DB (tracking_header_mappings): hitung berapa header
+        // yang ter-map per source muncul di baris CSV → source terbanyak menang.
+        $sourceHeaders = \App\Models\TrackingHeaderMapping::query()
+            ->select('source', 'header')
+            ->get()
+            ->groupBy('source')
+            ->map(fn ($g) => $g->pluck('header')->map(fn ($h) => $this->normalizeHeader($h))->all())
+            ->all();
 
-            if (str_contains($joined, 'tracking status') && str_contains($joined, 'recipient phone')) {
-                return ['spx', $i];
+        if ($sourceHeaders === []) {
+            throw new \RuntimeException(
+                'Belum ada mapping header untuk source manapun. '
+                .'Buka halaman Aturan Status → pilih dashboard → upload file CSV.'
+            );
+        }
+
+        foreach (array_slice($rows, 0, 8) as $i => $row) {
+            $cleaned = $this->cleanHeaders($row);
+            $best = ['source' => null, 'hits' => 0];
+            foreach ($sourceHeaders as $src => $headers) {
+                $hits = count(array_intersect($cleaned, $headers));
+                if ($hits > $best['hits']) {
+                    $best = ['source' => $src, 'hits' => $hits];
+                }
             }
-            if (str_contains($joined, 'tracking no') && str_contains($joined, 'parcel value')) {
-                return ['spx', $i];
-            }
-            if (str_contains($joined, 'nomor resi') && str_contains($joined, 'isi paket')) {
-                return ['sicepat', $i];
-            }
-            if (str_contains($joined, 'nomor resi') && str_contains($joined, 'tanggal terkirim')) {
-                return ['sicepat', $i];
-            }
-            if (str_contains($joined, 'order id') && str_contains($joined, 'awb')) {
-                return ['flik', $i];
-            }
-            if (str_contains($joined, 'nama shopper') && str_contains($joined, 'status terakhir')) {
-                return ['flik', $i];
+            if ($best['source'] !== null && $best['hits'] >= 2) {
+                return [$best['source'], $i];
             }
         }
 
-        return ['spx', 0];
+        throw new \RuntimeException(
+            'Sumber file tidak dikenali. Pastikan file memiliki minimal 2 header '
+            .'yang sama dengan mapping di halaman Aturan Status.'
+        );
     }
 
     protected function cleanHeaders(array $row): array
@@ -346,12 +513,67 @@ class AggregatorTrackingImportService
         return trim($h);
     }
 
-    protected function mapHeaders(array $headers, string $source): array
+    /**
+     * Mapping header CSV → kolom database BAWAAN dari file template dashboard
+     * (dipakai TrackingHeaderMappingSeeder — training/templateTracking).
+     *
+     * Membaca header file → mencocokkan tiap header ke kolom DB via alias
+     * bawaan (TANPA melihat mapping DB) sehingga seeder menghasilkan default
+     * yang konsisten dengan logika import.
+     *
+     * @return array{source:?string, mapping: array<string,string>}  header → db_column
+     */
+    public function extractDefaultMapping(string $filePath, ?string $source = null): array
     {
+        $rows = $this->readRows($filePath);
+        if (empty($rows)) {
+            throw new \RuntimeException('File kosong atau tidak memiliki baris.');
+        }
+
+        if ($source === null) {
+            [$source, $headerIndex] = $this->detectSource($rows);
+        } else {
+            // Cari baris header otomatis — cari baris yang punya minimal 3 non-kosong
+            $headerIndex = 0;
+            foreach (array_slice($rows, 0, 8) as $i => $row) {
+                if (count(array_filter($row)) >= 3) {
+                    $headerIndex = $i;
+                    break;
+                }
+            }
+        }
+        $headers = $this->cleanHeaders($rows[$headerIndex]);
+        $colMap = $this->mapHeaders($headers, $source, []); // murni alias, tanpa DB
+
+        $mapping = [];
+        foreach ($colMap as $column => $index) {
+            $mapping[$headers[$index]] = $column;
+        }
+
+        return ['source' => $source, 'mapping' => $mapping];
+    }
+
+    /**
+     * Mapping header → kunci kolom internal (tracking_number, phone, ...).
+     *
+     * Mapping DB (`tracking_header_mappings`, dikelola admin per dashboard)
+     * MENANG atas alias hardcoded untuk header yang sama; header lain tetap
+     * dicocokkan via alias (fallback) — jadi mapping sebagian tidak memutus
+     * kolom lain. $dbMap boleh di-override (mis. [] utk murni alias di seeder).
+     */
+    protected function mapHeaders(array $headers, string $source, ?array $dbMap = null): array
+    {
+        $dbMap ??= $this->headerMappingFor($source);
         $aliases = $this->aliasMap($source);
 
         $result = [];
         foreach ($headers as $i => $lower) {
+            if (isset($dbMap[$lower]) && $dbMap[$lower] !== '') {
+                $result[$dbMap[$lower]] = $i;
+
+                continue;
+            }
+
             foreach ($aliases as $key => $keywords) {
                 if (isset($result[$key])) {
                     continue;
@@ -368,10 +590,29 @@ class AggregatorTrackingImportService
         return $result;
     }
 
+    /**
+     * Mapping header normal → db_column untuk satu sumber (dari DB, cache
+     * per instance — anti N+1).
+     *
+     * @return array<string, string>
+     */
+    protected function headerMappingFor(string $source): array
+    {
+        if (! isset($this->headerMapCache[$source])) {
+            $this->headerMapCache[$source] = TrackingHeaderMapping::where('source', $source)
+                ->get()
+                ->pluck('db_column', 'header')
+                ->all();
+        }
+
+        return $this->headerMapCache[$source];
+    }
+
     protected function aliasMap(string $source): array
     {
         $common = [
             'phone' => ['no hp', 'no telp', 'recipient phone', 'telepon', 'phone', 'telp', 'hp'],
+            'customer_name' => ['nama shopper', 'recipient name', 'nama penerima', 'customer name', 'buyer name', 'nama pelanggan'],
             'address' => ['recipient detail address', 'alamat lengkap', 'alamat penerima', 'alamat', 'address'],
             'product_name' => ['item name', 'item in parcel', 'isi paket', 'nama produk', 'produk', 'product'],
             'quantity' => ['no. of item', 'jumlah isi paket', 'jumlah', 'qty', 'quantity'],

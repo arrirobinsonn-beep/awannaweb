@@ -5,26 +5,54 @@
 
 @section('content')
 
-{{-- ⚠️ Alarm Banner --}}
+{{-- ⚠️ Alarm Banner — dua area: Ketidakselarasan Data & Data Belum Ditambahkan --}}
 @if($hasDiscrepancy)
 <div class="clay-alert clay-alert-error" data-reveal style="margin-bottom:16px;">
-    <span>🚨</span>        <div style="flex:1;font-size:.83rem;">
-            <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
-            @if(count($discrepancies) > 5)
-            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
-                ⬇ Menampilkan 5 dari {{ count($discrepancies) }} tanggal — scroll untuk melihat sisanya
-            </div>
-            @endif
-            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
-                @foreach($discrepancies as $tgl => $d)
-                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
-                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
-                    Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
-                    Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
-                </div>
-                @endforeach
-            </div>
+    <span>🚨</span>
+    <div style="flex:1;font-size:.83rem;">
+        {{-- Area 1: Ketidakselarasan Data (kedua sisi punya data tapi beda) --}}
+        @if(count($discrepancies) > 0)
+        <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
+        @if(count($discrepancies) > 5)
+        <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+            ⬇ Menampilkan 5 dari {{ count($discrepancies) }} tanggal — scroll untuk melihat sisanya
         </div>
+        @endif
+        <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+            @foreach($discrepancies as $tgl => $d)
+            <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+            </div>
+            @endforeach
+        </div>
+        @endif
+
+        {{-- Area 2: Data Belum Ditambahkan (regional ada, spending kosong) --}}
+        @if(count($missingSpendingDates) > 0)
+        @if(count($discrepancies) > 0)
+        <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
+        @endif
+        <strong>Data Belum Ditambahkan</strong>
+        @if(count($missingSpendingDates) > 5)
+        <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+            ⬇ Menampilkan 5 dari {{ count($missingSpendingDates) }} tanggal — scroll untuk melihat sisanya
+        </div>
+        @endif
+        <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+            @foreach(array_keys($missingSpendingDates) as $tgl)
+            @php
+                $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+            @endphp
+            <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                📅 {{ $tglLbl }} —
+                Anda belum mengisi data spending iklan tanggal {{ $tglLbl }}
+            </div>
+            @endforeach
+        </div>
+        @endif
+    </div>
 </div>
 @endif
 
@@ -56,96 +84,189 @@
 </div>
 @endif
 
-{{-- Filter --}}
-<div class="clay-card" style="padding:16px;margin-bottom:16px;" data-reveal>
-    {{-- .filter-bar: di layar kecil rentang periodik + Reset + Input Spending tetap 1 jajar (CSS di bawah) --}}
-    <form method="GET" action="{{ route('spending.index') }}" id="filter-form-adv" class="filter-bar"
-          style="display:flex;gap:10px;align-items:flex-end;">
 
-        <x-date-range-picker
-            :dari="$dari"
-            :sampai="$sampai"
-            form-id="filter-form-adv"
-            input-dari="dari"
-            input-sampai="sampai"
-        />
 
-        <a href="{{ route('spending.index') }}" class="clay-btn clay-btn-outline">Reset</a>
-        <a href="{{ route('spending.create') }}" class="clay-btn clay-btn-primary"
-           style="margin-left:auto;" data-page-link @if(!$hasWhitelist) data-require-whitelist @endif>＋ Input Spending</a>
-    </form>
-</div>
-
-{{-- ═══════════════ RINGKASAN PERIODE (4 kartu) ═══════════════ --}}
+{{-- ═══════════════ RINGKASAN PERIODE: CHART + 4 KARTU ═══════════════ --}}
 @php
-    $pr = (float) ($summary['paid_ratio'] ?? 0);
+    // Ringkasan: kartu utama pakai runningSummary (Running);
+    // testingSummary (Testing) ditampilkan di badge terpisah.
+    $displaySummary = $runningSummary;
+    $pr = (float) ($displaySummary['paid_ratio'] ?? 0);
     $prFill = $pr >= 75 ? 'linear-gradient(90deg,#22c55e,#16a34a)'
             : ($pr >= 50 ? 'linear-gradient(90deg,#fbbf24,#f59e0b)'
             : 'linear-gradient(90deg,#ef4444,#dc2626)');
     $periodeLabel = $dari === $sampai
         ? \Carbon\Carbon::parse($dari)->translatedFormat('d M Y')
         : \Carbon\Carbon::parse($dari)->translatedFormat('d M Y').' – '.\Carbon\Carbon::parse($sampai)->translatedFormat('d M Y');
+
+    // Data chart: 4 garis — Lead/Paid per status iklan (Running & Testing) per tanggal.
+    // Nilai dihitung per produk (bukan total harian) agar tiap garis murni per status.
+    $chartDates = $summaries->keys()->sort()->values();
+    $chartRunLead = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'running')->sum('lead'));
+    $chartRunPaid = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'running')->sum('paid'));
+    $chartTestLead = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing')->sum('lead'));
+    $chartTestPaid = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing')->sum('paid'));
 @endphp
-<div class="summary-grid" data-reveal>
 
-    {{-- 1. Total Spending --}}
-    <div class="summary-card" title="Total pengeluaran iklan · {{ $periodeLabel }}">
-        <div class="summary-icon sc-primary">💰</div>
-        <div class="summary-body">
-            <div class="summary-label">Total Spending</div>
-            <div class="summary-value">Rp {{ number_format($summary['spending'],0,',','.') }}</div>
-            <div class="summary-sub">{{ count($summaries) }} hari berisi data · {{ $periodeLabel }}</div>
+{{-- ═══════════════ TAB: Running / Testing ═══════════════ --}}
+@php
+    // Pisahkan summaries per ad_status untuk tab Running/Testing
+    $runningSummaries = $summaries->map(function ($s) {
+        $filteredProducts = collect($s['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'running');
+        if ($filteredProducts->isEmpty()) return null;
+        $spending = $filteredProducts->sum('spending');
+        $lead = $filteredProducts->sum('lead');
+        $paid = $filteredProducts->sum('paid');
+        return [
+            'tanggal' => $s['tanggal'],
+            'spending' => $spending, 'lead' => $lead, 'paid' => $paid,
+            'paid_ratio' => $lead > 0 ? round($paid / $lead * 100, 0) : 0,
+            'cpa_lead' => $lead > 0 ? round($spending / $lead, 2) : 0,
+            'cpa_paid' => $paid > 0 ? round($spending / $paid, 2) : 0,
+            'by_product' => $filteredProducts->keyBy(fn ($p) => $p['product']->id ?? 0),
+            'total_produk' => $filteredProducts->count(),
+        ];
+    })->filter();
+
+    // CPA Lead/Paid Testing dihitung sendiri di tab ini (untuk evaluasi fase uji),
+    // tapi TIDAK masuk hitungan global: kartu summary & chart tetap Running saja.
+    $testingSummaries = $summaries->map(function ($s) {
+        $filteredProducts = collect($s['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing');
+        if ($filteredProducts->isEmpty()) return null;
+        $spending = $filteredProducts->sum('spending');
+        $lead = $filteredProducts->sum('lead');
+        $paid = $filteredProducts->sum('paid');
+        return [
+            'tanggal' => $s['tanggal'],
+            'spending' => $spending, 'lead' => $lead, 'paid' => $paid,
+            'paid_ratio' => $lead > 0 ? round($paid / $lead * 100, 0) : 0,
+            'cpa_lead' => $lead > 0 ? round($spending / $lead, 2) : 0,
+            'cpa_paid' => $paid > 0 ? round($spending / $paid, 2) : 0,
+            'by_product' => $filteredProducts->keyBy(fn ($p) => $p['product']->id ?? 0),
+            'total_produk' => $filteredProducts->count(),
+        ];
+    })->filter();
+
+    // ── Data kartu summary utk KEDUA tab (JS menukar saat tab berpindah) ──
+    $fmtRp = fn ($n) => 'Rp ' . number_format((float) $n, 0, ',', '.');
+    $gradRatio = fn ($ratio) => $ratio >= 75 ? 'linear-gradient(90deg,#22c55e,#16a34a)'
+        : ($ratio >= 50 ? 'linear-gradient(90deg,#fbbf24,#f59e0b)'
+        : 'linear-gradient(90deg,#ef4444,#dc2626)');
+
+    $cardData = function (array $s, int $days) use ($fmtRp, $gradRatio, $periodeLabel): array {
+        $lead = (int) ($s['lead'] ?? 0);
+        $paid = (int) ($s['paid'] ?? 0);
+
+        return [
+            'spending' => $fmtRp($s['spending'] ?? 0),
+            'lead' => number_format($lead),
+            'paid' => number_format($paid),
+            'conv' => 'Konversi '.($lead > 0 ? round($paid / $lead * 100, 1) : 0).'% dari lead',
+            'cpa_lead' => $fmtRp($s['cpa_lead'] ?? 0),
+            'cpa_paid' => $fmtRp($s['cpa_paid'] ?? 0),
+            'ratio' => number_format((int) ($s['paid_ratio'] ?? 0)).'%',
+            'days' => $days.' hari berisi data · '.$periodeLabel,
+            'fill' => 'width:'.min(100, (float) ($s['paid_ratio'] ?? 0)).'%;background:'.$gradRatio((int) ($s['paid_ratio'] ?? 0)),
+        ];
+    };
+
+    $runCards = $cardData($runningSummary, count($runningSummaries));
+    $testCards = $cardData($testingSummary, count($testingSummaries));
+@endphp
+
+<div class="summary-overview" data-reveal>
+
+{{-- KIRI: Chart Line Lead & Paid per Tanggal --}}
+    <div class="chart-card">
+        <div class="chart-header">
+            <span class="chart-title">📊 Tren Lead & Paid</span>
+            <span class="chart-sub">{{ $periodeLabel }} · Lead/Paid Running & Testing</span>
+        </div>
+        <div class="chart-body">
+            <canvas id="spendingChart"></canvas>
         </div>
     </div>
 
-    {{-- 2. Total Lead / Paid --}}
-    <div class="summary-card" title="Total lead dan pembayaran · {{ $periodeLabel }}">
-        <div class="summary-icon sc-purple">👥</div>
-        <div class="summary-body">
-            <div class="summary-label">Total Lead / Paid</div>
-            <div class="summary-value">
-                <span class="sc-lead">{{ number_format($summary['lead']) }}</span>
-                <span class="sc-sep">/</span>
-                <span class="sc-paid">{{ number_format($summary['paid']) }}</span>
+    {{-- KANAN: 4 Card Summary (2×2) — ikut tab aktif (data-run / data-test) --}}
+    <div class="summary-grid">
+        {{-- 1. Total Spending --}}
+        <div class="summary-card"
+             data-run-title="Total pengeluaran iklan produk Running · {{ $periodeLabel }}"
+             data-test-title="Total pengeluaran iklan produk Testing · {{ $periodeLabel }}">
+            <div class="summary-icon sc-primary">💰</div>
+            <div class="summary-body">
+                <div class="summary-label">Total Spending <span class="sc-tab-badge" style="color:#065f46;">🟢 Running</span></div>
+                <div class="summary-value" id="sum-spending" data-run="{{ $runCards['spending'] }}" data-test="{{ $testCards['spending'] }}">Rp {{ number_format($displaySummary['spending'],0,',','.') }}</div>
+                <div class="summary-sub" id="sum-days" data-run="{{ $runCards['days'] }}" data-test="{{ $testCards['days'] }}">{{ $runCards['days'] }}</div>
             </div>
-            <div class="summary-sub">Konversi {{ $summary['lead'] > 0 ? round($summary['paid'] / $summary['lead'] * 100, 1) : 0 }}% dari lead</div>
         </div>
-    </div>
 
-    {{-- 3. CPA Lead / CPA Paid --}}
-    <div class="summary-card" title="Biaya rata-rata per lead & per paid · {{ $periodeLabel }}">
-        <div class="summary-icon sc-teal">📈</div>
-        <div class="summary-body">
-            <div class="summary-label">CPA Lead / Paid</div>
-            <div class="summary-value">
-                <span class="sc-lead">Rp {{ number_format($summary['cpa_lead'],0,',','.') }}</span>
-                <span class="sc-sep">/</span>
-                <span class="sc-paid">Rp {{ number_format($summary['cpa_paid'],0,',','.') }}</span>
+        {{-- 2. Total Lead / Paid --}}
+        <div class="summary-card"
+             data-run-title="Total lead dan pembayaran produk Running · {{ $periodeLabel }}"
+             data-test-title="Total lead dan pembayaran produk Testing · {{ $periodeLabel }}">
+            <div class="summary-icon sc-purple">👥</div>
+            <div class="summary-body">
+                <div class="summary-label">Total Lead / Paid <span class="sc-tab-badge" style="color:#065f46;">🟢 Running</span></div>
+                <div class="summary-value">
+                    <span class="sc-lead" id="sum-lead" data-run="{{ $runCards['lead'] }}" data-test="{{ $testCards['lead'] }}">{{ number_format($displaySummary['lead']) }}</span>
+                    <span class="sc-sep">/</span>
+                    <span class="sc-paid" id="sum-paid" data-run="{{ $runCards['paid'] }}" data-test="{{ $testCards['paid'] }}">{{ number_format($displaySummary['paid']) }}</span>
+                </div>
+                <div class="summary-sub" id="sum-conv" data-run="{{ $runCards['conv'] }}" data-test="{{ $testCards['conv'] }}">{{ $runCards['conv'] }}</div>
             </div>
-            <div class="summary-sub">Biaya per lead & per pembayaran</div>
         </div>
-    </div>
 
-    {{-- 4. Paid Ratio --}}
-    <div class="summary-card" title="Persentase lead yang berhasil membayar · {{ $periodeLabel }}">
-        <div class="summary-icon sc-amber">🎯</div>
-        <div class="summary-body">
-            <div class="summary-label">Paid Ratio</div>
-            <div class="summary-value">{{ number_format($pr) }}%</div>
-            <div class="summary-ratio-track">
-                <div class="summary-ratio-fill" style="width:{{ min(100, $pr) }}%;background:{{ $prFill }};"></div>
+        {{-- 3. CPA Lead / CPA Paid --}}
+        <div class="summary-card"
+             data-run-title="Biaya rata-rata per lead & per paid produk Running · {{ $periodeLabel }}"
+             data-test-title="Biaya rata-rata per lead & per paid produk Testing · {{ $periodeLabel }}">
+            <div class="summary-icon sc-teal">📈</div>
+            <div class="summary-body">
+                <div class="summary-label">CPA Lead / Paid <span class="sc-tab-badge" style="color:#065f46;">🟢 Running</span></div>
+                <div class="summary-value">
+                    <span class="sc-lead" id="sum-cpa-lead" data-run="{{ $runCards['cpa_lead'] }}" data-test="{{ $testCards['cpa_lead'] }}">Rp {{ number_format($displaySummary['cpa_lead'],0,',','.') }}</span>
+                    <span class="sc-sep">/</span>
+                    <span class="sc-paid" id="sum-cpa-paid" data-run="{{ $runCards['cpa_paid'] }}" data-test="{{ $testCards['cpa_paid'] }}">Rp {{ number_format($displaySummary['cpa_paid'],0,',','.') }}</span>
+                </div>
+                <div class="summary-sub">Biaya per lead & per pembayaran</div>
+            </div>
+        </div>
+
+        {{-- 4. Paid Ratio + badge silang (tab yang tidak aktif) --}}
+        <div class="summary-card"
+             data-run-title="Persentase lead yang berhasil membayar · {{ $periodeLabel }}"
+             data-test-title="Persentase lead yang berhasil membayar · {{ $periodeLabel }}">
+            <div class="summary-icon sc-amber">🎯</div>
+            <div class="summary-body">
+                <div class="summary-label">Paid Ratio <span class="sc-tab-badge" style="color:#065f46;">🟢 Running</span></div>
+                <div class="summary-value" id="sum-ratio" data-run="{{ $runCards['ratio'] }}" data-test="{{ $testCards['ratio'] }}">{{ number_format($pr) }}%</div>
+                <div class="summary-ratio-track">
+                    <div class="summary-ratio-fill" id="sum-ratio-fill" style="{{ $runCards['fill'] }}"></div>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-{{-- ──────────────────────────────────────────────────────────────
-     Struktur 3 level:
-     Level 1 → Baris tanggal   (klik → expand)
-     Level 2 → Sub-grup produk (di dalam tanggal)
-     Level 3 → Baris whitelist (di dalam produk)
-─────────────────────────────────────────────────────────────── --}}
-<div class="clay-card" style="overflow:hidden;" data-reveal>
+{{-- ═══════════════ TAB Running / Testing ═══════════════ --}}
+<div style="display:flex;gap:0;margin-bottom:-2px;position:relative;z-index:2;" data-reveal>
+    <button onclick="switchAdTab('running')" id="adtab-running"
+            style="padding:9px 18px 11px;border:2px solid rgba(255,107,107,.25);border-bottom:2px solid #fff;border-radius:14px 14px 0 0;background:#fff;font-family:inherit;font-size:.82rem;font-weight:700;color:var(--color-primary,#FF6B6B);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;margin-right:4px;position:relative;z-index:3;">
+        🟢 Running
+        <span style="font-size:.7rem;font-weight:600;padding:1px 7px;border-radius:999px;background:rgba(255,107,107,.12);color:var(--color-primary);">Rp {{ number_format($runningSummary['spending']/1000,0,',','.') }}k</span>
+    </button>
+    <button onclick="switchAdTab('testing')" id="adtab-testing"
+            style="padding:9px 18px 11px;border:2px solid rgba(0,0,0,.08);border-bottom:2px solid rgba(0,0,0,.08);border-radius:14px 14px 0 0;background:#f5f5f5;font-family:inherit;font-size:.82rem;font-weight:500;color:#6b7280;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;margin-right:4px;position:relative;z-index:1;">
+        🔬 Testing
+        @if(($testingSummary['spending'] ?? 0) > 0)
+        <span style="font-size:.7rem;font-weight:600;padding:1px 7px;border-radius:999px;background:rgba(0,0,0,.06);color:#9ca3af;">Rp {{ number_format($testingSummary['spending']/1000,0,',','.') }}k</span>
+        @endif
+    </button>
+</div>
+
+{{-- ═══════════════ TAB CONTENT: Running ═══════════════ --}}
+<div id="adtabcontent-running" class="clay-card" style="overflow:hidden;" data-reveal>
     <div class="table-scroll table-scroll-limit" id="spending-scroll">
         <table class="clay-table">
             <thead>
@@ -162,7 +283,7 @@
                 </tr>
             </thead>
             <tbody>
-            @forelse($summaries as $dateKey => $s)
+            @forelse($runningSummaries as $dateKey => $s)
             @php
                 $lvl1Id = 'lvl1-' . str_replace('-','',$dateKey);
                 $isDisc = isset($discrepantDates[$dateKey]);
@@ -412,8 +533,264 @@
                 <td colspan="9" style="text-align:center;padding:48px;">
                     <div style="font-size:2.5rem;margin-bottom:8px;">💸</div>
                     <p style="color:#9ca3af;">Belum ada data spending di periode ini</p>
-                    <a href="{{ route('spending.create') }}" class="clay-btn clay-btn-primary"
-                       style="margin-top:12px;" data-page-link @if(!$hasWhitelist) data-require-whitelist @endif>＋ Input Spending Pertama</a>
+                    <button type="button" class="clay-btn clay-btn-primary"
+                       style="margin-top:12px;" onclick="openInputMethodModal()" @if(!$hasWhitelist) data-require-whitelist @endif>＋ Input Spending Pertama</button>
+                </td>
+            </tr>
+            @endforelse
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{{-- ═══════════════ TAB CONTENT: Testing ═══════════════ --}}
+<div id="adtabcontent-testing" class="clay-card" style="overflow:hidden;display:none;" data-reveal>
+    <div class="table-scroll table-scroll-limit">
+        <table class="clay-table">
+            <thead>
+                <tr>
+                    <th style="width:28px;"></th>
+                    <th>Tanggal</th>
+                    <th style="text-align:right;">Total Spending</th>
+                    <th style="text-align:right;">Lead</th>
+                    <th style="text-align:right;">Paid</th>
+                    <th style="text-align:right;">Paid Ratio</th>
+                    <th style="text-align:right;">CPA Lead</th>
+                    <th style="text-align:right;">CPA Paid</th>
+                    <th style="text-align:right;">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+            @forelse($testingSummaries as $dateKey => $s)
+            @php
+                $lvl1Id = 'tlvl1-' . str_replace('-','',$dateKey);
+            @endphp
+            <tr onclick="toggle('{{ $lvl1Id }}')" style="cursor:pointer;background:#fffbeb;"
+                onmouseenter="this.style.background='#fef3c7'"
+                onmouseleave="this.style.background='#fffbeb'">
+                <td style="text-align:center;padding:11px 8px;">
+                    <span id="chev-{{ $lvl1Id }}"
+                          style="display:inline-block;transition:transform .22s;color:#92400e;font-size:.78rem;">▶</span>
+                </td>
+                <td style="font-weight:700;font-size:.9rem;color:#92400e;">
+                    🔬 {{ $s['tanggal']->translatedFormat('l, d M Y') }}
+                    <div style="font-size:.68rem;color:#b45309;font-weight:400;">
+                        {{ $s['total_produk'] }} produk testing
+                    </div>
+                </td>
+                <td style="text-align:right;font-weight:800;color:#d97706;white-space:nowrap;">
+                    Rp {{ number_format($s['spending'],0,',','.') }}
+                </td>
+                <td style="text-align:right;font-weight:700;color:var(--color-purple);">{{ number_format($s['lead']) }}</td>
+                <td style="text-align:right;font-weight:700;color:var(--color-secondary);">{{ number_format($s['paid']) }}</td>
+                <td style="text-align:right;">
+                    <span class="clay-badge {{ $s['paid_ratio']>=75?'clay-badge-green':($s['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}">
+                        {{ round($s['paid_ratio']) }}%
+                    </span>
+                </td>
+                <td style="text-align:right;font-size:.82rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($s['cpa_lead'],0,',','.') }}</td>
+                <td style="text-align:right;font-size:.82rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($s['cpa_paid'],0,',','.') }}</td>
+                <td style="text-align:right;" onclick="event.stopPropagation()">
+                    <a href="{{ route('spending.create') }}?tanggal={{ $dateKey }}"
+                       class="clay-btn clay-btn-primary" style="padding:4px 10px;font-size:.7rem;" data-page-link @if(!$hasWhitelist) data-require-whitelist @endif>＋</a>
+                </td>
+            </tr>
+            <tr id="{{ $lvl1Id }}" style="display:none;">
+                <td colspan="9" style="padding:0;background:#fffbeb;border-top:2px dashed rgba(217,119,6,.15);">
+
+                    @foreach($s['by_product'] as $prodId => $prodData)
+                    @php $lvl2Id = 'tlvl2-' . str_replace('-','',$dateKey) . '-' . $prodId; @endphp
+
+                    {{-- ── LEVEL 2: Sub-grup Produk ─────────────── --}}
+                    <div style="border-bottom:1px solid rgba(0,0,0,.05);background:#fffbeb;">
+
+                        {{-- Header produk (klik → expand whitelist) --}}
+                        <div class="lvl2-header" onclick="toggle('{{ $lvl2Id }}')"
+                             style="display:flex;align-items:center;gap:12px;padding:10px 20px;
+                                    cursor:pointer;transition:background .15s;"
+                             onmouseenter="this.style.background='#fef3c7'"
+                             onmouseleave="this.style.background=''">
+
+                            {{-- Select-all whitelist produk ini (bulk delete) --}}
+                            <label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0;"
+                                   onclick="event.stopPropagation()"
+                                   title="Pilih semua whitelist produk ini untuk dihapus">
+                                <input type="checkbox" class="bd-check-all" data-prod="{{ $dateKey }}-{{ $prodId }}">
+                            </label>
+
+                            <span id="chev-{{ $lvl2Id }}"
+                                  style="display:inline-block;transition:transform .22s;
+                                         color:#d97706;font-size:.75rem;flex-shrink:0;">▶</span>
+
+                            {{-- Label produk --}}
+                            <div style="flex:1;min-width:0;">
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <span style="background:#f59e0b;color:#fff;
+                                                 font-size:.65rem;font-weight:700;padding:2px 8px;
+                                                 border-radius:999px;flex-shrink:0;">🔬 Testing</span>
+                                    <span style="font-weight:700;font-size:.85rem;color:#92400e;">
+                                        {{ $prodData['product']->name ?? 'Tidak Diketahui' }}
+                                    </span>
+                                    <span style="font-size:.68rem;color:#b45309;">
+                                        {{ $prodData['product']->code ?? '' }}
+                                    </span>
+                                </div>
+                                <div class="lvl2-sub" style="font-size:.68rem;color:#b45309;margin-top:2px;margin-left:56px;">
+                                    {{ count($prodData['whitelists']) }} whitelist mengiklankan produk ini
+                                </div>
+                            </div>
+
+                            {{-- Summary produk --}}
+                            <div class="lvl2-summary" style="display:flex;gap:16px;flex-shrink:0;align-items:center;">
+                                <div style="text-align:right;">
+                                    <div style="font-size:.68rem;color:#b45309;">Spending</div>
+                                    <div style="font-weight:700;font-size:.82rem;color:#d97706;white-space:nowrap;">
+                                        Rp {{ number_format($prodData['spending'],0,',','.') }}
+                                    </div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="font-size:.68rem;color:#b45309;">Lead / Paid</div>
+                                    <div style="font-weight:700;font-size:.82rem;">
+                                        <span style="color:var(--color-purple);">{{ $prodData['lead'] }}</span>
+                                        <span style="color:#d1d5db;"> / </span>
+                                        <span style="color:var(--color-secondary);">{{ $prodData['paid'] }}</span>
+                                    </div>
+                                </div>
+                                <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
+                                      style="font-size:.68rem;">
+                                    {{ $prodData['paid_ratio'] }}%
+                                </span>
+                            </div>
+                        </div>
+
+                        {{-- ── LEVEL 3: Baris Whitelist ────────── --}}
+                        <div id="{{ $lvl2Id }}" style="display:none;background:#fff;
+                             border-top:1px dashed rgba(217,119,6,.25);padding:0 0 6px 0;">
+                            <table class="lvl3" style="width:100%;">
+                                <thead>
+                                    <tr style="background:#fffbeb;">
+                                        @foreach(['Whitelist','Spending','Lead','Paid','Paid Ratio','CPA Lead','CPA Paid','Aksi'] as $h)
+                                        <th style="padding:7px {{ in_array($h,['Whitelist']) ? '20px 7px 36px' : '10px' }};
+                                                   font-size:.65rem;font-weight:700;color:#b45309;
+                                                   text-transform:uppercase;letter-spacing:.05em;
+                                                   text-align:{{ in_array($h,['Whitelist','Aksi']) ? ($h==='Whitelist'?'left':'right') : 'right' }};
+                                                   border-bottom:1px solid rgba(217,119,6,.15);">{{ $h }}</th>
+                                        @endforeach
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                @foreach($prodData['whitelists'] as $item)
+                                <tr onmouseenter="this.style.background='#fffbeb'"
+                                    onmouseleave="this.style.background=''">
+                                    <td style="padding:8px 20px 8px 36px;">
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            {{-- Checkbox bulk delete --}}
+                                            <input type="checkbox" class="bd-check"
+                                                   data-id="{{ $item->id }}"
+                                                   data-prod="{{ $dateKey }}-{{ $prodId }}"
+                                                   data-tanggal="{{ $dateKey }}"
+                                                   data-product-id="{{ $prodId }}"
+                                                   data-product-name="{{ $prodData['product']->name ?? '' }}"
+                                                   data-product-code="{{ $prodData['product']->code ?? '' }}"
+                                                   data-whitelist-name="{{ $item->whitelist->nama ?? '' }}"
+                                                   data-whitelist-code="{{ $item->whitelist->kode ?? '' }}"
+                                                   data-spending="{{ $item->spending }}"
+                                                   data-lead="{{ $item->lead }}"
+                                                   data-paid="{{ $item->paid }}"
+                                                   title="Pilih untuk dihapus"
+                                                   style="flex-shrink:0;">
+                                            <div style="min-width:0;">
+                                                <div style="font-weight:600;font-size:.8rem;">
+                                                    {{ $item->whitelist->nama ?? '-' }}
+                                                </div>
+                                                <div style="font-size:.66rem;color:#b45309;">
+                                                    {{ $item->whitelist->kode ?? '' }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;font-weight:700;
+                                               color:#d97706;font-size:.8rem;white-space:nowrap;">
+                                        Rp {{ number_format($item->spending,0,',','.') }}
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;color:var(--color-purple);
+                                               font-weight:700;font-size:.8rem;">{{ $item->lead }}</td>
+                                    <td style="padding:8px 10px;text-align:right;color:var(--color-secondary);
+                                               font-weight:700;font-size:.8rem;">{{ $item->paid }}</td>
+                                    <td style="padding:8px 10px;text-align:right;">
+                                        <span class="clay-badge {{ $item->paid_ratio>=75?'clay-badge-green':($item->paid_ratio>=50?'clay-badge-yellow':'clay-badge-red') }}"
+                                              style="font-size:.65rem;">{{ round($item->paid_ratio) }}%</span>
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
+                                        Rp {{ number_format($item->cpa_lead,0,',','.') }}
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
+                                        Rp {{ number_format($item->cpa_paid,0,',','.') }}
+                                    </td>
+                                    <td style="padding:8px 10px;text-align:right;">
+                                        <div style="display:flex;justify-content:flex-end;gap:4px;">
+                                            <a href="javascript:void(0)" onclick="event.stopPropagation(); openSpendingEdit(this)"
+                                               class="clay-btn clay-btn-secondary"
+                                               style="padding:3px 8px;font-size:.65rem;"
+                                               title="Edit spending, lead & paid"
+                                               data-url="{{ route('spending.update', $item) }}"
+                                               data-id="{{ $item->id }}"
+                                               data-tanggal="{{ $dateKey }}"
+                                               data-wl-id="{{ $item->whitelist_id }}"
+                                               data-wl-name="{{ $item->whitelist->nama ?? '' }}"
+                                               data-wl-code="{{ $item->whitelist->kode ?? '' }}"
+                                               data-product-id="{{ $item->product_id }}"
+                                               data-product-name="{{ $item->product->name ?? '' }}"
+                                               data-spending="{{ $item->spending }}"
+                                               data-lead="{{ $item->lead }}"
+                                               data-paid="{{ $item->paid }}">✏️</a>
+                                            <form method="POST" action="{{ route('spending.destroy',$item) }}"
+                                                  onsubmit="return confirm('Hapus data ini?')">
+                                                @csrf @method('DELETE')
+                                                <button type="submit" class="clay-btn clay-btn-danger"
+                                                        style="padding:3px 8px;font-size:.65rem;">🗑</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                @endforeach
+
+                                {{-- Total baris produk --}}
+                                <tr style="background:#fffbeb;font-weight:700;">
+                                    <td style="padding:7px 20px 7px 36px;font-size:.75rem;color:#b45309;">
+                                        Total Produk
+                                    </td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.8rem;color:#d97706;white-space:nowrap;">
+                                        Rp {{ number_format($prodData['spending'],0,',','.') }}
+                                    </td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.8rem;color:var(--color-purple);">{{ $prodData['lead'] }}</td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.8rem;color:var(--color-secondary);">{{ $prodData['paid'] }}</td>
+                                    <td style="padding:7px 10px;text-align:right;">
+                                        <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
+                                              style="font-size:.65rem;">{{ $prodData['paid_ratio'] }}%</span>
+                                    </td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
+                                        Rp {{ number_format($prodData['cpa_lead'],0,',','.') }}
+                                    </td>
+                                    <td style="padding:7px 10px;text-align:right;font-size:.75rem;color:#6b7280;white-space:nowrap;">
+                                        Rp {{ number_format($prodData['cpa_paid'],0,',','.') }}
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </div>{{-- end produk block --}}
+                    @endforeach
+
+                </td>
+            </tr>
+            @empty
+            <tr>
+                <td colspan="9" style="text-align:center;padding:48px;">
+                    <div style="font-size:2.5rem;margin-bottom:8px;">🔬</div>
+                    <p style="color:#9ca3af;">Tidak ada data spending produk testing di periode ini</p>
                 </td>
             </tr>
             @endforelse
@@ -520,11 +897,47 @@
     @csrf
     <div id="bulk-ids"></div>
 </form>
-<div class="bulk-bar" id="bulk-bar">
-    <span style="font-size:.8rem;font-weight:700;color:#b91c1c;">🗑 <span id="bulk-count">0</span> data terpilih</span>
-    <button type="button" id="bulk-edit" class="clay-btn clay-btn-secondary" style="padding:6px 14px;font-size:.75rem;">✏️ Edit</button>
-    <button type="button" id="bulk-clear" class="clay-btn clay-btn-outline" style="padding:6px 14px;font-size:.75rem;">Batal</button>
-    <button type="button" id="bulk-confirm" class="clay-btn clay-btn-danger" style="padding:6px 14px;font-size:.75rem;">Hapus Terpilih</button>
+{{-- ═══════════════ FAB Container ═══════════════ --}}
+<div class="fab-container" id="fab-container">
+    {{-- Default: Rentang Tanggal + Input Spending --}}
+    <div id="fab-default" class="fab-group">
+        <button type="button" class="fab fab-primary" id="fab-input"
+                onclick="openInputMethodModal()" @if(!$hasWhitelist) data-require-whitelist @endif
+                title="＋ Input Spending">
+            <span class="fab-icon">＋</span>
+            <span class="fab-label">Input</span>
+        </button>
+        <div class="fab-divider"></div>
+        <div class="fab-drp-wrap">
+            <form method="GET" action="{{ route('spending.index') }}" id="filter-form-adv-fab">
+                <x-date-range-picker
+                    :dari="$dari"
+                    :sampai="$sampai"
+                    form-id="filter-form-adv-fab"
+                    input-dari="dari"
+                    input-sampai="sampai"
+                />
+            </form>
+        </div>
+    </div>
+    {{-- Selection: Edit + Hapus + Batal --}}
+    <div id="fab-selection" class="fab-group" style="display:none;">
+        <div class="fab-count"><span id="bulk-count">0</span> terpilih</div>
+        <div class="fab-divider"></div>
+        <button type="button" id="bulk-edit" class="fab fab-secondary" title="Edit Terpilih">
+            <span class="fab-icon">✏️</span>
+            <span class="fab-label">Edit</span>
+        </button>
+        <div class="fab-divider"></div>
+        <button type="button" id="bulk-clear" class="fab fab-outline" title="Batal Pilih">
+            <span class="fab-icon">✕</span>
+        </button>
+        <div class="fab-divider"></div>
+        <button type="button" id="bulk-confirm" class="fab fab-danger" title="Hapus Terpilih">
+            <span class="fab-icon">🗑</span>
+            <span class="fab-label">Hapus</span>
+        </button>
+    </div>
 </div>
 
 {{-- ═══════════════ MODAL BULK EDIT (spending/lead/paid) ═══════════════ --}}
@@ -551,6 +964,9 @@
 
 @push('styles')
 <style>
+    /* ── Page bottom spacing for FAB ──────────────── */
+    #main-content { padding-bottom: 90px !important; }
+
     /* ── Modal Ubah Tanggal ──────────────────────────── */
     .dc-modal {
         position: fixed; inset: 0; z-index: 9999;
@@ -615,19 +1031,64 @@
         text-decoration: line-through;
     }
 
-    /* ── Bulk delete ────────────────────────────────────── */
-    .bulk-bar {
-        position: fixed; bottom: 20px; right: 24px; z-index: 60;
-        display: none; align-items: center; gap: 10px;
-        background: #fff; border: 1px solid #fecaca;
-        border-radius: 16px; padding: 10px 14px;
-        box-shadow: 0 12px 32px rgba(220,38,38,.18);
-        animation: bulkIn .25s ease;
+    /* ── FAB Container (horizontal pill bar, white) ─── */
+    .fab-container {
+        position: fixed; bottom: 28px; right: 28px; z-index: 60;
+        margin-bottom: 20px; /* extra clearance below table */
     }
-    @keyframes bulkIn {
-        from { opacity: 0; transform: translateY(10px); }
+    .fab-group {
+        display: flex; flex-direction: row; align-items: center; gap: 6px;
+        background: #fff;
+        border-radius: 999px; padding: 5px 6px;
+        box-shadow: 0 4px 24px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.05);
+        animation: fabIn .28s cubic-bezier(.4,0,.2,1);
+    }
+    @keyframes fabIn {
+        from { opacity: 0; transform: translateY(12px) scale(.92); }
         to   { opacity: 1; transform: none; }
     }
+    .fab-divider {
+        width: 1px; height: 22px; background: rgba(0,0,0,.1); flex-shrink: 0;
+    }
+    .fab {
+        display: inline-flex; align-items: center; gap: 6px;
+        border: none; border-radius: 999px; padding: 10px 16px;
+        font-size: .78rem; font-weight: 700; cursor: pointer;
+        transition: all .2s ease; white-space: nowrap;
+        text-decoration: none; line-height: 1.2;
+        color: #fff; flex-shrink: 0;
+    }
+    .fab:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .fab:active { transform: translateY(0); filter: brightness(1); }
+    .fab-primary { background: linear-gradient(135deg, #FF6B6B, #ff9a9a); box-shadow: 0 2px 8px rgba(255,107,107,.3); }
+    .fab-secondary { background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: 0 2px 8px rgba(139,92,246,.3); }
+    .fab-danger { background: linear-gradient(135deg, #ef4444, #f87171); box-shadow: 0 2px 8px rgba(239,68,68,.3); }
+    .fab-outline { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+    .fab-outline:hover { background: #e5e7eb; border-color: #d1d5db; }
+    .fab-icon { font-size: 1rem; line-height: 1; flex-shrink: 0; }
+    .fab-label { font-size: .72rem; letter-spacing: .02em; }
+    .fab-count {
+        background: #fef2f2; border: 1px solid #fecaca; border-radius: 999px;
+        padding: 8px 14px; font-size: .72rem; font-weight: 700; color: #b91c1c;
+        white-space: nowrap; flex-shrink: 0;
+    }
+    /* DRP trigger inside FAB pill */
+    .fab-drp-wrap { margin: 0; flex-shrink: 0; }
+    .fab-drp-wrap form { margin: 0; padding: 0; }
+    .fab-drp-wrap .drp-trigger {
+        border-radius: 999px !important; padding: 10px 16px !important;
+        background: linear-gradient(135deg, #8b5cf6, #a78bfa) !important;
+        color: #fff !important; border: none !important;
+        box-shadow: 0 2px 8px rgba(139,92,246,.3) !important;
+        gap: 6px !important; min-width: 0 !important;
+        font-size: .78rem !important; font-weight: 700 !important;
+        transition: all .2s ease !important; line-height: 1.2 !important;
+    }
+    .fab-drp-wrap .drp-trigger:hover {
+        filter: brightness(1.1) !important; transform: translateY(-1px);
+    }
+    .fab-drp-wrap .drp-trigger .drp-label { color: #fff !important; font-size: .72rem !important; }
+    .fab-drp-wrap .drp-trigger span:last-child { color: rgba(255,255,255,.55) !important; }
     .bd-check { width: 16px; height: 16px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
     .bd-check-all { width: 15px; height: 15px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
     tr.bd-row-selected { background: #fff0f0 !important; }
@@ -692,15 +1153,54 @@
         padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
     }
 
-    /* ── Ringkasan Periode (4 kartu di atas tabel) ──────────── */
+    /* ── Ringkasan Periode: Chart (kiri) + 4 Kartu (kanan 2×2) ── */
+    .summary-overview {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 16px;
+        align-items: stretch;
+    }
+    .chart-card {
+        background: #fff; border-radius: 16px; padding: 18px 20px;
+        border: 1px solid rgba(0,0,0,.06);
+        box-shadow: 0 1px 3px rgba(0,0,0,.04);
+        display: flex; flex-direction: column;
+        height: 100%;
+    }
+    .chart-header {
+        display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px;
+        flex-shrink: 0;
+    }
+    .chart-title {
+        font-weight: 800; font-size: .88rem; color: #1e1b2e;
+    }
+    .chart-sub {
+        font-size: .68rem; color: #9ca3af;
+    }
+    .chart-body {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+    }
+    .chart-body canvas {
+        width: 100% !important;
+        height: 100% !important;
+    }
     .summary-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0,1fr));
+        grid-template-columns: repeat(2, minmax(0,1fr));
+        grid-template-rows: 1fr 1fr;
         gap: 14px;
-        margin-bottom: 16px;
+        height: 100%;
     }
-    @media (max-width: 1100px) { .summary-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
-    @media (max-width: 560px)  { .summary-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 900px) {
+        .summary-overview { grid-template-columns: 1fr; }
+        .chart-card { order: -1; }
+    }
+    @media (max-width: 560px) {
+        .summary-grid { grid-template-columns: 1fr; }
+    }
     .summary-card {
         display: flex; align-items: center; gap: 14px;
         background: #fff; border-radius: 16px; padding: 16px 18px;
@@ -708,6 +1208,7 @@
         box-shadow: 0 1px 3px rgba(0,0,0,.04);
         transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
         position: relative; overflow: hidden;
+        min-width: 0;
     }
     .summary-card::after {
         content: ''; position: absolute; right: -18px; top: -18px;
@@ -730,22 +1231,23 @@
     .sc-purple  { background: linear-gradient(135deg,#a78bfa,#8b5cf6); }
     .sc-teal    { background: linear-gradient(135deg,#4ECDC4,#2dd4bf); }
     .sc-amber   { background: linear-gradient(135deg,#f59e0b,#fbbf24); }
-    .summary-body { min-width: 0; }
+    .summary-body { min-width: 0; flex: 1; overflow: hidden; }
     .summary-label {
         font-size: .62rem; font-weight: 800; text-transform: uppercase;
         letter-spacing: .06em; color: #9ca3af;
     }
     .summary-value {
         font-size: 1.18rem; font-weight: 800; color: #1e1b2e;
-        margin-top: 2px; white-space: nowrap; line-height: 1.2;
+        margin-top: 2px; line-height: 1.2;
+        overflow-wrap: break-word; word-break: break-word;
     }
     .summary-value .sc-lead { color: var(--color-purple, #8b5cf6); }
     .summary-value .sc-paid { color: var(--color-secondary, #4ECDC4); }
     .summary-value .sc-sep  { color: #d1d5db; font-weight: 600; margin: 0 2px; }
-    .summary-sub { font-size: .66rem; color: #9ca3af; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .summary-sub { font-size: .66rem; color: #9ca3af; margin-top: 3px; overflow-wrap: break-word; word-break: break-word; }
     .summary-ratio-track {
         height: 6px; border-radius: 999px; background: #f3f4f6;
-        margin-top: 8px; overflow: hidden; max-width: 170px;
+        margin-top: 8px; overflow: hidden; max-width: 170px; flex-shrink: 1; min-width: 60px;
     }
     .summary-ratio-fill {
         height: 100%; border-radius: 999px;
@@ -769,13 +1271,22 @@
     }
 
     /* ── Responsive: fleksibel di segala ukuran layar ────────────────── */
-    .filter-bar { flex-wrap: wrap; } /* default: boleh wrap di layar lebar */
+
 
     @media (max-width: 640px) {
-        /* Bar filter: rentang periodik + Reset + Input Spending TETAP 1 jajar */
-        .filter-bar { flex-wrap: nowrap; gap: 6px; }
-        .filter-bar .drp-trigger { flex: 1 1 auto; min-width: 0; }
-        .filter-bar .clay-btn { padding: 8px 10px; font-size: .72rem; white-space: nowrap; }
+        /* FAB: responsive pill stays horizontal, just tighter */
+        .fab-container { left: 12px; right: 12px; bottom: 12px; }
+        .fab-group { padding: 4px 5px; gap: 0; justify-content: center; }
+        .fab { padding: 8px 12px; font-size: .72rem; }
+        .fab-icon { font-size: .88rem; }
+        .fab-drp-wrap .drp-trigger { padding: 8px 12px !important; font-size: .72rem !important; }
+        .fab-divider { height: 18px; }
+        .fab-label { display: none; }
+        .fab-count { font-size: .68rem; padding: 6px 10px; }
+
+        /* Chart lebih padat */
+        .chart-card { padding: 14px; }
+        .chart-body { height: 170px; }
 
         /* Kartu summary lebih padat */
         .summary-card { padding: 12px 14px; gap: 10px; }
@@ -799,11 +1310,7 @@
         .lvl3 th, .lvl3 td { padding: 6px 8px !important; }
         .lvl3 tbody tr td:first-child { padding: 6px 10px 6px 12px !important; }
 
-        /* FAB bulk delete: melayang penuh di bawah layar */
-        .bulk-bar {
-            left: 12px; right: 12px; bottom: 12px;
-            justify-content: center; flex-wrap: wrap; gap: 8px;
-        }
+
     }
 
     @media (max-width: 480px) {
@@ -825,6 +1332,50 @@
 
 @push('scripts')
 <script>
+// ── Tab Running / Testing ──────────────────────────────
+function switchAdTab(tab) {
+    var running = document.getElementById('adtabcontent-running');
+    var testing = document.getElementById('adtabcontent-testing');
+    var btnRun  = document.getElementById('adtab-running');
+    var btnTest = document.getElementById('adtab-testing');
+    if (tab === 'running') {
+        if (running) running.style.display = '';
+        if (testing) testing.style.display = 'none';
+        if (btnRun)  { btnRun.style.background = '#fff'; btnRun.style.color = 'var(--color-primary,#FF6B6B)'; btnRun.style.fontWeight = '700'; btnRun.style.borderColor = 'rgba(255,107,107,.25)'; btnRun.style.borderBottom = '2px solid #fff'; btnRun.style.zIndex = '3'; }
+        if (btnTest) { btnTest.style.background = '#f5f5f5'; btnTest.style.color = '#6b7280'; btnTest.style.fontWeight = '500'; btnTest.style.borderColor = 'rgba(0,0,0,.08)'; btnTest.style.borderBottom = '2px solid rgba(0,0,0,.08)'; btnTest.style.zIndex = '1'; }
+    } else {
+        if (running) running.style.display = 'none';
+        if (testing) testing.style.display = '';
+        if (btnRun)  { btnRun.style.background = '#f5f5f5'; btnRun.style.color = '#6b7280'; btnRun.style.fontWeight = '500'; btnRun.style.borderColor = 'rgba(0,0,0,.08)'; btnRun.style.borderBottom = '2px solid rgba(0,0,0,.08)'; btnRun.style.zIndex = '1'; }
+        if (btnTest) { btnTest.style.background = '#fff'; btnTest.style.color = '#92400e'; btnTest.style.fontWeight = '700'; btnTest.style.borderColor = 'rgba(245,158,11,.25)'; btnTest.style.borderBottom = '2px solid #fff'; btnTest.style.zIndex = '3'; }
+    }
+    applySummary(tab);
+}
+
+// ── Kartu summary mengikuti tab aktif (Running / Testing) ──
+function applySummary(tab) {
+    var isRun = tab === 'running';
+    var ids = ['sum-spending', 'sum-days', 'sum-lead', 'sum-paid', 'sum-conv', 'sum-cpa-lead', 'sum-cpa-paid', 'sum-ratio'];
+    ids.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = isRun ? el.getAttribute('data-run') : el.getAttribute('data-test');
+    });
+
+    var fill = document.getElementById('sum-ratio-fill');
+    if (fill) fill.setAttribute('style', isRun ? '{{ $runCards['fill'] }}' : '{{ $testCards['fill'] }}');
+
+    document.querySelectorAll('.sc-tab-badge').forEach(function(b) {
+        b.textContent = isRun ? '🟢 Running' : '🔬 Testing';
+        b.style.color = isRun ? '#065f46' : '#92400e';
+    });
+
+    document.querySelectorAll('.summary-card').forEach(function(c) {
+        var t = isRun ? c.getAttribute('data-run-title') : c.getAttribute('data-test-title');
+        if (t) c.title = t;
+    });
+
+}
 var openRows = new Set();
 function toggle(id) {
     var el   = document.getElementById(id);
@@ -836,7 +1387,7 @@ function toggle(id) {
         if (chev) chev.style.transform = 'rotate(0deg)';
         openRows.delete(id);
     } else {
-        el.style.display     = id.startsWith('lvl1') ? 'table-row' : 'block';
+        el.style.display     = (id.startsWith('lvl1') || id.startsWith('tlvl1')) ? 'table-row' : 'block';
         if (chev) chev.style.transform = 'rotate(90deg)';
         openRows.add(id);
     }
@@ -1107,8 +1658,136 @@ function toggle(id) {
 </script>
 @endpush
 
+@push('styles')
+<style>
+    /* ── Upload Modal (_META Ads) ─────────────────────────── */
+    #upload-modal {
+        position: fixed; inset: 0; z-index: 1100;
+        display: none; align-items: center; justify-content: center; padding: 20px;
+    }
+    #upload-modal.open { display: flex; }
+    .up-backdrop {
+        position: absolute; inset: 0;
+        background: rgba(30,27,46,.5); backdrop-filter: blur(3px);
+    }
+    .up-panel {
+        position: relative; width: 100%; max-width: 740px; max-height: 90vh;
+        display: flex; flex-direction: column;
+        background: #fff; border-radius: 20px;
+        box-shadow: 0 24px 60px rgba(0,0,0,.28);
+        overflow: hidden;
+        animation: upIn .22s ease;
+    }
+    @keyframes upIn {
+        from { opacity: 0; transform: translateY(10px) scale(.98); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .up-head {
+        display: flex; align-items: flex-start; gap: 10px;
+        padding: 18px 22px; border-bottom: 1px solid #f3f4f6;
+        background: linear-gradient(135deg, #fff5f5, #fff);
+    }
+    .up-x {
+        margin-left: auto; border: none; background: #f3f4f6; color: #6b7280;
+        width: 30px; height: 30px; border-radius: 10px; cursor: pointer;
+        font-size: .8rem; font-weight: 800; transition: all .15s;
+    }
+    .up-x:hover { background: #fef2f2; color: #ef4444; }
+    .up-body { flex: 1; overflow-y: auto; padding: 18px 22px; }
+    .up-foot {
+        display: flex; justify-content: flex-end; gap: 10px;
+        padding: 14px 22px; border-top: 1px solid #f3f4f6;
+    }
+    .up-format-hint {
+        background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px;
+        padding: 10px 14px; font-size: .74rem; color: #6b7280; margin-bottom: 14px; line-height: 1.6;
+    }
+    .up-format-hint code {
+        background: #fff; border: 1px solid #e5e7eb; border-radius: 6px;
+        padding: 1px 6px; font-size: .68rem; color: #4338ca;
+    }
+    .up-dual {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px; align-items: stretch;
+    }
+    @media (max-width: 640px) { .up-dual { grid-template-columns: 1fr; } }
+    .up-col {
+        display: flex; flex-direction: column; min-width: 0;
+        border: 1px solid #eef0f3; border-radius: 14px;
+        background: #fcfcfd; padding: 12px;
+    }
+    .up-col-head {
+        display: flex; align-items: center; gap: 6px;
+        margin-bottom: 8px; font-size: .78rem; font-weight: 800; color: #1e1b2e;
+    }
+    .up-col-head .tag {
+        background: #1e1b2e; color: #fff;
+        font-size: .6rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
+    }
+    .up-col-head .sub {
+        font-size: .62rem; font-weight: 600; color: #9ca3af;
+        margin-left: auto; white-space: nowrap;
+    }
+    .up-dropzone {
+        border: 2px dashed #e5e7eb; border-radius: 16px; padding: 26px 16px;
+        text-align: center; cursor: pointer; transition: all .15s;
+    }
+    .up-dropzone:hover, .up-dropzone.drag { border-color: #FF6B6B; background: #fff7f7; }
+    .up-file-chip {
+        display: flex; align-items: center; gap: 8px;
+        width: 100%; min-width: 0; box-sizing: border-box;
+        background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px;
+        padding: 8px 12px; font-size: .76rem; margin-top: 8px;
+    }
+    .up-file-chip .x {
+        margin-left: auto; border: none; background: transparent; color: #9ca3af;
+        cursor: pointer; font-size: .8rem; font-weight: 800;
+    }
+    .up-file-chip .x:hover { color: #ef4444; }
+    .up-summary {
+        margin-top: 14px; font-size: .78rem; font-weight: 700; color: #166534;
+        background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 9px 12px;
+    }
+    .up-result {
+        border: 1px solid #e5e7eb; border-radius: 14px; margin-top: 12px; overflow: hidden;
+    }
+    .up-result-head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 11px 14px; background: #fafafa; border-bottom: 1px solid #f3f4f6; flex-wrap: wrap;
+    }
+    .up-result-head .name {
+        font-weight: 700; font-size: .78rem; color: #1e1b2e;
+        min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .up-group { border-top: 1px solid #f3f4f6; padding: 12px 14px; }
+    .up-group-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .up-group-check { display: flex; align-items: center; gap: 6px; font-size: .75rem; font-weight: 700; color: #1e1b2e; cursor: pointer; }
+    .up-prods { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .up-prod-chip {
+        background: #fff7f7; border: 1px solid #fecaca; color: #9a3412;
+        border-radius: 8px; padding: 3px 10px; font-size: .7rem; font-weight: 600;
+    }
+    .up-warn {
+        background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+        font-size: .72rem; border-radius: 8px; padding: 8px 10px;
+    }
+    .up-err-msg { color: #dc2626; font-size: .78rem; padding: 12px 14px; }
+    .spinner-sm {
+        display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent;
+        border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Responsive upload modal ── */
+    @media (max-width: 480px) {
+        #upload-modal { padding: 10px; align-items: flex-end; }
+        #upload-modal .up-panel { border-radius: 16px 16px 0 0; }
+    }
+</style>
+@endpush
+
 @if(!$hasWhitelist)
-{{-- ─── Modal: Belum punya whitelist ─────────────────────────────── --}}
 @push('styles')
 <style>
     .modal-wl {
@@ -1189,10 +1868,11 @@ function toggle(id) {
     document.querySelectorAll('[data-require-whitelist]').forEach(function(el) {
         el.addEventListener('click', function(e) {
             e.preventDefault();
-            e.stopPropagation(); // cegah PageLinkHandler global me-fade-out halaman
+            e.stopPropagation();
+            e.stopImmediatePropagation(); // cegah onclick modal metode/upload terpicu
             var modal = getModal();
             if (modal) modal.classList.add('active');
-        });
+        }, true); // useCapture=true agar jalan sebelum onclick inline
     });
 
     window.tutupModalPerluWhitelist = function() {
@@ -1223,7 +1903,11 @@ function toggle(id) {
 
     function updateUI() {
         var n = selected.size;
-        if (bar) bar.style.display = n ? 'flex' : 'none';
+        // Toggle FAB: default vs selection
+        var fabDefault = document.getElementById('fab-default');
+        var fabSelection = document.getElementById('fab-selection');
+        if (fabDefault) fabDefault.style.display = n ? 'none' : 'flex';
+        if (fabSelection) fabSelection.style.display = n ? 'flex' : 'none';
         if (countEl) countEl.textContent = n;
 
         // Update checkbox select-all per produk (tristate)
@@ -1471,4 +2155,576 @@ function toggle(id) {
 })();
 </script>
 @endpush
+
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+{{-- ── Chart Line Lead & Paid per Tanggal ── --}}
+(function() {
+    'use strict';
+    var canvas = document.getElementById('spendingChart');
+    if (!canvas) return;
+
+    var labels = @json($chartDates->map(fn($d) => \Carbon\Carbon::parse($d)->translatedFormat('d M')));
+    var runLead = @json($chartRunLead->toArray());
+    var runPaid = @json($chartRunPaid->toArray());
+    var testLead = @json($chartTestLead->toArray());
+    var testPaid = @json($chartTestPaid->toArray());
+
+    var ctx = canvas.getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Lead (Running)',
+                    data: runLead,
+                    borderColor: '#8b5cf6',
+                    backgroundColor: 'rgba(139,92,246,0.08)',
+                    borderWidth: 2.5,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#8b5cf6',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: 'Paid (Running)',
+                    data: runPaid,
+                    borderColor: '#4ECDC4',
+                    backgroundColor: 'rgba(78,205,196,0.08)',
+                    borderWidth: 2.5,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#4ECDC4',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: 'Lead (Testing)',
+                    data: testLead,
+                    borderColor: '#f97316',
+                    backgroundColor: 'rgba(249,115,22,0.06)',
+                    borderWidth: 2,
+                    borderDash: [6, 4],
+                    pointRadius: 3,
+                    pointBackgroundColor: '#f97316',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: false
+                },
+                {
+                    label: 'Paid (Testing)',
+                    data: testPaid,
+                    borderColor: '#fbbf24',
+                    backgroundColor: 'rgba(251,191,36,0.06)',
+                    borderWidth: 2,
+                    borderDash: [6, 4],
+                    pointRadius: 3,
+                    pointBackgroundColor: '#fbbf24',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { boxWidth: 12, boxHeight: 12, padding: 16, font: { size: 11, weight: '600' } }
+                },
+                tooltip: {
+                    backgroundColor: '#1e1b2e',
+                    titleFont: { size: 12, weight: '700' },
+                    bodyFont: { size: 11 },
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            return ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString('id-ID');
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 10 }, color: '#9ca3af' }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                    ticks: { font: { size: 10 }, color: '#9ca3af', callback: function(v) { return v.toLocaleString('id-ID'); } }
+                }
+            }
+        }
+    });
+})();
+</script>
+@endpush
+
+@push('scripts')
+<script>
+{{-- ── Modal Pilih Metode Input + Upload Meta Ads (dari halaman Index) ── --}}
+(function() {
+    'use strict';
+
+    var PARSE_URL = '{{ route("spending.parse-upload") }}';
+    var STORE_URL = '{{ route("spending.store") }}';
+    var csrfMeta  = document.querySelector('meta[name="csrf-token"]');
+    var CSRF = csrfMeta ? csrfMeta.getAttribute('content') : '';
+
+    // ─── Method Chooser Modal ───
+    window.openInputMethodModal = function() {
+        var m = document.getElementById('modal-input-method');
+        if (m) m.classList.add('active');
+    };
+    window.closeInputMethodModal = function() {
+        var m = document.getElementById('modal-input-method');
+        if (m) m.classList.remove('active');
+    };
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            var m = document.getElementById('modal-input-method');
+            if (m && m.classList.contains('active')) window.closeInputMethodModal();
+        }
+    });
+
+    // ─── Upload Modal (buka/tutup) ───
+    window.openUploadModal = function() {
+        var m = document.getElementById('upload-modal');
+        if (m) { m.classList.add('open'); document.body.style.overflow = 'hidden'; }
+    };
+    function closeUploadModal() {
+        var m = document.getElementById('upload-modal');
+        if (m) { m.classList.remove('open'); document.body.style.overflow = ''; }
+    }
+
+    // ─── Upload state ───
+    var upFiles = [];
+    var regFiles = [];
+    var upCombined = [];
+    var upRegUnmatched = [];
+    var upRegUnmatchedCount = 0;
+
+    function fmtNum(n) { return Number(n || 0).toLocaleString('id-ID'); }
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function attr(s) { return esc(s); }
+    var BULAN_INDO = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    function fmtTgl(s) {
+        if (!s) return '';
+        var p = s.split('-');
+        return parseInt(p[2], 10) + ' ' + BULAN_INDO[parseInt(p[1], 10) - 1] + ' ' + p[0];
+    }
+    function showFlash(msg) {
+        var t = document.createElement('div');
+        t.className = 'sp-toast';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        requestAnimationFrame(function() { t.classList.add('show'); });
+        setTimeout(function() { t.classList.remove('show'); }, 4200);
+        setTimeout(function() { t.remove(); }, 4600);
+    }
+
+    // ─── Init upload modal ───
+    function initUploadModal() {
+        var modal    = document.getElementById('upload-modal');
+        if (!modal) return;
+        var closeBtn  = document.getElementById('up-close');
+        var cancelBtn = document.getElementById('up-cancel');
+        var backdrop  = document.querySelector('#upload-modal .up-backdrop');
+        var browseBtn = document.getElementById('up-browse');
+        var fileInput = document.getElementById('up-file-input');
+        var dz        = document.getElementById('up-dropzone');
+        var regBrowseBtn = document.getElementById('reg-browse');
+        var regFileInput = document.getElementById('reg-file-input');
+        var regDz        = document.getElementById('reg-dropzone');
+        var parseBtn  = document.getElementById('up-parse');
+        var applyBtn  = document.getElementById('up-apply');
+
+        if (closeBtn) closeBtn.addEventListener('click', closeUploadModal);
+        if (cancelBtn) cancelBtn.addEventListener('click', closeUploadModal);
+        if (backdrop) backdrop.addEventListener('click', closeUploadModal);
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && modal.classList.contains('open')) closeUploadModal();
+        });
+
+        // Ads Manager file handling
+        if (browseBtn) browseBtn.addEventListener('click', function() { fileInput.click(); });
+        if (dz) {
+            dz.addEventListener('click', function(e) { if (!e.target.closest('#up-browse')) fileInput.click(); });
+            ['dragenter','dragover'].forEach(function(ev) {
+                dz.addEventListener(ev, function(e) { e.preventDefault(); dz.classList.add('drag'); });
+            });
+            ['dragleave','drop'].forEach(function(ev) {
+                dz.addEventListener(ev, function(e) { e.preventDefault(); dz.classList.remove('drag'); });
+            });
+            dz.addEventListener('drop', function(e) { addFiles(Array.from(e.dataTransfer.files)); });
+        }
+        if (fileInput) fileInput.addEventListener('change', function() { addFiles(Array.from(this.files)); this.value = ''; });
+
+        // Regional file handling
+        if (regBrowseBtn) regBrowseBtn.addEventListener('click', function() { regFileInput.click(); });
+        if (regDz) {
+            regDz.addEventListener('click', function(e) { if (!e.target.closest('#reg-browse')) regFileInput.click(); });
+            ['dragenter','dragover'].forEach(function(ev) {
+                regDz.addEventListener(ev, function(e) { e.preventDefault(); regDz.classList.add('drag'); });
+            });
+            ['dragleave','drop'].forEach(function(ev) {
+                regDz.addEventListener(ev, function(e) { e.preventDefault(); regDz.classList.remove('drag'); });
+            });
+            regDz.addEventListener('drop', function(e) { addRegFiles(Array.from(e.dataTransfer.files)); });
+        }
+        if (regFileInput) regFileInput.addEventListener('change', function() { addRegFiles(Array.from(this.files)); this.value = ''; });
+
+        if (parseBtn) parseBtn.addEventListener('click', parseFiles);
+        if (applyBtn) applyBtn.addEventListener('click', applyResults);
+    }
+
+    function addFiles(list) {
+        list.forEach(function(f) {
+            if (!/\.(xlsx|xls|csv)$/i.test(f.name)) { showFlash('⚠️ "' + f.name + '" bukan file Excel — dilewati.'); return; }
+            if (f.size > 10*1024*1024) { showFlash('⚠️ "' + f.name + '" > 10MB — dilewati.'); return; }
+            upFiles.push(f);
+        });
+        renderFileList(); upCombined = []; renderResults();
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) applyBtn.disabled = true;
+    }
+    function addRegFiles(list) {
+        list.forEach(function(f) {
+            if (!/\.(xlsx|xls|csv)$/i.test(f.name)) { showFlash('⚠️ "' + f.name + '" bukan file Excel — dilewati.'); return; }
+            if (f.size > 10*1024*1024) { showFlash('⚠️ "' + f.name + '" > 10MB — dilewati.'); return; }
+            regFiles.push(f);
+        });
+        renderRegFileList(); upCombined = []; renderResults();
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) applyBtn.disabled = true;
+    }
+
+    function renderFileList() {
+        var wrap = document.getElementById('up-file-list'); if (!wrap) return;
+        wrap.innerHTML = '';
+        upFiles.forEach(function(f, i) {
+            var chip = document.createElement('div'); chip.className = 'up-file-chip';
+            chip.innerHTML = '<span style="flex-shrink:0;">📄</span><span title="' + attr(f.name) + '" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                + esc(f.name) + '</span><span style="flex-shrink:0;font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size/1024) + ' KB)</span>'
+                + '<button type="button" class="x" title="Hapus">✕</button>';
+            chip.querySelector('.x').addEventListener('click', function() {
+                upFiles.splice(i,1); renderFileList(); upCombined = []; renderResults();
+                var applyBtn = document.getElementById('up-apply');
+                if (applyBtn) applyBtn.disabled = true;
+            });
+            wrap.appendChild(chip);
+        });
+    }
+    function renderRegFileList() {
+        var wrap = document.getElementById('reg-file-list'); if (!wrap) return;
+        wrap.innerHTML = '';
+        regFiles.forEach(function(f, i) {
+            var chip = document.createElement('div'); chip.className = 'up-file-chip';
+            chip.innerHTML = '<span style="flex-shrink:0;">🗺️</span><span title="' + attr(f.name) + '" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                + esc(f.name) + '</span><span style="flex-shrink:0;font-size:.68rem;color:#9ca3af;">(' + Math.round(f.size/1024) + ' KB)</span>'
+                + '<button type="button" class="x" title="Hapus">✕</button>';
+            chip.querySelector('.x').addEventListener('click', function() {
+                regFiles.splice(i,1); renderRegFileList(); upCombined = []; renderResults();
+                var applyBtn = document.getElementById('up-apply');
+                if (applyBtn) applyBtn.disabled = true;
+            });
+            wrap.appendChild(chip);
+        });
+        var actions = document.getElementById('up-actions');
+        if (actions) actions.style.display = (upFiles.length || regFiles.length) ? '' : 'none';
+    }
+
+    function setParseState(loading) {
+        var parseBtn = document.getElementById('up-parse');
+        if (parseBtn) {
+            parseBtn.disabled = loading;
+            parseBtn.innerHTML = loading ? '<span class="spinner-sm"></span> Memproses file…' : '🔍 Proses & Parsing';
+        }
+    }
+
+    function parseFiles() {
+        if (!upFiles.length || !regFiles.length) {
+            showFlash('⚠️ Unggah minimal 1 file Ads Manager DAN 1 file Regional di kedua area.');
+            return;
+        }
+        var fd = new FormData();
+        upFiles.forEach(function(f) { fd.append('files[]', f); });
+        regFiles.forEach(function(f) { fd.append('regional[]', f); });
+        setParseState(true);
+        fetch(PARSE_URL, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': CSRF, 'Accept': 'application/json' },
+            body: fd
+        })
+        .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+        .then(function(res) {
+            setParseState(false);
+            if (!res.ok) { showFlash('❌ Gagal memproses: ' + (res.d.message || 'kesalahan server.')); return; }
+            upCombined = res.d.combined || [];
+            upRegUnmatched = res.d.regional_unmatched || [];
+            upRegUnmatchedCount = res.d.regional_unmatched_count || 0;
+            renderResults();
+        })
+        .catch(function() { setParseState(false); showFlash('❌ Koneksi gagal. Coba lagi.'); });
+    }
+
+    function renderResults() {
+        var wrap = document.getElementById('up-results'); if (!wrap) return;
+        wrap.innerHTML = '';
+        var totalDates = upCombined.length;
+        var totalProducts = 0, totalSpending = 0, totalLead = 0, totalPaid = 0;
+        upCombined.forEach(function(dt) {
+            dt.whitelists.forEach(function(w) {
+                totalProducts += w.products.length;
+                totalSpending += w.total_spending;
+                totalLead += w.total_lead;
+                totalPaid += w.total_paid;
+            });
+        });
+        if (totalDates) {
+            var summary = document.createElement('div'); summary.className = 'up-summary';
+            summary.textContent = totalDates + ' tanggal · ' + totalProducts + ' produk siap disimpan — 💸 Rp ' + fmtNum(totalSpending)
+                + ' · 👤 ' + fmtNum(totalLead) + ' lead · 💳 ' + fmtNum(totalPaid) + ' paid';
+            wrap.appendChild(summary);
+        }
+        if (upRegUnmatchedCount > 0) {
+            var warn = document.createElement('div'); warn.className = 'up-warn'; warn.style.marginTop = '10px';
+            warn.innerHTML = '⚠️ <strong>' + upRegUnmatchedCount + ' baris regional</strong> tidak bisa dipetakan — detail di bawah.';
+            wrap.appendChild(warn);
+        }
+        upCombined.forEach(function(dt, di) {
+            var box = document.createElement('div'); box.className = 'up-result';
+            var head = document.createElement('div'); head.className = 'up-result-head';
+            var dtTotal = 0;
+            dt.whitelists.forEach(function(w) { dtTotal += w.total_spending; });
+            head.innerHTML = '<span style="font-size:1rem;">📅</span>'
+                + '<span class="name">' + fmtTgl(dt.tanggal) + '</span>'
+                + '<span class="clay-badge clay-badge-green" style="margin-left:auto;">Rp ' + fmtNum(dtTotal) + '</span>';
+            box.appendChild(head);
+            dt.whitelists.forEach(function(w, wi) {
+                var wlEl = document.createElement('div'); wlEl.className = 'up-group';
+                wlEl.dataset.di = di; wlEl.dataset.wi = wi;
+                var chips = w.products.map(function(p) {
+                    return '<span class="up-prod-chip" style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;">'
+                        + '<span>📦 ' + esc(p.product_name) + '</span>'
+                        + '<span style="font-weight:800;">💸 Rp ' + fmtNum(p.spending) + '</span>'
+                        + '<span style="font-size:.64rem;color:#6b7280;">👤 ' + fmtNum(p.lead) + ' · 💳 ' + fmtNum(p.paid) + '</span>'
+                        + '</span>';
+                }).join('');
+                wlEl.innerHTML = '<div class="up-group-row">'
+                    + '<label class="up-group-check"><input type="checkbox" checked> Terapkan</label>'
+                    + '<span class="clay-badge clay-badge-purple" style="flex-shrink:0;">WL ' + esc(w.whitelist.kode) + '</span>'
+                    + '<strong style="font-size:.78rem;color:#1e1b2e;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(w.whitelist.nama) + '</strong>'
+                    + '<span style="margin-left:auto;font-size:.7rem;color:#6b7280;white-space:nowrap;">Rp ' + fmtNum(w.total_spending) + ' · 👤 ' + fmtNum(w.total_lead) + ' · 💳 ' + fmtNum(w.total_paid) + '</span>'
+                    + '</div><div class="up-prods">' + chips + '</div>';
+                box.appendChild(wlEl);
+            });
+            wrap.appendChild(box);
+        });
+        if (upRegUnmatched && upRegUnmatched.length) {
+            var um = document.createElement('div'); um.className = 'up-warn'; um.style.marginTop = '10px';
+            um.innerHTML = '⚠️ Baris regional tak dikenal:<ul style="margin:4px 0 0 16px;padding:0;">'
+                + upRegUnmatched.slice(0,8).map(function(u) { return '<li>' + esc(u) + '</li>'; }).join('')
+                + (upRegUnmatched.length > 8 ? '<li>…dan ' + (upRegUnmatched.length-8) + ' lainnya</li>' : '')
+                + '</ul>';
+            wrap.appendChild(um);
+        }
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) {
+            applyBtn.disabled = totalDates === 0;
+            applyBtn.innerHTML = totalDates ? ('💾 Simpan ke Server (' + totalProducts + ' produk)') : '💾 Simpan ke Server';
+        }
+    }
+
+    // ─── Apply: kirim langsung ke server (spending.store) ───
+    function applyResults() {
+        if (!upCombined.length) return;
+        var items = [];
+        upCombined.forEach(function(dt, di) {
+            dt.whitelists.forEach(function(w, wi) {
+                var row = document.querySelector('#up-results .up-group[data-di="' + di + '"][data-wi="' + wi + '"]');
+                if (!row) return;
+                var cb = row.querySelector('.up-group-check input');
+                if (cb && !cb.checked) return;
+                w.products.forEach(function(p) {
+                    items.push({
+                        tanggal: dt.tanggal,
+                        product_id: p.product_id,
+                        whitelist_id: w.whitelist.id,
+                        spending: p.spending,
+                        lead: p.lead,
+                        paid: p.paid
+                    });
+                });
+            });
+        });
+        if (!items.length) { showFlash('⚠️ Tidak ada data yang dipilih. Centang minimal 1 baris.'); return; }
+
+        var applyBtn = document.getElementById('up-apply');
+        if (applyBtn) { applyBtn.disabled = true; applyBtn.innerHTML = '<span class="spinner-sm"></span> Menyimpan…'; }
+
+        // Build form data for POST
+        var fd = new FormData();
+        items.forEach(function(item, idx) {
+            fd.append('items[' + idx + '][tanggal]', item.tanggal);
+            fd.append('items[' + idx + '][product_id]', item.product_id);
+            fd.append('items[' + idx + '][whitelist_id]', item.whitelist_id);
+            fd.append('items[' + idx + '][spending]', item.spending);
+            fd.append('items[' + idx + '][lead]', item.lead);
+            fd.append('items[' + idx + '][paid]', item.paid);
+        });
+
+        fetch(STORE_URL, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': CSRF },
+            body: fd
+        })
+        .then(function(r) {
+            if (r.redirected || r.ok) {
+                closeUploadModal();
+                showFlash('✅ ' + items.length + ' data spending berhasil disimpan!');
+                setTimeout(function() { window.location.reload(); }, 1200);
+            } else {
+                return r.json().then(function(d) {
+                    throw new Error(d.message || 'Gagal menyimpan');
+                });
+            }
+        })
+        .catch(function(err) {
+            if (applyBtn) { applyBtn.disabled = false; applyBtn.innerHTML = '💾 Simpan ke Server'; }
+            showFlash('❌ ' + (err.message || 'Gagal menyimpan data. Coba lagi.'));
+        });
+    }
+
+    // Init on DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initUploadModal);
+    } else {
+        initUploadModal();
+    }
+})();
+</script>
+@endpush
 @endsection
+
+@push('body-end')
+{{-- ═══════════════ MODAL PILIH METODE INPUT ═══════════════ --}}
+<div class="dc-modal" id="modal-input-method" role="dialog" aria-modal="true" aria-labelledby="im-title">
+    <div class="dc-backdrop" onclick="closeInputMethodModal()"></div>
+    <div class="dc-container" style="max-width:420px;">
+        <div class="dc-header">
+            <h2 id="im-title">💸 Input Spending</h2>
+            <button class="dc-close" onclick="closeInputMethodModal()" type="button">✕</button>
+        </div>
+        <div class="dc-body" style="padding:20px;">
+            <p style="font-size:.82rem;color:#4b5563;margin-bottom:16px;text-align:center;">Pilih metode input spending:</p>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <button type="button" onclick="closeInputMethodModal();openUploadModal();"
+                        style="display:flex;align-items:center;gap:14px;padding:16px 18px;border:2px solid #e5e7eb;border-radius:14px;background:#fff;cursor:pointer;text-align:left;transition:all .15s;"
+                        onmouseenter="this.style.borderColor='#22c55e';this.style.background='#f0fdf4'"
+                        onmouseleave="this.style.borderColor='#e5e7eb';this.style.background='#fff'">
+                    <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#16a34a,#22c55e);display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;">📤</span>
+                    <div>
+                        <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;">Input Otomatis dari META</div>
+                        <div style="font-size:.72rem;color:#6b7280;margin-top:2px;">Upload file export Meta Ads Manager — spending, lead & paid terisi otomatis</div>
+                    </div>
+                </button>
+                <button type="button" onclick="closeInputMethodModal();window.location.href='{{ route('spending.create') }}'"
+                        style="display:flex;align-items:center;gap:14px;padding:16px 18px;border:2px solid #e5e7eb;border-radius:14px;background:#fff;cursor:pointer;text-align:left;transition:all .15s;"
+                        onmouseenter="this.style.borderColor='#FF6B6B';this.style.background='#fff7f7'"
+                        onmouseleave="this.style.borderColor='#e5e7eb';this.style.background='#fff'">
+                    <span style="width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#FF6B6B,#ff9a9a);display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;">✏️</span>
+                    <div>
+                        <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;">Input Manual</div>
+                        <div style="font-size:.72rem;color:#6b7280;margin-top:2px;">Catat spending, lead & paid secara manual — seret produk & centang whitelist</div>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- ═══════════════ MODAL UPLOAD META ADS (dari halaman Index) ═══════════════ --}}
+<div id="upload-modal" role="dialog" aria-modal="true" aria-labelledby="up-title">
+    <div class="up-backdrop"></div>
+    <div class="up-panel">
+        <div class="up-head">
+            <div>
+                <div id="up-title" style="font-weight:800;font-size:1rem;color:#1e1b2e;">📤 Upload Excel Meta Ads</div>
+                <div style="font-size:.72rem;color:#9ca3af;">Bulk upload — 1 file = 1 akun whitelist untuk satu periode laporan</div>
+            </div>
+            <button type="button" class="up-x" id="up-close" title="Tutup">✕</button>
+        </div>
+        <div class="up-body">
+            <div class="up-format-hint">
+                <strong>2 file wajib unggah:</strong><br>
+                <strong>1 · Excel Ads Manager</strong> → spending. Nama file memuat kode whitelist + rentang tanggal
+                (<code>OO---13722---...---5-Agu-2026---5-Agu-2026.xlsx</code>); nama kampanye diawali kode produk
+                (<code>KSP - tes konten - 7/8/26</code>); spending dari kolom <em>"Jumlah yang dibelanjakan (IDR)"</em>.<br>
+                <strong>2 · Excel Regional</strong> → lead & paid. Kolom <em>"product"</em> berbentuk
+                <code>P.1 - Kacamata ... - 22760</code> (kode teritorial - nama produk - kode whitelist), kolom
+                <em>"payment_status"</em> (baris = lead, "paid" = paid), kolom <em>"created_at"</em> (tanggal).
+            </div>
+            <div class="up-dual">
+                <div class="up-col">
+                    <div class="up-col-head">
+                        <span class="tag">1</span>
+                        <span>Ads Manager</span>
+                        <span class="sub">💸 Spending</span>
+                    </div>
+                    <div id="up-dropzone" class="up-dropzone">
+                        <div style="font-size:1.4rem;">📁</div>
+                        <div style="font-weight:700;color:#1e1b2e;font-size:.82rem;">Seret file export Ads Manager</div>
+                        <div style="font-size:.7rem;color:#9ca3af;">atau</div>
+                        <button type="button" class="clay-btn clay-btn-outline" id="up-browse" style="margin-top:6px;padding:6px 14px;font-size:.75rem;">Pilih File…</button>
+                        <div style="font-size:.62rem;color:#9ca3af;margin-top:6px;">Bisa banyak file (maks 20 · .xlsx/.xls/.csv · 10MB/file)</div>
+                    </div>
+                    <input type="file" id="up-file-input" multiple accept=".xlsx,.xls,.csv" hidden>
+                    <div id="up-file-list" class="up-file-list"></div>
+                </div>
+                <div class="up-col">
+                    <div class="up-col-head">
+                        <span class="tag">2</span>
+                        <span>Regional</span>
+                        <span class="sub">👤 Lead & 💳 Paid</span>
+                    </div>
+                    <div id="reg-dropzone" class="up-dropzone">
+                        <div style="font-size:1.4rem;">🗺️</div>
+                        <div style="font-weight:700;color:#1e1b2e;font-size:.82rem;">Seret file export regional</div>
+                        <div style="font-size:.7rem;color:#9ca3af;">atau</div>
+                        <button type="button" class="clay-btn clay-btn-outline" id="reg-browse" style="margin-top:6px;padding:6px 14px;font-size:.75rem;">Pilih File…</button>
+                        <div style="font-size:.62rem;color:#9ca3af;margin-top:6px;">Kolom product / payment_status / created_at</div>
+                    </div>
+                    <input type="file" id="reg-file-input" multiple accept=".xlsx,.xls,.csv" hidden>
+                    <div id="reg-file-list" class="up-file-list"></div>
+                </div>
+            </div>
+            <div id="up-actions" style="display:none;margin-top:14px;">
+                <button type="button" class="clay-btn clay-btn-primary" id="up-parse" style="width:100%;justify-content:center;">🔍 Proses & Parsing</button>
+            </div>
+            <div id="up-results"></div>
+        </div>
+        <div class="up-foot">
+            <button type="button" class="clay-btn clay-btn-outline" id="up-cancel">Batal</button>
+            <button type="button" class="clay-btn clay-btn-primary" id="up-apply" disabled>💾 Simpan ke Server</button>
+        </div>
+    </div>
+</div>
+@endpush
+

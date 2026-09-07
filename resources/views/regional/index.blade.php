@@ -120,22 +120,7 @@
         gap: 10px; padding: 14px 24px; border-top: 1px solid #e5e7eb; flex-shrink: 0;
     }
 
-    /* ── Dropzone ────────────────────────────────── */
-    .dropzone {
-        border: 2px dashed #d1d5db; border-radius: 14px;
-        padding: 44px 20px; text-align: center;
-        transition: all .25s ease; cursor: pointer; background: #fafafa;
-    }
-    .dropzone:hover, .dropzone.drag-over {
-        border-color: var(--color-primary, #FF6B6B); background: #fef2f2;
-    }
-    .dropzone.has-file {
-        border-color: #059669; background: #f0fdf4;
-    }
-    .dropzone-icon { font-size: 2.8rem; margin-bottom: 6px; display: block; }
-    .dropzone-title { font-weight: 700; font-size: .9rem; color: #374151; }
-    .dropzone-hint  { font-size: .72rem; color: #9ca3af; margin-top: 2px; }
-    .dropzone-file  { font-size: .78rem; color: #059669; font-weight: 600; margin-top: 6px; }
+    /* Dropzone styles — centralized in clay.css (clay-dropzone) */
 
     /* ── Upload error ────────────────────────────── */
     .upload-error {
@@ -209,9 +194,165 @@
         font-size: .62rem; font-weight: 600; text-transform: uppercase;
         color: #9ca3af; margin-top: 2px;
     }
+    .preview-testing-note {
+        grid-column: 1 / -1; text-align: left;
+        background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+        padding: 8px 12px; font-size: .74rem; font-weight: 600; color: #92400e;
+    }
     .preview-alert {
         background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px;
         padding: 10px 14px; font-size: .78rem; color: #991b1b; margin-bottom: 12px;
+    }
+
+    /* ── Overview: Chart (kiri) + Summary 2×2 (kanan) ── */
+    .reg-overview {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        align-items: stretch;
+    }
+    .reg-chart-card {
+        background: #fff; border-radius: 16px; padding: 18px 20px 0;
+        border: 1px solid rgba(0,0,0,.06);
+        box-shadow: 0 1px 3px rgba(0,0,0,.04);
+        display: flex; flex-direction: column;
+        overflow: hidden;
+    }
+    .reg-chart-header {
+        display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; flex-shrink: 0;
+    }
+    .reg-chart-title { font-weight: 800; font-size: .88rem; color: #1e1b2e; }
+    .reg-chart-sub { font-size: .68rem; color: #9ca3af; }
+    /* Scrollable bars area */
+    .reg-chart-scroll {
+        flex: 1; min-height: 0; overflow-y: auto;
+        scrollbar-width: thin; scrollbar-color: #d1d5db transparent;
+    }
+    .reg-chart-scroll::-webkit-scrollbar { width: 5px; }
+    .reg-chart-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+    .reg-chart-scroll::-webkit-scrollbar-track { background: transparent; }
+    .reg-chart-body { position: relative; width: 100%; }
+    .reg-chart-body canvas { width: 100% !important; display: block; }
+
+    .reg-summary-grid {
+        display: grid; grid-template-columns: repeat(2, 1fr);
+        grid-template-rows: 1fr 1fr; gap: 12px;
+    }
+    .reg-summary-card {
+        display: flex; align-items: center; gap: 14px;
+        background: #fff; border-radius: 16px; padding: 16px 18px;
+        border: 1px solid rgba(0,0,0,.06);
+        box-shadow: 0 1px 3px rgba(0,0,0,.04);
+        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        position: relative; overflow: hidden;
+    }
+    .reg-summary-card::after {
+        content: ''; position: absolute; right: -18px; top: -18px;
+        width: 74px; height: 74px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,107,107,.10), transparent 70%);
+        opacity: 0; transition: opacity .2s ease;
+    }
+    .reg-summary-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 24px rgba(0,0,0,.09);
+        border-color: rgba(255,107,107,.25);
+    }
+    .reg-summary-card:hover::after { opacity: 1; }
+    .reg-sc-icon {
+        width: 46px; height: 46px; border-radius: 13px; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.25rem; box-shadow: 0 4px 10px rgba(0,0,0,.08);
+    }
+    .reg-sc-purple { background: linear-gradient(135deg, #a78bfa, #8b5cf6); }
+    .reg-sc-teal   { background: linear-gradient(135deg, #4ECDC4, #2dd4bf); }
+    .reg-sc-amber  { background: linear-gradient(135deg, #f59e0b, #fbbf24); }
+    .reg-sc-red    { background: linear-gradient(135deg, #FF6B6B, #ff9a9a); }
+    .reg-sc-body { min-width: 0; }
+    .reg-sc-label {
+        font-size: .62rem; font-weight: 800; text-transform: uppercase;
+        letter-spacing: .06em; color: #9ca3af;
+    }
+    .reg-sc-value {
+        font-size: 1.18rem; font-weight: 800; color: #1e1b2e;
+        margin-top: 2px; white-space: nowrap; line-height: 1.2;
+    }
+    .reg-sc-sub {
+        font-size: .66rem; color: #9ca3af; margin-top: 3px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    @media (max-width: 900px) {
+        .reg-overview { grid-template-columns: 1fr; }
+        .reg-chart-card { order: -1; }
+    }
+    @media (max-width: 560px) {
+        .reg-summary-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── FAB (horizontal pill bar) ──────────── */
+    .reg-fab-container {
+        position: fixed; bottom: 28px; right: 28px; z-index: 60;
+        margin-bottom: 20px;
+    }
+    .reg-fab-group {
+        display: flex; flex-direction: row; align-items: center; gap: 6px;
+        background: #fff;
+        border-radius: 999px; padding: 5px 6px;
+        box-shadow: 0 4px 24px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.05);
+        animation: regFabIn .28s cubic-bezier(.4,0,.2,1);
+    }
+    @keyframes regFabIn {
+        from { opacity: 0; transform: translateY(12px) scale(.92); }
+        to   { opacity: 1; transform: none; }
+    }
+    .reg-fab-divider {
+        width: 1px; height: 22px; background: rgba(0,0,0,.1); flex-shrink: 0;
+    }
+    .reg-fab {
+        display: inline-flex; align-items: center; gap: 6px;
+        border: none; border-radius: 999px; padding: 10px 16px;
+        font-size: .78rem; font-weight: 700; cursor: pointer;
+        transition: all .2s ease; white-space: nowrap;
+        text-decoration: none; line-height: 1.2;
+        color: #fff; flex-shrink: 0;
+    }
+    .reg-fab:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .reg-fab:active { transform: translateY(0); filter: brightness(1); }
+    .reg-fab-primary { background: linear-gradient(135deg, #FF6B6B, #ff9a9a); box-shadow: 0 2px 8px rgba(255,107,107,.3); }
+    .reg-fab-icon { font-size: 1rem; line-height: 1; flex-shrink: 0; }
+    .reg-fab-label { font-size: .72rem; letter-spacing: .02em; }
+    /* DRP trigger inside FAB pill */
+    .reg-fab-drp-wrap { margin: 0; flex-shrink: 0; }
+    .reg-fab-drp-wrap form { margin: 0; padding: 0; }
+    .reg-fab-drp-wrap .drp-trigger {
+        border-radius: 999px !important; padding: 10px 16px !important;
+        background: linear-gradient(135deg, #8b5cf6, #a78bfa) !important;
+        color: #fff !important; border: none !important;
+        box-shadow: 0 2px 8px rgba(139,92,246,.3) !important;
+        gap: 6px !important; min-width: 0 !important;
+        font-size: .78rem !important; font-weight: 700 !important;
+        transition: all .2s ease !important; line-height: 1.2 !important;
+    }
+    .reg-fab-drp-wrap .drp-trigger:hover {
+        filter: brightness(1.1) !important; transform: translateY(-1px);
+    }
+    .reg-fab-drp-wrap .drp-trigger .drp-label { color: #fff !important; font-size: .72rem !important; }
+    .reg-fab-drp-wrap .drp-trigger span:last-child { color: rgba(255,255,255,.55) !important; }
+    #main-content { padding-bottom: 90px !important; }
+
+    /* ── Mobile ────────────────────── */
+    @media (max-width: 640px) {
+        .reg-fab-container { left: 12px; right: 12px; bottom: 12px; }
+        .reg-fab-group { padding: 4px 5px; justify-content: center; }
+        .reg-fab { padding: 8px 12px; font-size: .72rem; }
+        .reg-fab-icon { font-size: .88rem; }
+        .reg-fab-drp-wrap .drp-trigger { padding: 8px 12px !important; font-size: .72rem !important; }
+        .reg-fab-divider { height: 18px; }
+        .reg-fab-label { display: none; }
+        .reg-chart-card { padding: 14px 14px 0; }
+        .reg-chart-body { min-height: 170px; }
+        .reg-summary-card { padding: 12px 14px; gap: 10px; }
+        .reg-sc-icon { width: 38px; height: 38px; font-size: 1rem; }
+        .reg-sc-value { font-size: 1rem; }
     }
 </style>
 @endpush
@@ -226,6 +367,7 @@
     <div class="clay-alert clay-alert-error" data-reveal>
         <span>🚨</span>
         <div style="flex:1;font-size:.83rem;">
+            @if(count($discrepancies) > 0)
             <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
             @if(count($discrepancies) > 5)
             <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
@@ -241,24 +383,39 @@
                 </div>
                 @endforeach
             </div>
+            @endif
+
+            @if(count($missingSpendingDates) > 0)
+            @if(count($discrepancies) > 0)
+            <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
+            @endif
+            <strong>Data Belum Ditambahkan</strong>
+            @if(count($missingSpendingDates) > 5)
+            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($missingSpendingDates) }} tanggal — scroll untuk melihat sisanya
+            </div>
+            @endif
+            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach(array_keys($missingSpendingDates) as $tgl)
+                @php
+                    $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+                @endphp
+                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                    📅 {{ $tglLbl }} —
+                    Belum mengisi data spending iklan tanggal {{ $tglLbl }}
+                </div>
+                @endforeach
+            </div>
+            @endif
         </div>
     </div>
     @endif
 
-    {{-- ─── Action Bar ──────────────────────────────── --}}
-    <div class="clay-card" style="padding:16px;" data-reveal>
+    {{-- ─── Action Bar (hanya Advertiser select + Reset) ── --}}
+    @if($advertisers->isNotEmpty())
+    <div class="clay-card" style="padding:14px 16px;" data-reveal>
         <form method="GET" action="{{ route('regional.index') }}" id="filter-form-reg"
               style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
-
-            <x-date-range-picker
-                :dari="$dari"
-                :sampai="$sampai"
-                form-id="filter-form-reg"
-                input-dari="dari"
-                input-sampai="sampai"
-            />
-
-            @if($advertisers->isNotEmpty())
             <div style="display:flex;flex-direction:column;gap:2px;">
                 <label style="font-size:.68rem;font-weight:600;color:#374151;">Pilih Advertiser</label>
                 <select name="user_id" onchange="this.form.submit()"
@@ -270,32 +427,80 @@
                     @endforeach
                 </select>
             </div>
-            @endif
-
-            <button type="button" class="clay-btn clay-btn-primary" id="btn-upload-modal">
-                📤 Upload File Excel
-            </button>
             <a href="{{ route('regional.index') }}" class="clay-btn clay-btn-outline">Reset</a>
         </form>
     </div>
+    @endif
 
-    {{-- ─── Ringkasan Total ─────────────────────────── --}}
-    <div class="grid-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:0;" data-reveal>
-        <div class="stat-card stat-card-1" style="padding:14px;">
-            <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Lead (Regional)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['lead'] }}">{{ $totalRegional['lead'] }}</div>
+    {{-- ─── Ringkasan Total + Chart (2 kolom) ─────────── --}}
+    @php
+        // Data chart: total lead per provinsi (yang punya lead > 0)
+        $provLeadTotals = [];
+        foreach ($matrix as $prov => $dates) {
+            $t = collect($dates)->sum('lead');
+            if ($t > 0) $provLeadTotals[$prov] = $t;
+        }
+        arsort($provLeadTotals);
+        // Chart hanya menampilkan 10 provinsi dengan total lead tertinggi.
+        // Data tabel/rangkuman tetap menggunakan seluruh provinsi.
+        $provLeadTotals = array_slice($provLeadTotals, 0, 10, true);
+        $chartProvinces = array_keys($provLeadTotals);
+        $chartLeads = array_values($provLeadTotals);
+        $periodeLabel = \Carbon\Carbon::parse($dari)->translatedFormat('d M Y') . ' – ' . \Carbon\Carbon::parse($sampai)->translatedFormat('d M Y');
+        if ($dari === $sampai) $periodeLabel = \Carbon\Carbon::parse($dari)->translatedFormat('d M Y');
+    @endphp
+    <div class="reg-overview" data-reveal>
+        {{-- KIRI: Chart Bar Lead per Provinsi --}}
+        <div class="reg-chart-card">
+            <div class="reg-chart-header">
+                <span class="reg-chart-title">📊 Top 10 Lead per Daerah</span>
+                <span class="reg-chart-sub">{{ $periodeLabel }}</span>
+            </div>
+            <div class="reg-chart-scroll" id="reg-chart-scroll">
+                <div class="reg-chart-body">
+                    <canvas id="regionalChart"></canvas>
+                </div>
+            </div>
         </div>
-        <div class="stat-card stat-card-2" style="padding:14px;">
-            <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Paid (Regional)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalRegional['paid'] }}">{{ $totalRegional['paid'] }}</div>
-        </div>
-        <div class="stat-card stat-card-3" style="padding:14px;">
-            <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Lead (Spending)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['lead'] }}">{{ $totalSpending['lead'] }}</div>
-        </div>
-        <div class="stat-card stat-card-4" style="padding:14px;">
-            <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Paid (Spending)</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ $totalSpending['paid'] }}">{{ $totalSpending['paid'] }}</div>
+
+        {{-- KANAN: 4 Kartu Summary (2×2) --}}
+        <div class="reg-summary-grid">
+            {{-- 1. Total Lead (Regional) --}}
+            <div class="reg-summary-card" title="Total lead dari data regional">
+                <div class="reg-sc-icon reg-sc-purple">👥</div>
+                <div class="reg-sc-body">
+                    <div class="reg-sc-label">Lead (Regional)</div>
+                    <div class="reg-sc-value" data-counter="{{ $totalRegional['lead'] }}">{{ $totalRegional['lead'] }}</div>
+                    <div class="reg-sc-sub">Dari file Excel regional</div>
+                </div>
+            </div>
+            {{-- 2. Total Paid (Regional) --}}
+            <div class="reg-summary-card" title="Total paid dari data regional">
+                <div class="reg-sc-icon reg-sc-teal">✅</div>
+                <div class="reg-sc-body">
+                    <div class="reg-sc-label">Paid (Regional)</div>
+                    <div class="reg-sc-value" style="color:#059669;" data-counter="{{ $totalRegional['paid'] }}">{{ $totalRegional['paid'] }}</div>
+                    <div class="reg-sc-sub">Dari file Excel regional</div>
+                </div>
+            </div>
+            {{-- 3. Total Lead (Spending) --}}
+            <div class="reg-summary-card" title="Total lead dari spending harian">
+                <div class="reg-sc-icon reg-sc-amber">📊</div>
+                <div class="reg-sc-body">
+                    <div class="reg-sc-label">Lead (Spending)</div>
+                    <div class="reg-sc-value" data-counter="{{ $totalSpending['lead'] }}">{{ $totalSpending['lead'] }}</div>
+                    <div class="reg-sc-sub">Dari data spending harian</div>
+                </div>
+            </div>
+            {{-- 4. Total Paid (Spending) --}}
+            <div class="reg-summary-card" title="Total paid dari spending harian">
+                <div class="reg-sc-icon reg-sc-red">💰</div>
+                <div class="reg-sc-body">
+                    <div class="reg-sc-label">Paid (Spending)</div>
+                    <div class="reg-sc-value" style="color:#ef4444;" data-counter="{{ $totalSpending['paid'] }}">{{ $totalSpending['paid'] }}</div>
+                    <div class="reg-sc-sub">Dari data spending harian</div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -424,8 +629,30 @@
     {{-- Info --}}
     <div style="display:flex;gap:10px;font-size:.72rem;color:#9ca3af;flex-wrap:wrap;">
         <span>📌 Kolom provinsi <strong>sticky</strong> — tetap terlihat saat scroll horizontal</span>
-        <span>🔄 Gunakan date picker untuk mengubah rentang tanggal</span>
-        <span>📤 Klik "Upload File Excel" untuk import data Regional</span>
+        <span>🔄 Gunakan FAB di kanan bawah untuk rentang tanggal & upload</span>
+    </div>
+</div>
+
+{{-- ═══════════════ FAB Container ═══════════════ --}}
+<div class="reg-fab-container" id="reg-fab-container">
+    <div id="reg-fab-default" class="reg-fab-group">
+        <button type="button" class="reg-fab reg-fab-primary" id="btn-upload-modal"
+                title="Upload File Excel">
+            <span class="reg-fab-icon">📤</span>
+            <span class="reg-fab-label">Upload</span>
+        </button>
+        <div class="reg-fab-divider"></div>
+        <div class="reg-fab-drp-wrap">
+            <form method="GET" action="{{ route('regional.index') }}" id="filter-form-reg-fab">
+                <x-date-range-picker
+                    :dari="$dari"
+                    :sampai="$sampai"
+                    form-id="filter-form-reg-fab"
+                    input-dari="dari"
+                    input-sampai="sampai"
+                />
+            </form>
+        </div>
     </div>
 </div>
 
@@ -556,6 +783,30 @@
     </div>
 </div>
 
+{{-- ═══════════════ KONFIRMASI SIMPAN (cek tanggal existing) ═══════════════ --}}
+<div class="modal-regional" id="modal-save-confirm">
+    <div class="modal-backdrop" id="save-confirm-backdrop"></div>
+    <div class="modal-container modal-container-sm" style="max-width:420px;">
+        <div class="modal-header">
+            <h2>💾 Konfirmasi Simpan</h2>
+            <button class="modal-close" id="save-confirm-close" type="button">✕</button>
+        </div>
+        <div class="modal-body" style="padding:20px 22px;">
+            <p style="font-size:.82rem;color:#374151;font-weight:600;margin:0 0 10px;">
+                Data akan disimpan pada tanggal berikut:
+            </p>
+            <div id="save-confirm-dates" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+            <div id="save-confirm-warning" style="display:none;margin-top:12px;padding:8px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:.72rem;color:#991b1b;font-weight:600;">
+                ⚠️ Beberapa tanggal sudah memiliki data — isian lama akan <strong>DIGANTI</strong> dengan data dari file ini.
+            </div>
+        </div>
+        <div class="modal-footer" style="justify-content:center;gap:12px;">
+            <button class="clay-btn clay-btn-outline" id="save-confirm-cancel" type="button">Batal</button>
+            <button class="clay-btn clay-btn-primary" id="save-confirm-yes" type="button">💾 Ya, Simpan</button>
+        </div>
+    </div>
+</div>
+
 {{-- ═══════════════ ALERT CS BELUM DITUGASKAN ═══════════════ --}}
 <div class="modal-regional" id="modal-cs-alert">
     <div class="modal-backdrop" id="cs-alert-backdrop"></div>
@@ -621,6 +872,7 @@
     let previewErrors = [];
     let previewPhoneContacts = [];
     let previewCsStats = []; // CS stats terbaru setelah edit
+    let previewSkippedTesting = 0; // lead produk Testing yang dilewati (tidak tampil di tabel)
 
     // ── Helpers ──────────────────────────────────────
     function formatNumber(n) { return n.toLocaleString('id-ID'); }
@@ -766,6 +1018,7 @@
                 previewData = json.data;
                 previewErrors = json.errors || [];
                 previewPhoneContacts = json.phone_contacts || [];
+                previewSkippedTesting = json.skipped_testing || 0;
                 // ─── Simpan CS stats dari preview ────
                 previewCsStats = [];
                 if (json.data.cs_by_date) {
@@ -817,6 +1070,14 @@
             '<div class="preview-stat"><div class="val">' + numDates + '</div><div class="lbl">Tanggal</div></div>' +
             (pcCount ? '<div class="preview-stat" style="background:#f0fdf4;"><div class="val" style="color:#059669;">' + formatNumber(pcCount) + '</div><div class="lbl">No Telepon</div></div>' : '') +
             (uniqueCs.length ? '<div class="preview-stat" style="background:#f0fdf4;"><div class="val" style="color:#059669;">' + uniqueCs.length + '</div><div class="lbl">CS Unik</div></div>' : '');
+
+        // Info produk Testing yang dilewati (tidak tampil di tabel regional)
+        if (previewSkippedTesting > 0) {
+            var skipNote = document.createElement('div');
+            skipNote.className = 'preview-testing-note';
+            skipNote.textContent = '🔬 ' + formatNumber(previewSkippedTesting) + ' lead produk Testing dilewati (tabel hanya menampilkan produk Running).';
+            statsEl.appendChild(skipNote);
+        }
 
         // Errors
         if (errors.length > 0) {
@@ -912,6 +1173,17 @@
     const delConfirmCancel = document.getElementById('delete-confirm-cancel');
     const delConfirmYes    = document.getElementById('delete-confirm-yes');
     const delConfirmInfo   = document.getElementById('delete-confirm-info');
+
+    // ── Konfirmasi Simpan (cek tanggal existing sebelum save) ──
+    const mSaveConfirm     = document.getElementById('modal-save-confirm');
+    const saveConfirmClose = document.getElementById('save-confirm-close');
+    const saveConfirmBackdrop = document.getElementById('save-confirm-backdrop');
+    const saveConfirmCancel = document.getElementById('save-confirm-cancel');
+    const saveConfirmYes   = document.getElementById('save-confirm-yes');
+    const saveConfirmDates = document.getElementById('save-confirm-dates');
+    const saveConfirmWarning = document.getElementById('save-confirm-warning');
+
+    let pendingSave = null; // { items, csStatsPayload, phoneContacts }
 
     let pendingDeleteId = null;
 
@@ -1070,8 +1342,6 @@
         }
 
         // ─── Kumpulkan CS stats ─────────────────────
-        previewSave.innerHTML = '<span class="spinner-sm"></span> Menyimpan...';
-
         var csStatsPayload = [];
         previewCsStats.forEach(function(cs) {
             csStatsPayload.push({
@@ -1082,7 +1352,84 @@
             });
         });
 
-        var saveData = { items: items, cs_stats: csStatsPayload, phone_contacts: previewPhoneContacts };
+        // ─── Cek tanggal yang SUDAH ada datanya → konfirmasi ──
+        // Tanggal yang sudah ada isian akan DIGANTI; yang baru akan DITAMBAH.
+        // (Pencegahan kasus "data nyasar ke tanggal lain": tanggal simpan
+        //  diambil persis dari tanggal yang terbaca di file preview.)
+        var checkData = { dates: Object.keys(dateSet) };
+        var advSelect = document.querySelector('select[name="user_id"]');
+        if (advSelect) checkData.user_id = advSelect.value;
+
+        fetch('{{ route('regional.check-existing') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+            },
+            body: JSON.stringify(checkData),
+        })
+        .then(function(res) {
+            if (!res.ok) return res.json().then(function(e) { throw new Error(e.message || 'Gagal'); });
+            return res.json();
+        })
+        .then(function(json) {
+            previewSave.disabled = false;
+            previewSave.innerHTML = '💾 Simpan Data';
+
+            var existing = json.existing_dates || [];
+            var existingSet = {};
+            existing.forEach(function(d) { existingSet[d] = true; });
+
+            var dates = Object.keys(dateSet).sort();
+            var html = '';
+            var hasExisting = false;
+            dates.forEach(function(tgl) {
+                var lbl = new Date(tgl + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                var isExisting = !!existingSet[tgl];
+                if (isExisting) hasExisting = true;
+                html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;font-size:.78rem;font-weight:600;'
+                     + (isExisting ? 'background:#fef2f2;color:#991b1b;' : 'background:#f0fdf4;color:#065f46;') + '">'
+                     + '📅 ' + lbl
+                     + '<span style="margin-left:auto;font-size:.64rem;font-weight:800;">'
+                     + (isExisting ? 'SUDAH ADA → AKAN DIGANTI' : 'BARU → AKAN DITAMBAH')
+                     + '</span></div>';
+            });
+            saveConfirmDates.innerHTML = html;
+            saveConfirmWarning.style.display = hasExisting ? '' : 'none';
+
+            pendingSave = { items: items, csStatsPayload: csStatsPayload, phoneContacts: previewPhoneContacts };
+            mSaveConfirm.classList.add('active');
+        })
+        .catch(function(err) {
+            previewSave.disabled = false;
+            previewSave.innerHTML = '💾 Simpan Data';
+            alert('Gagal memeriksa tanggal: ' + err.message);
+        });
+    });
+
+    // ── Konfirmasi Simpan ───────────────────────────
+    function closeSaveConfirm() {
+        mSaveConfirm.classList.remove('active');
+        pendingSave = null;
+    }
+    saveConfirmClose.addEventListener('click', closeSaveConfirm);
+    saveConfirmBackdrop.addEventListener('click', closeSaveConfirm);
+    saveConfirmCancel.addEventListener('click', closeSaveConfirm);
+
+    saveConfirmYes.addEventListener('click', function() {
+        if (!pendingSave) return;
+        var p = pendingSave;
+        pendingSave = null;
+        closeSaveConfirm();
+        doSave(p.items, p.csStatsPayload, p.phoneContacts);
+    });
+
+    function doSave(items, csStatsPayload, phoneContacts) {
+        previewSave.disabled = true;
+        previewSave.innerHTML = '<span class="spinner-sm"></span> Menyimpan...';
+
+        var saveData = { items: items, cs_stats: csStatsPayload, phone_contacts: phoneContacts };
 
         // Kirim target_user_id jika ada selector advertiser
         var advSelect = document.querySelector('select[name="user_id"]');
@@ -1116,7 +1463,7 @@
             previewSave.disabled = false;
             previewSave.innerHTML = '💾 Simpan Data';
         });
-    });
+    }
 
 })();
 
@@ -1140,5 +1487,81 @@
     window.addEventListener('resize', apply);
 })();
 
+</script>
+@endpush
+
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+{{-- ── Chart Bar Horizontal: Lead per Daerah ── --}}
+(function() {
+    'use strict';
+    var canvas = document.getElementById('regionalChart');
+    var scrollWrap = document.getElementById('reg-chart-scroll');
+    if (!canvas) return;
+
+    var labels = @json($chartProvinces);
+    var leadData = @json($chartLeads);
+
+    if (!labels.length) return;
+
+    // Hitung tinggi canvas dinamis: 32px per bar + padding atas-bawah
+    var barHeight = 32;
+    var topPad = 10;
+    var bottomPad = 5;
+    var neededHeight = labels.length * barHeight + topPad + bottomPad;
+    canvas.parentElement.style.height = neededHeight + 'px';
+
+    var sharedScaleConfig = {
+        x: {
+            beginAtZero: true,
+            grid: { color: 'rgba(0,0,0,0.04)' },
+            ticks: { font: { size: 10 }, color: '#9ca3af', callback: function(v) { return v.toLocaleString('id-ID'); } }
+        },
+        y: {
+            grid: { display: false },
+            ticks: { font: { size: 10, weight: '600' }, color: '#1e1b2e', padding: 4 }
+        }
+    };
+
+    // 1) Main chart — bars only (x-axis hidden)
+    var mainChart = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Lead',
+                data: leadData,
+                backgroundColor: 'rgba(139,92,246,0.7)',
+                borderColor: '#8b5cf6',
+                borderWidth: 1,
+                borderRadius: 4,
+                maxBarThickness: 24
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1e1b2e',
+                    titleFont: { size: 12, weight: '700' },
+                    bodyFont: { size: 11 },
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) { return ' Lead: ' + ctx.parsed.x.toLocaleString('id-ID'); }
+                    }
+                }
+            },
+            scales: {
+                x: { ...sharedScaleConfig.x, display: false },
+                y: sharedScaleConfig.y
+            }
+        }
+    });
+})();
 </script>
 @endpush

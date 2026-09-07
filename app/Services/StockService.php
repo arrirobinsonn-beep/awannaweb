@@ -290,6 +290,30 @@ class StockService
     }
 
     /**
+     * Hapus jurnal untuk reference + banyak reference_id (batch) lalu hitung ulang stok.
+     */
+    public function reverseReferences(string $reference, array $referenceIds): void
+    {
+        if (empty($referenceIds)) {
+            return;
+        }
+
+        $variantIds = StockMovement::where('reference', $reference)
+            ->whereIn('reference_id', $referenceIds)
+            ->pluck('product_variant_id')
+            ->unique();
+
+        StockMovement::where('reference', $reference)
+            ->whereIn('reference_id', $referenceIds)
+            ->delete();
+
+        foreach ($variantIds as $id) {
+            $this->recalculateStock($id);
+            $this->syncVariantInventoryStocks($id);
+        }
+    }
+
+    /**
      * Sinkronkan cache stok per (varian × gudang) dari jurnal
      * (tabel product_variant_inventory). Jurnal tetap sumber kebenaran.
      */

@@ -71,36 +71,10 @@
     .bt-filter-bar select, .bt-filter-bar .clay-btn { font-size: .75rem; padding: 6px 10px; }
     .bt-filter-bar select { border: 1.5px solid #e5e7eb; border-radius: 10px; background: #fff; color: #374151; }
 
-    /* Modal reject (pola cr-modal) */
-    .bt-modal {
-        position: fixed; inset: 0; z-index: 9999;
-        display: none; align-items: center; justify-content: center; padding: 16px;
-    }
-    .bt-modal.active { display: flex; }
-    .bt-modal .bt-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.55); backdrop-filter: blur(2px); }
-    .bt-modal .bt-container {
-        position: relative; background: #fff; border-radius: 18px;
-        width: 100%; max-width: 760px; max-height: 92vh;
-        display: flex; flex-direction: column;
-        box-shadow: 0 25px 60px rgba(0,0,0,.25);
-        animation: btIn .22s ease;
-    }
-    @keyframes btIn {
-        from { opacity: 0; transform: translateY(10px) scale(.98); }
-        to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .bt-modal .bt-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
-        background: linear-gradient(135deg, #FFF5F5, #fff);
-    }
-    .bt-modal .bt-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
-    .bt-modal .bt-close { background: #f3f4f6; border: none; border-radius: 8px; width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280; }
-    .bt-modal .bt-body { padding: 16px 20px; overflow-y: auto; }
-    .bt-modal .bt-footer {
-        display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap;
-        padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
-    }
+    /* Modal overrides — base styles in clay.css */
+    .clay-modal .clay-modal-container.bt-lg { max-width: 760px; max-height: 92vh; }
+    .clay-modal .clay-modal-body.bt-body-dense { padding: 16px 20px; overflow-y: auto; }
+    .clay-modal .clay-modal-footer { flex-wrap: wrap; }
 
     @media (max-width: 479px) {
         .bt-table-wrap { overflow-x: auto; }
@@ -486,7 +460,7 @@
                         <td style="max-width:180px;">
                             @if($isApprover)
                             <div class="bt-desc-click" onclick="openBtDetail(this)"
-                                 data-img="{{ $bt->image_url ? asset('storage/'.$bt->image_url) : '' }}"
+                                 data-img="{{ $bt->image_url ? route('finance.bank-transfers.image', $bt) : '' }}"
                                  data-desc="{{ rawurlencode($bt->description ?? '') }}"
                                  data-dl="{{ $bt->image_url ? route('finance.bank-transfers.download', $bt) : '' }}"
                                  title="Klik untuk lihat foto & keterangan lengkap">
@@ -505,14 +479,14 @@
                             @if($bt->image_url)
                                 @if($isApprover)
                                 <a href="javascript:void(0)" onclick="openBtDetail(this)"
-                                   data-img="{{ asset('storage/'.$bt->image_url) }}"
+                                   data-img="{{ route('finance.bank-transfers.image', $bt) }}"
                                    data-desc="{{ rawurlencode($bt->description ?? '') }}"
                                    data-dl="{{ route('finance.bank-transfers.download', $bt) }}"
                                    title="Klik untuk lihat detail">
-                                    <img src="{{ asset('storage/'.$bt->image_url) }}" class="bt-img" alt="bukti">
+                                    <img src="{{ route('finance.bank-transfers.image', $bt) }}" class="bt-img" alt="bukti">
                                 </a>
                                 @else
-                                <img src="{{ asset('storage/'.$bt->image_url) }}" class="bt-img" alt="bukti" title="{{ $bt->description }}">
+                                <img src="{{ route('finance.bank-transfers.image', $bt) }}" class="bt-img" alt="bukti" title="{{ $bt->description }}">
                                 @endif
                             @else
                                 <span style="font-size:.7rem;color:#9ca3af;">—</span>
@@ -527,14 +501,17 @@
                             @endif
                         </td>
                         <td>
-                            @if($isApprover)
+                            @if(auth()->user()->hasRole('cs'))
+                                {{-- CS tidak punya tombol aksi apa pun --}}
+                                <span style="font-size:.68rem;color:#9ca3af;">—</span>
+                            @elseif($isApprover)
                                 @if($bt->isPending() || $bt->isConfirmed())
                                     {{-- Tolak: bisa dari pending atau confirmed --}}
                                     <button type="button" class="bt-act-btn bt-act-reject" id="bt-rej-{{ $bt->id }}"
                                             onclick="openBtReject({{ $bt->id }})">✕ Tolak</button>
                                 @endif
-                                @if($bt->isConfirmed())
-                                    {{-- Setujui: hanya dari confirmed --}}
+                                @if($bt->isConfirmed() || ($bt->isPending() && $bt->type === 'out'))
+                                    {{-- Setujui: confirmed (masuk) atau pending (keluar langsung approve) --}}
                                     <button type="button" class="bt-act-btn bt-act-approve"
                                             onclick="submitBt('{{ route('finance.bank-transfers.approve', $bt) }}', 'Setujui transfer Rp {{ number_format((float) $bt->amount, 0, ',', '.') }}?')">
                                         ✓ Setujui
@@ -586,16 +563,16 @@
 </div>
 
 {{-- ── Modal Reject ─────────────────────────────────────────────── --}}
-<div class="bt-modal" id="bt-modal" role="dialog" aria-modal="true" aria-labelledby="bt-modal-title">
-    <div class="bt-backdrop" onclick="closeBtReject()"></div>
-    <div class="bt-container">
-        <div class="bt-header">
+<div class="clay-modal" id="bt-modal" role="dialog" aria-modal="true" aria-labelledby="bt-modal-title">
+    <div class="clay-modal-backdrop" onclick="closeBtReject()"></div>
+    <div class="clay-modal-container bt-lg">
+        <div class="clay-modal-header">
             <h2 id="bt-modal-title">✕ Tolak Bukti Transfer</h2>
-            <button class="bt-close" onclick="closeBtReject()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeBtReject()" type="button">✕</button>
         </div>
         <form method="POST" id="bt-reject-form">
             @csrf
-            <div class="bt-body">
+            <div class="clay-modal-body bt-body-dense">
                 <div class="bt-form">
                     <div class="bt-field">
                         <label>Alasan Penolakan (feedback ke CS) *</label>
@@ -607,7 +584,7 @@
                     </div>
                 </div>
             </div>
-            <div class="bt-footer">
+            <div class="clay-modal-footer">
                 <button type="button" class="clay-btn clay-btn-outline" onclick="closeBtReject()">Batal</button>
                 <button type="submit" class="clay-btn clay-btn-primary">✕ Tolak & Kirim Feedback</button>
             </div>
@@ -616,14 +593,14 @@
 </div>
 
 {{-- ── Modal Detail Transaksi (foto + keterangan + download) ─────── --}}
-<div class="bt-modal" id="btd-modal" role="dialog" aria-modal="true" aria-labelledby="btd-modal-title">
-    <div class="bt-backdrop" onclick="closeBtDetail()"></div>
-    <div class="bt-container">
-        <div class="bt-header">
+<div class="clay-modal" id="btd-modal" role="dialog" aria-modal="true" aria-labelledby="btd-modal-title">
+    <div class="clay-modal-backdrop" onclick="closeBtDetail()"></div>
+    <div class="clay-modal-container bt-lg">
+        <div class="clay-modal-header">
             <h2 id="btd-modal-title">📄 Detail Transaksi</h2>
-            <button class="bt-close" onclick="closeBtDetail()" type="button">✕</button>
+            <button class="clay-modal-close" onclick="closeBtDetail()" type="button">✕</button>
         </div>
-        <div class="bt-body">
+        <div class="clay-modal-body bt-body-dense">
             <div style="display:flex;gap:16px;align-items:stretch;flex-wrap:wrap;">
                 <div id="btd-img-wrap" style="display:none;flex:1 1 220px;min-width:0;text-align:center;background:#f3f4f6;border-radius:14px;padding:10px;">
                     <img id="btd-img" src="" alt="bukti transfer" style="max-width:100%;max-height:62vh;object-fit:contain;border-radius:10px;">
@@ -634,7 +611,7 @@
                 </div>
             </div>
         </div>
-        <div class="bt-footer">
+        <div class="clay-modal-footer">
             <button type="button" class="clay-btn clay-btn-outline" id="btd-copy-buyer" onclick="copyBtBuyer(this)">👤 Salin Nama Buyer</button>
             <button type="button" class="clay-btn clay-btn-outline" id="btd-copy" onclick="copyBtDesc(this)">📋 Salin Keterangan</button>
             <a id="btd-download" class="clay-btn clay-btn-primary" download style="display:none;text-decoration:none;color:#fff;">⬇ Download Bukti</a>

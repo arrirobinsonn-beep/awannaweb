@@ -49,6 +49,11 @@ class Account extends Model
         return $this->hasMany(AccountTransfer::class, 'to_account_id');
     }
 
+    public function mobileDevices(): HasMany
+    {
+        return $this->hasMany(MobileDevice::class);
+    }
+
     /** Pemilik akun ini (via pivot account_owners) */
     public function owners(): BelongsToMany
     {

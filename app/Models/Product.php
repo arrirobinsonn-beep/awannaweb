@@ -23,12 +23,22 @@ class Product extends Model
         'selling_price',
         'unit',
         'status',
+        'ad_status',
     ];
 
     protected $casts = [
         'purchase_price' => 'decimal:2',
         'selling_price' => 'decimal:2',
         'min_stock' => 'integer',
+    ];
+
+    /** Status iklan: testing (fase uji coba) atau running (sudah aktif). */
+    public const AD_STATUS_TESTING = 'testing';
+    public const AD_STATUS_RUNNING = 'running';
+    public const AD_STATUSES = [self::AD_STATUS_TESTING, self::AD_STATUS_RUNNING];
+    public const AD_STATUS_LABELS = [
+        self::AD_STATUS_TESTING => 'Testing',
+        self::AD_STATUS_RUNNING => 'Running',
     ];
 
     /** Kategori barang gudang: consumable / core / additional. */
@@ -164,5 +174,23 @@ class Product extends Model
     public function scopeAktif($query)
     {
         return $query->where('status', 'active');
+    }
+
+    /** Scope: hanya produk ber-status iklan tertentu (testing/running). */
+    public function scopeAdStatus($query, string $adStatus)
+    {
+        return $query->where('ad_status', $adStatus);
+    }
+
+    /** Cek apakah produk ini produk testing. */
+    public function isTesting(): bool
+    {
+        return $this->ad_status === self::AD_STATUS_TESTING;
+    }
+
+    /** Cek apakah produk ini produk running. */
+    public function isRunning(): bool
+    {
+        return $this->ad_status === self::AD_STATUS_RUNNING;
     }
 }

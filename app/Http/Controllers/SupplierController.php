@@ -11,6 +11,24 @@ class SupplierController extends Controller
 {
     public function index(Request $request): View
     {
+        $suppliers = $this->getFilteredSuppliers($request, 10);
+
+        return view('supplier.index', compact('suppliers'));
+    }
+
+    public function filter(Request $request)
+    {
+        $suppliers = $this->getFilteredSuppliers($request, 10);
+
+        return response()->json([
+            'html' => view('supplier._table', compact('suppliers'))->render(),
+            'pagination' => $suppliers->links()->render(),
+            'total' => $suppliers->total(),
+        ]);
+    }
+
+    private function getFilteredSuppliers(Request $request, int $perPage)
+    {
         $query = Supplier::latest();
 
         if ($request->filled('search')) {
@@ -25,9 +43,7 @@ class SupplierController extends Controller
             $query->where('status', $request->status);
         }
 
-        $suppliers = $query->paginate(10)->withQueryString();
-
-        return view('supplier.index', compact('suppliers'));
+        return $query->paginate($perPage)->withQueryString();
     }
 
     public function create(): View

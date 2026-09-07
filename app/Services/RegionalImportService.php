@@ -2,13 +2,18 @@
 
 namespace App\Services;
 
+use App\Models\Product;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class RegionalImportService
 {
     /**
      * Baca file Excel dan parse ke array rows.
-     * Format kolom: province, payment_status, created_at (optional)
+     * Format kolom: province, payment_status, created_at (optional), product (optional).
+     *
+     * Kolom `product` (format "P.1 - Nama Produk - 22760") dipakai untuk mengetahui
+     * status iklan produk (running/testing): lead/paid produk TESTING TIDAK
+     * ditampilkan di tabel regional — hanya produk Running yang dihitung.
      */
     public function parseExcel(string $filePath): array
     {
@@ -31,11 +36,34 @@ class RegionalImportService
         $colCreatedAt = array_search('created_at', $headers);
         $colHandledBy = array_search('handled_by', $headers);
 
+        // Kolom produk (opsional) — dipakai utk atribusi status iklan (running/testing)
+        $colProduct = array_search('product', $headers);
+        if ($colProduct === false) {
+            foreach ($headers as $i => $h) {
+                if ($h !== '' && (str_contains($h, 'product') || str_contains($h, 'produk'))) {
+                    $colProduct = $i;
+
+                    break;
+                }
+            }
+        }
+
         if ($colProvince === false || $colPaymentStatus === false) {
             throw new \Exception(
                 'Kolom wajib tidak ditemukan. Dibutuhkan: "province" dan "payment_status". '
                 .'Kolom tersedia: '.implode(', ', $headers)
             );
+        }
+
+        // Matcher nama produk (sama dengan olah data halaman spending):
+        // exact → contains → levenshtein. Hanya dipakai bila kolom product ada.
+        $matcher = null;
+        $productIndex = [];
+        $productStatusMap = [];
+        if ($colProduct !== false) {
+            $matcher = new ProductNameMatcher();
+            $productIndex = $matcher->buildIndex();
+            $productStatusMap = Product::query()->pluck('ad_status', 'id')->all();
         }
 
         $masterProvinces = config('regional.master_provinces', []);
@@ -44,6 +72,7 @@ class RegionalImportService
         $parsed = [];
         $errors = [];
         $phoneContacts = []; // data phone → CS mapping
+        $skippedTesting = 0; // baris yang produknya ber-status iklan TESTING
 
         foreach ($rows as $idx => $row) {
             if ($idx === 0) {
@@ -87,11 +116,44 @@ class RegionalImportService
                 $handledBy = trim((string) ($row[$colHandledBy] ?? ''));
             }
 
+            // ─── Atribusi produk (status iklan running/testing) ───
+            // Nama produk dipecah 3 area dengan separator "-" (sama seperti
+            // parseRegionalFile halaman spending): area 1 = kode teritorial,
+            // area 2 = nama produk (dicocokkan ke products.name),
+            // area 3 = kode whitelist (diabaikan di halaman ini).
+            $productStatus = null;
+            if ($colProduct !== false) {
+                $rawProduct = trim((string) ($row[$colProduct] ?? ''));
+                if ($rawProduct !== '') {
+                    $parts = preg_split('/\s*-\s*/', $rawProduct);
+                    $parts = array_values(array_filter($parts, fn ($p) => $p !== ''));
+
+                    if (count($parts) >= 2) {
+                        $nameParts = array_slice($parts, 1, -1);
+                        $productName = trim(implode(' - ', $nameParts));
+                        if ($productName === '') {
+                            $productName = trim($parts[0]);
+                        }
+
+                        $prod = $matcher->match($productName, $productIndex);
+                        if ($prod) {
+                            $productStatus = $productStatusMap[$prod->id] ?? null;
+                        }
+                    }
+                }
+            }
+
+            if ($productStatus === Product::AD_STATUS_TESTING) {
+                $skippedTesting++;
+            }
+
             $parsed[] = [
                 'province' => $province,
                 'tanggal' => $tanggal,
                 'is_paid' => $isPaid,
                 'handled_by' => $handledBy,
+                'product_id' => null,
+                'product_status' => $productStatus,
             ];
 
             // ─── Ekstrak phone → CS mapping dari file yang sama ───
@@ -123,6 +185,7 @@ class RegionalImportService
             'data' => $parsed,
             'errors' => $errors,
             'total' => count($parsed),
+            'skipped_testing' => $skippedTesting,
             'phone_contacts' => array_values($uniquePhones),
         ];
     }
@@ -169,8 +232,16 @@ class RegionalImportService
         }
         ksort($csByDate);
 
-        // ─── Existing province grouping ───────────────────────
+        // ─── Province grouping — HANYA produk Running ─────────
+        $skippedTesting = 0;
         foreach ($parsedData as $row) {
+            // Lead/paid produk TESTING tidak diperlukan di detail per daerah
+            if (($row['product_status'] ?? null) === Product::AD_STATUS_TESTING) {
+                $skippedTesting++;
+
+                continue;
+            }
+
             $key = $row['tanggal'].'|'.$row['province'];
             if (! isset($grouped[$key])) {
                 $grouped[$key] = [
@@ -224,6 +295,7 @@ class RegionalImportService
             'total_lead' => $totalLead,
             'total_paid' => $totalPaid,
             'total_rows' => count($grouped),
+            'skipped_testing' => $skippedTesting,
             'cs_by_date' => $csByDate, // data CS stats per tanggal
         ];
     }

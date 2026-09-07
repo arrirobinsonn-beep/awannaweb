@@ -41,6 +41,7 @@ class SpendingBulkUpdateTest extends TestCase
             'code' => 'P'.strtoupper(substr(uniqid(), -6)),
             'name' => 'Produk Test',
             'status' => 'active',
+            'ad_status' => 'running',
         ]);
     }
 
