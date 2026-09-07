@@ -16,8 +16,8 @@
     .ba-summary small { font-size:.66rem; color:#9ca3af; font-weight:600; }
 
     .ba-team { margin-bottom:20px; }
-    .ba-team-head { background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; padding:12px 16px; border-radius:14px 14px 0 0; display:flex; justify-content:space-between; align-items:center; }
-    .ba-team-head h3 { margin:0; font-size:.85rem; font-weight:800; }
+    .ba-team-head { background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; padding:14px 18px; border-radius:0; display:flex; justify-content:space-between; align-items:center; }
+    .ba-team-head h3 { margin:0; font-size:.88rem; font-weight:800; }
     .ba-team-head small { font-size:.7rem; opacity:.8; }
     .ba-team-body { background:#fff; border:1.5px solid #f0e9e4; border-top:none; border-radius:0 0 14px 14px; overflow:hidden; }
 
@@ -50,6 +50,41 @@
     .ba-grand-total { background:linear-gradient(135deg,#065f46,#059669); color:#fff; padding:16px 20px; border-radius:14px; display:flex; justify-content:space-between; align-items:center; margin-top:16px; }
     .ba-grand-total h3 { margin:0; font-size:.9rem; font-weight:800; }
     .ba-grand-total .amount { font-size:1.3rem; font-weight:900; }
+
+    .ba-chips { display:flex; gap:0; flex-wrap:nowrap; overflow-x:auto; margin-bottom:0; -webkit-overflow-scrolling:touch; scrollbar-width:none; border-bottom:2px solid #f0e9e4; }
+    .ba-chips::-webkit-scrollbar { display:none; }
+    .ba-chip {
+        display:inline-flex; align-items:center; gap:10px;
+        padding:12px 20px; cursor:pointer; white-space:nowrap; flex-shrink:0;
+        background:#f9fafb; border:1.5px solid #e5e7eb; border-bottom:none;
+        border-radius:14px 14px 0 0; margin-right:-1px;
+        transition:all .2s ease; position:relative; font-size:.78rem;
+    }
+    .ba-chip:hover { background:#fff; border-color:#d1d5db; z-index:1; }
+    .ba-chip.active {
+        background:#fff; border-color:#f0e9e4; z-index:2;
+        box-shadow:0 -2px 8px rgba(0,0,0,.04);
+    }
+    .ba-chip.active::after {
+        content:''; position:absolute; bottom:-2px; left:0; right:0; height:3px;
+        background:#fff; border-radius:2px 2px 0 0;
+    }
+    .ba-chip-ic {
+        width:30px; height:30px; border-radius:10px;
+        background:linear-gradient(135deg,#ef4444,#f87171); color:#fff;
+        display:flex; align-items:center; justify-content:center;
+        font-size:.65rem; font-weight:800; flex-shrink:0;
+        box-shadow:0 2px 6px rgba(239,68,68,.3);
+    }
+    .ba-chip.active .ba-chip-ic {
+        background:linear-gradient(135deg,#dc2626,#ef4444);
+        box-shadow:0 3px 10px rgba(239,68,68,.4);
+    }
+    .ba-chip-info { display:flex; flex-direction:column; gap:1px; }
+    .ba-chip-name { font-weight:700; color:#1e1b2e; line-height:1.2; }
+    .ba-chip.active .ba-chip-name { color:#dc2626; }
+    .ba-chip-amount { font-size:.7rem; font-weight:600; color:#9ca3af; }
+    .ba-chip.active .ba-chip-amount { color:#6b7280; }
 </style>
 @endpush
 
@@ -115,9 +150,35 @@
 </div>
 @else
 
+<div class="clay-card" style="padding:0;overflow:visible;" data-reveal>
+{{-- Team chips --}}
+<div class="ba-chips">
+    <div class="ba-chip active" data-target="all" onclick="switchTeam(this)">
+        <div class="ba-chip-ic" style="background:linear-gradient(135deg,#6366f1,#818cf8);">ALL</div>
+        <div class="ba-chip-info">
+            <span class="ba-chip-name">Semua Tim</span>
+            <span class="ba-chip-amount">{{ $teams->count() }} tim</span>
+        </div>
+    </div>
+    @foreach($teams as $t)
+    @php
+        $initials = strtoupper(substr($t->advertiser->panggilan ?? $t->advertiser->nama, 0, 2));
+        $bonus = $t->potensi_bonus;
+        $bonusStr = $bonus >= 1000000 ? 'Rp '.number_format($bonus / 1000, 1, ',', '.').'k' : 'Rp '.number_format($bonus, 0, ',', '.');
+    @endphp
+    <div class="ba-chip active" data-target="team-{{ $t->advertiser->id }}" onclick="switchTeam(this)">
+        <div class="ba-chip-ic">{{ $initials }}</div>
+        <div class="ba-chip-info">
+            <span class="ba-chip-name">{{ $t->advertiser->panggilan ?? $t->advertiser->nama }}</span>
+            <span class="ba-chip-amount">{{ $bonusStr }}</span>
+        </div>
+    </div>
+    @endforeach
+</div>
+
 {{-- Teams --}}
 @foreach($teams as $team)
-<div class="ba-team" data-reveal data-team-name="{{ $team->advertiser->nama ?? '' }}">
+<div class="ba-team" data-reveal id="team-{{ $team->advertiser->id }}" data-team-name="{{ $team->advertiser->nama ?? '' }}">
     <div class="ba-team-head">
         <div>
             <h3>ALOKASI BONUS : TIM {{ strtoupper($team->advertiser->panggilan ?? $team->advertiser->nama) }}</h3>
@@ -211,11 +272,41 @@
     </div>
 </div>
 @endforeach
+</div>
 
 {{-- Grand total --}}
 <div class="ba-grand-total" data-reveal>
     <h3>TOTAL KESELURUHAN ({{ $teams->count() }} Tim)</h3>
     <div class="amount">Rp {{ number_format($grandTotal, 0, ',', '.') }}</div>
+</div>
+
+{{-- Rekap Pengeluaran Gaji & Bonus --}}
+<div class="clay-card" style="padding:16px;margin-top:16px;" data-reveal>
+    <div style="font-size:.85rem;font-weight:800;color:#1e1b2e;margin-bottom:12px;">📋 REKAP PENGELUARAN GAJI & BONUS</div>
+    <table class="ba-table">
+        <thead>
+            <tr>
+                <th style="width:36px;text-align:center;">NO</th>
+                <th>NAMA</th>
+                <th class="num">JUMLAH</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($recap as $i => $r)
+            <tr>
+                <td style="text-align:center;color:#9ca3af;">{{ $i + 1 }}</td>
+                <td style="font-weight:700;">{{ $r->name }}</td>
+                <td class="num" style="font-weight:800;color:#1e1b2e;">Rp {{ number_format($r->total_payment, 0, ',', '.') }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+        <tfoot>
+            <tr class="total-row">
+                <td colspan="2">TOTAL TIM</td>
+                <td class="num" style="font-weight:900;font-size:.85rem;">Rp {{ number_format($recap->sum('total_payment'), 0, ',', '.') }}</td>
+            </tr>
+        </tfoot>
+    </table>
 </div>
 
 @endif
@@ -277,6 +368,15 @@
             else { btn.textContent = '❌'; btn.disabled = false; }
         })
         .catch(() => { btn.textContent = '❌'; btn.disabled = false; });
+    };
+
+    window.switchTeam = function(chip) {
+        const targetId = chip.dataset.target;
+        document.querySelectorAll('.ba-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        document.querySelectorAll('.ba-team').forEach(t => {
+            t.style.display = (targetId === 'all' || t.id === targetId) ? '' : 'none';
+        });
     };
 })();
 </script>
