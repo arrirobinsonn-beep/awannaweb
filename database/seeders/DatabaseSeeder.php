@@ -22,6 +22,7 @@ class DatabaseSeeder extends Seeder
             TrackingHeaderMappingSeeder::class, // 8d. Mapping header CSV dashboard → kolom DB (dari training/templateTracking)
             ExportTemplateMappingSeeder::class, // 9. Mapping export template (FLIK/SiCepat/SPX)
             TransactionCategorySeeder::class, // 10. Kategori transaksi (Top Up, Pembelian, dll)
+            AccountSeeder::class,             // 11. Akun bank / cash / ewallet / aggregator
         ]);
     }
 }

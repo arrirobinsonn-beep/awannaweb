@@ -108,7 +108,7 @@ class PurchaseController extends Controller
                     ' → '.($purchase->inventory?->name ?? '-').
                     ($note ? ' — '.$note : ''),
                 auth()->id(),
-                (int) $purchase->inventory_id,
+                $purchase->inventory_id ? (int) $purchase->inventory_id : null,
             );
         });
 

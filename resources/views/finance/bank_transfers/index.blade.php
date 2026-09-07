@@ -289,8 +289,11 @@
                 <select name="category_id" id="bt-category" class="clay-input" required>
                     <option value="">— pilih kategori —</option>
                     @foreach($categories as $category)
+                        @php
+                            $autoSelected = ! $isApprover && $category->type === 'in' && strtolower($category->name) === 'bank transfer' && ! old('category_id');
+                        @endphp
                         <option value="{{ $category->id }}" data-type="{{ $category->type }}"
-                                {{ old('category_id') == $category->id ? 'selected' : '' }}>
+                                {{ ($autoSelected || old('category_id') == $category->id) ? 'selected' : '' }}>
                             {{ $category->name }}
                         </option>
                     @endforeach
@@ -313,7 +316,6 @@
             </div>
             </div>
 
-            {{-- Type: Masuk — Bukti Gambar --}}
             <div class="bt-type-fields {{ old('type') !== 'out' || ! $isApprover ? 'active' : '' }}" id="bt-type-in">
                 <div class="bt-field">
                     <label>Bukti Transfer (gambar) <span style="color:#dc2626;">*</span></label>
@@ -323,34 +325,6 @@
                         <button type="button" onclick="clearBtImage()" title="Hapus gambar">✕</button>
                     </div>
                     <div style="font-size:.66rem;color:#9ca3af;margin-top:3px;">JPG/PNG/WebP, maks 2MB.</div>
-                </div>
-            </div>
-
-            {{-- Type: Keluar — Produk, ID Order --}}
-            <div class="bt-type-fields {{ old('type') === 'out' && $isApprover ? 'active' : '' }}" id="bt-type-out">
-                <div class="bt-form-fields">
-                    <div class="bt-field">
-                        <label>Produk</label>
-                        <select name="product_id" class="clay-input">
-                            <option value="">— pilih produk —</option>
-                            @foreach($products as $product)
-                                <option value="{{ $product->id }}" {{ old('product_id') == $product->id ? 'selected' : '' }}>
-                                    {{ $product->code }} — {{ $product->name }}
-                                </option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div class="bt-field">
-                        <label>ID Order Online</label>
-                        <input type="text" name="order_online_id" class="clay-input" list="bt-order-ids" maxlength="100"
-                               value="{{ old('order_online_id') }}"
-                               placeholder="mis. CBC-101 — ketik atau pilih dari daftar">
-                        <datalist id="bt-order-ids">
-                            @foreach($orderIds as $oid)
-                                <option value="{{ $oid }}"></option>
-                            @endforeach
-                        </datalist>
-                    </div>
                 </div>
             </div>
 
@@ -750,22 +724,18 @@
     var typeSel = document.getElementById('bt-type');
     var catSel = document.getElementById('bt-category');
     var typeIn = document.getElementById('bt-type-in');
-    var typeOut = document.getElementById('bt-type-out');
 
     function syncType() {
         var type = typeSel ? typeSel.value : 'in';
 
-        /* Toggle type-specific field groups */
+        /* Toggle bukti gambar: hanya tampil saat type=in */
         if (typeIn) typeIn.classList.toggle('active', type === 'in');
-        if (typeOut) typeOut.classList.toggle('active', type === 'out');
 
         /* Clear hidden field values to prevent stale submits */
-        if (type === 'in' && typeOut) {
-            typeOut.querySelectorAll('input, select').forEach(function (el) {
-                if (el.name) el.value = '';
-            });
-        } else if (type === 'out' && typeIn) {
-            var img = typeIn.querySelector('input[type="file"]');
+        if (type === 'in') {
+            // nothing to clear — only bukti image remains
+        } else {
+            var img = typeIn ? typeIn.querySelector('input[type="file"]') : null;
             if (img) img.value = '';
             var preview = document.getElementById('bt-preview');
             if (preview) preview.style.display = 'none';
