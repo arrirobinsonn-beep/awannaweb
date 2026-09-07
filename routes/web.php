@@ -67,6 +67,7 @@ Route::middleware('auth')->group(function () {
         Route::put('/profil/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
 
         // Supplier
+        Route::get('/supplier/filter', [SupplierController::class, 'filter'])->name('supplier.filter');
         Route::resource('supplier', SupplierController::class)->names('supplier');
 
         // Produk & Varian — dikelola DI DALAM halaman Gudang (inventory otomatis = gudang yang dibuka)
@@ -238,24 +239,9 @@ Route::middleware('auth')->group(function () {
 
         // ── Keuangan (akun, kategori, transfer antar akun, bukti transfer) ──
         Route::prefix('keuangan')->name('finance.')->group(function () {
-            Route::resource('akun', FinanceAccountController::class)
-                ->except(['show'])
-                ->parameters(['akun' => 'account'])
-                ->names('accounts');
-            Route::patch('/akun/{account}/toggle', [FinanceAccountController::class, 'toggle'])->name('accounts.toggle');
 
-            Route::resource('kategori', FinanceCategoryController::class)
-                ->except(['show'])
-                ->parameters(['kategori' => 'category'])
-                ->names('categories');
-
-            Route::get('transfer', [FinanceTransferController::class, 'index'])->name('transfers.index');
-            Route::post('transfer', [FinanceTransferController::class, 'store'])->name('transfers.store');
-            Route::delete('transfer/{transfer}', [FinanceTransferController::class, 'destroy'])->name('transfers.destroy');
-
+            // Bukti Transfer — bisa diakses CS (hanya upload) & approver
             Route::get('bukti-transfer', [BankTransferController::class, 'index'])->name('bank-transfers.index');
-            Route::get('rekening-koran', [BankStatementController::class, 'index'])->name('bank-statement.index');
-            Route::get('rekening-koran/pdf', [BankStatementController::class, 'downloadPdf'])->name('bank-statement.pdf');
             Route::get('bukti-transfer/pending-count', [BankTransferController::class, 'pendingCount'])->name('bank-transfers.pending-count');
             Route::post('bukti-transfer', [BankTransferController::class, 'store'])->name('bank-transfers.store');
             Route::post('bukti-transfer/{bankTransfer}/confirm', [BankTransferController::class, 'confirm'])->name('bank-transfers.confirm');
@@ -265,6 +251,27 @@ Route::middleware('auth')->group(function () {
             Route::delete('bukti-transfer/{bankTransfer}', [BankTransferController::class, 'destroy'])->name('bank-transfers.destroy');
             Route::get('bukti-transfer/{bankTransfer}/image', [BankTransferController::class, 'serveImage'])->name('bank-transfers.image');
             Route::get('bukti-transfer/{bankTransfer}/download', [BankTransferController::class, 'download'])->name('bank-transfers.download');
+
+            // Keuangan lainnya — HANYA approver/keuangan (bukan CS)
+            Route::middleware('role:owner|super_admin|admin|keuangan|mentor')->group(function () {
+                Route::resource('akun', FinanceAccountController::class)
+                    ->except(['show'])
+                    ->parameters(['akun' => 'account'])
+                    ->names('accounts');
+                Route::patch('akun/{account}/toggle', [FinanceAccountController::class, 'toggle'])->name('accounts.toggle');
+
+                Route::resource('kategori', FinanceCategoryController::class)
+                    ->except(['show'])
+                    ->parameters(['kategori' => 'category'])
+                    ->names('categories');
+
+                Route::get('transfer', [FinanceTransferController::class, 'index'])->name('transfers.index');
+                Route::post('transfer', [FinanceTransferController::class, 'store'])->name('transfers.store');
+                Route::delete('transfer/{transfer}', [FinanceTransferController::class, 'destroy'])->name('transfers.destroy');
+
+                Route::get('rekening-koran', [BankStatementController::class, 'index'])->name('bank-statement.index');
+                Route::get('rekening-koran/pdf', [BankStatementController::class, 'downloadPdf'])->name('bank-statement.pdf');
+            });
 
             // Bonus
             Route::get('bonus', [BonusCalculationController::class, 'index'])->name('bonus.index');

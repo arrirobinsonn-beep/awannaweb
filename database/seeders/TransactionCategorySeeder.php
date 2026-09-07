@@ -14,6 +14,8 @@ class TransactionCategorySeeder extends Seeder
             ['name' => 'Pembelian Barang', 'type' => 'out'],
             ['name' => 'Transfer Antar Akun', 'type' => 'out'],
             ['name' => 'Pendapatan', 'type' => 'in'],
+            ['name' => 'Bank Transfer', 'type' => 'in'],
+            ['name' => 'Bank Transfer', 'type' => 'out'],
             ['name' => 'Lainnya', 'type' => 'in'],
             ['name' => 'Lainnya', 'type' => 'out'],
         ];

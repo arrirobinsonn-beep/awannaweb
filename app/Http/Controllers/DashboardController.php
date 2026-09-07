@@ -105,7 +105,7 @@ class DashboardController extends Controller
             ->where('tanggal', '<=', $sampai)
             ->groupBy('tanggal')->orderBy('tanggal')->get();
 
-        $chartStock14 = StockMovement::where('date', '>=', $dari)
+        $chartStock30 = StockMovement::where('date', '>=', $dari)
             ->where('date', '<=', $sampai)
             ->selectRaw('date,
                 SUM(CASE WHEN type=\'in\' THEN quantity ELSE 0 END) as masuk,
@@ -168,7 +168,7 @@ class DashboardController extends Controller
             'totalBalance', 'accounts', 'revenueBulan', 'spendingBulan',
             'pendingApproval', 'pendingBukti',
             'opsHariIni',
-            'chartRevenue30', 'chartSpending30', 'chartStock14',
+            'chartRevenue30', 'chartSpending30', 'chartStock30',
             'orderPerCourier', 'orderPerPayment',
             'topAdvertiser', 'spendingPerWhitelist',
             'recentOrders', 'recentShipments', 'recentPurchases', 'lowStockProducts', 'stats', 'dari', 'sampai'
@@ -237,7 +237,7 @@ class DashboardController extends Controller
             ->selectRaw('payment_method, COUNT(*) as jumlah')
             ->groupBy('payment_method')->orderByDesc('jumlah')->get();
 
-        $chartStock14 = StockMovement::where('date', '>=', $dari)
+        $chartStock30 = StockMovement::where('date', '>=', $dari)
             ->where('date', '<=', $sampai)
             ->selectRaw('date,
                 SUM(CASE WHEN type=\'in\' THEN quantity ELSE 0 END) as masuk,
@@ -267,7 +267,7 @@ class DashboardController extends Controller
             'stats', 'opsHariIni', 'revenueBulan',
             'pendingApproval',
             'chartRevenue30',
-            'chartStock14',
+            'chartStock30',
             'orderPerCourier', 'orderPerPayment',            'recentOrders', 'recentShipments', 'recentPurchases', 'lowStockProducts', 'dari', 'sampai'
         ));
     }
