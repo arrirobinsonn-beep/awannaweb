@@ -5,24 +5,6 @@
 
 @section('content')
 
-{{-- Filter --}}
-<div class="clay-card" style="padding:16px;margin-bottom:20px;" data-reveal>
-    <form method="GET" action="{{ route('spending.index') }}" id="filter-form-gen"
-          style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
-
-        <x-date-range-picker
-            :dari="$dari"
-            :sampai="$sampai"
-            form-id="filter-form-gen"
-            input-dari="dari"
-            input-sampai="sampai"
-            extra-inputs="<input type='hidden' name='tab' id='hidden-tab' value='{{ $activeTab }}'>"
-        />
-
-        <a href="{{ route('spending.index') }}" class="clay-btn clay-btn-outline">Reset</a>
-    </form>
-</div>
-
 @if($advertisers->isEmpty())
 <div class="clay-card" style="padding:48px;text-align:center;" data-reveal>
     <div style="font-size:2.5rem;margin-bottom:8px;">💸</div>
@@ -30,50 +12,166 @@
 </div>
 @else
 
-{{-- ── Folder Tabs ─────────────────────────────────────────────── --}}
-<div style="display:flex;flex-wrap:wrap;gap:0;align-items:flex-end;
+@php
+    // ── Persiapan kartu summary utk tab aktif ──
+    $pr = (float) ($summary['paid_ratio'] ?? 0);
+    $prFill = $pr >= 75 ? 'linear-gradient(90deg,#22c55e,#16a34a)'
+            : ($pr >= 50 ? 'linear-gradient(90deg,#fbbf24,#f59e0b)'
+            : 'linear-gradient(90deg,#ef4444,#dc2626)');
+    $periodeLabel = $dari === $sampai
+        ? \Carbon\Carbon::parse($dari)->translatedFormat('d M Y')
+        : \Carbon\Carbon::parse($dari)->translatedFormat('d M Y').' – '.\Carbon\Carbon::parse($sampai)->translatedFormat('d M Y');
+    $daysCount = $tabSummaries->count();
+    $daysLabel = $daysCount.' hari berisi data · '.$periodeLabel;
+    $conv = ($summary['lead'] ?? 0) > 0 ? round(($summary['paid'] ?? 0) / $summary['lead'] * 100, 1) : 0;
+
+    $tabKey = $activeTab === 'all' ? 'all' : (int) $activeTab;
+
+    // Link tab: pertahankan filter dari/sampai
+    $tabHref = function ($tab) {
+        $q = request()->query();
+        $q['tab'] = $tab;
+        return url()->current().'?'.http_build_query($q);
+    };
+@endphp
+
+{{-- ═══════════════ RINGKASAN PERIODE: CHART + 4 KARTU (ikut tab aktif) ═══════════════ --}}
+<div class="summary-overview" data-reveal>
+
+    {{-- KIRI: Chart Line Lead & Paid per Tanggal --}}
+    <div class="chart-card">
+        <div class="chart-header">
+            <span class="chart-title">📊 Tren Lead & Paid</span>
+            <span class="chart-sub">{{ $periodeLabel }} · Lead/Paid Running & Testing</span>
+        </div>
+        <div class="chart-body">
+            <canvas id="spendingChartGeneral"></canvas>
+        </div>
+    </div>
+
+    {{-- KANAN: 4 Card Summary (2×2) — data tab aktif --}}
+    <div class="summary-grid">
+        {{-- 1. Total Spending --}}
+        <div class="summary-card">
+            <div class="summary-icon sc-primary">💰</div>
+            <div class="summary-body">
+                <div class="summary-label">Total Spending</div>
+                <div class="summary-value">Rp {{ number_format($summary['spending'],0,',','.') }}</div>
+                <div class="summary-sub">{{ $daysLabel }}</div>
+            </div>
+        </div>
+
+        {{-- 2. Total Lead / Paid --}}
+        <div class="summary-card">
+            <div class="summary-icon sc-purple">👥</div>
+            <div class="summary-body">
+                <div class="summary-label">Total Lead / Paid</div>
+                <div class="summary-value">
+                    <span class="sc-lead">{{ number_format($summary['lead']) }}</span>
+                    <span class="sc-sep">/</span>
+                    <span class="sc-paid">{{ number_format($summary['paid']) }}</span>
+                </div>
+                <div class="summary-sub">Konversi {{ $conv }}% dari lead</div>
+            </div>
+        </div>
+
+        {{-- 3. CPA Lead / CPA Paid --}}
+        <div class="summary-card">
+            <div class="summary-icon sc-teal">📈</div>
+            <div class="summary-body">
+                <div class="summary-label">CPA Lead / Paid</div>
+                <div class="summary-value">
+                    <span class="sc-lead">Rp {{ number_format($summary['cpa_lead'],0,',','.') }}</span>
+                    <span class="sc-sep">/</span>
+                    <span class="sc-paid">Rp {{ number_format($summary['cpa_paid'],0,',','.') }}</span>
+                </div>
+                <div class="summary-sub">Biaya per lead & per pembayaran</div>
+            </div>
+        </div>
+
+        {{-- 4. Paid Ratio --}}
+        <div class="summary-card">
+            <div class="summary-icon sc-amber">🎯</div>
+            <div class="summary-body">
+                <div class="summary-label">Paid Ratio</div>
+                <div class="summary-value">{{ number_format($pr) }}%</div>
+                <div class="summary-ratio-track">
+                    <div class="summary-ratio-fill" style="{{ $prFill }}"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- ── Folder Tabs: "Semua spending" (paling kiri) + per advertiser ───────── --}}
+{{-- Carousel horizontal: tab lebih dari lebar tabel disembunyikan, geser untuk melihat --}}
+<div class="tab-scroll"
+     style="display:flex;gap:0;align-items:flex-end;
             margin-bottom:-2px;position:relative;z-index:2;" data-reveal>
+
+    <a href="{{ $tabHref('all') }}"
+       style="padding:9px 18px 11px;text-decoration:none;flex-shrink:0;white-space:nowrap;
+              border:2px solid {{ $activeTab === 'all' ? 'rgba(255,107,107,.25)' : 'rgba(0,0,0,.08)' }};
+              border-bottom:2px solid {{ $activeTab === 'all' ? '#fff' : 'rgba(0,0,0,.08)' }};
+              border-radius:14px 14px 0 0;
+              background:{{ $activeTab === 'all' ? '#fff' : '#f5f5f5' }};
+              font-family:inherit;font-size:.82rem;
+              font-weight:{{ $activeTab === 'all' ? '700' : '500' }};
+              color:{{ $activeTab === 'all' ? 'var(--color-primary,#FF6B6B)' : '#6b7280' }};
+              cursor:pointer;transition:all .2s;
+              display:flex;align-items:center;gap:8px;
+              margin-right:4px;position:relative;z-index:{{ $activeTab === 'all' ? 3 : 1 }};">
+        📋 Semua spending
+        <span style="font-size:.68rem;font-weight:600;padding:1px 7px;border-radius:999px;
+                     background:{{ $activeTab === 'all' ? 'rgba(255,107,107,.12)' : 'rgba(0,0,0,.06)' }};
+                     color:{{ $activeTab === 'all' ? 'var(--color-primary)' : '#9ca3af' }};">
+            Rp {{ number_format($allTotalSpending/1000,0,',','.') }}k
+        </span>
+    </a>
+
     @foreach($advertisers as $adv)
-    @php $isActive = ($activeTab == $adv->id); @endphp
-    <button onclick="switchFolder({{ $adv->id }})"
-            id="folder-tab-{{ $adv->id }}"
-            style="padding:9px 18px 11px;
-                   border:2px solid {{ $isActive?'rgba(255,107,107,.25)':'rgba(0,0,0,.08)' }};
-                   border-bottom:2px solid {{ $isActive?'#fff':'rgba(0,0,0,.08)' }};
-                   border-radius:14px 14px 0 0;
-                   background:{{ $isActive?'#fff':'#f5f5f5' }};
-                   font-family:inherit;font-size:.82rem;
-                   font-weight:{{ $isActive?'700':'500' }};
-                   color:{{ $isActive?'var(--color-primary,#FF6B6B)':'#6b7280' }};
-                   cursor:pointer;transition:all .2s;
-                   display:flex;align-items:center;gap:8px;
-                   margin-right:4px;position:relative;z-index:{{ $isActive?3:1 }};">
+    @php
+        $isActive = ($activeTab == $adv->id);
+        // Tab ber-warning merah bila advertiser ini punya ketidaksesuaian data
+        $hasDisc = ($dataPerAdvertiser[$adv->id]['has_discrepancy'] ?? false);
+        $tabBorder = $isActive
+            ? ($hasDisc ? 'rgba(239,68,68,.5)' : 'rgba(255,107,107,.25)')
+            : ($hasDisc ? 'rgba(239,68,68,.4)' : 'rgba(0,0,0,.08)');
+    @endphp
+    <a href="{{ $tabHref($adv->id) }}"
+       style="padding:9px 18px 11px;text-decoration:none;flex-shrink:0;white-space:nowrap;
+              border:2px solid {{ $tabBorder }};
+              border-bottom:2px solid {{ $isActive ? '#fff' : $tabBorder }};
+              border-radius:14px 14px 0 0;
+              background:{{ $isActive ? '#fff' : ($hasDisc ? '#fef2f2' : '#f5f5f5') }};
+              font-family:inherit;font-size:.82rem;
+              font-weight:{{ ($isActive || $hasDisc) ? '700' : '500' }};
+              color:{{ $hasDisc ? '#dc2626' : ($isActive ? 'var(--color-primary,#FF6B6B)' : '#6b7280') }};
+              cursor:pointer;transition:all .2s;
+              display:flex;align-items:center;gap:8px;
+              margin-right:4px;position:relative;z-index:{{ $isActive ? 3 : 1 }};">
+        @if($hasDisc)
+        <span style="font-size:.8rem;flex-shrink:0;" title="Ada ketidaksesuaian data">⚠️</span>
+        @endif
         <img src="{{ $adv->avatar_url }}"
              style="width:22px;height:22px;border-radius:6px;object-fit:cover;flex-shrink:0;
-                    border:{{ $isActive?'1.5px solid rgba(255,107,107,.3)':'1.5px solid #ddd' }};">
+                    border:{{ $isActive ? '1.5px solid '.($hasDisc ? 'rgba(239,68,68,.5)' : 'rgba(255,107,107,.3)') : '1.5px solid #ddd' }};">
         {{ $adv->display_name }}
-        @php $advTotal = $dataPerAdvertiser[$adv->id]['summaries']->sum('spending'); @endphp
-        <span style="font-size:.7rem;font-weight:600;padding:1px 7px;border-radius:999px;
-                     background:{{ $isActive?'rgba(255,107,107,.12)':'rgba(0,0,0,.06)' }};
-                     color:{{ $isActive?'var(--color-primary)':'#9ca3af' }};">
-            Rp {{ number_format($advTotal/1000,0,',','.') }}k
+        <span style="font-size:.68rem;font-weight:600;padding:1px 7px;border-radius:999px;
+                     background:{{ $hasDisc ? 'rgba(239,68,68,.12)' : ($isActive ? 'rgba(255,107,107,.12)' : 'rgba(0,0,0,.06)') }};
+                     color:{{ $hasDisc ? '#dc2626' : ($isActive ? 'var(--color-primary)' : '#9ca3af') }};">
+            Rp {{ number_format(($totalPerAdv[$adv->id] ?? 0)/1000,0,',','.') }}k
         </span>
-    </button>
+    </a>
     @endforeach
 </div>
 
-{{-- ── Konten Folder per Advertiser ────────────────────────────── --}}
-@foreach($advertisers as $adv)
-@php $data = $dataPerAdvertiser[$adv->id]; @endphp
+<div style="border:2px solid rgba(255,107,107,.18);border-radius:0 16px 16px 16px;
+            background:#fff;overflow:hidden;position:relative;z-index:1;" data-reveal>
 
-<div id="folder-content-{{ $adv->id }}"
-     style="display:{{ $activeTab==$adv->id?'block':'none' }};
-            border:2px solid rgba(255,107,107,.18);border-radius:0 16px 16px 16px;
-            background:#fff;overflow:hidden;position:relative;z-index:1;">
-
-
-    {{-- ⚠️ Alarm Banner per Advertiser — dua area: Ketidakselarasan & Belum Diisi --}}
-    @if($data['has_discrepancy'])
+    {{-- ⚠️ Banner discrepancy HANYA di tab advertiser (tab "Semua spending" cukup warning di tab) --}}
+    @if($activeTab !== 'all' && ($dataPerAdvertiser[(int) $activeTab]['has_discrepancy'] ?? false))
+    @php $data = $dataPerAdvertiser[(int) $activeTab]; @endphp
     <div class="clay-alert clay-alert-error" style="margin:12px 16px;" data-reveal>
         <span>🚨</span>
         <div style="flex:1;font-size:.78rem;">
@@ -98,29 +196,29 @@
             @php
                 $mSpend = collect($data['missing_spending_dates'] ?? [])->map(fn() => 'spending');
                 $mReg = collect($data['missing_regional_dates'] ?? [])->map(fn() => 'regional');
-                $allMissingGen = $mSpend->merge($mReg)->sortKeys()->all();
-                $totalMissingGen = count($allMissingGen);
+                $allMissing = $mSpend->merge($mReg)->sortKeys()->all();
+                $totalMissing = count($allMissing);
             @endphp
-            @if($totalMissingGen > 0)
+            @if($totalMissing > 0)
             @if(count($data['discrepancies']) > 0)
             <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:8px;padding-top:8px;"></div>
             @endif
-            <strong>Data Belum Diisi</strong>
-            @if($totalMissingGen > 5)
+            <strong>Data Belum Ditambahkan</strong>
+            @if($totalMissing > 5)
             <div style="margin-top:5px;font-size:.68rem;color:#b91c1c;font-weight:600;">
-                ⬇ Menampilkan 5 dari {{ $totalMissingGen }} tanggal — scroll untuk melihat sisanya
+                ⬇ Menampilkan 5 dari {{ $totalMissing }} tanggal — scroll untuk melihat sisanya
             </div>
             @endif
             <div style="margin-top:3px;max-height:102px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
-                @foreach(array_keys($allMissingGen) as $tgl)
+                @foreach(array_keys($allMissing) as $tgl)
                 @php
                     $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
-                    $src = $allMissingGen[$tgl];
+                    $src = $allMissing[$tgl];
                 @endphp
                 <div style="margin-top:3px;font-size:.74rem;line-height:1.45;">
                     📅 {{ $tglLbl }} —
                     @if($src === 'spending')
-                    Belum mengisi data spending iklan untuk tanggal {{ $tglLbl }}
+                    Belum mengisi data spending iklan tanggal {{ $tglLbl }}
                     @else
                     Data regional belum diisi untuk tanggal {{ $tglLbl }}
                     @endif
@@ -132,572 +230,267 @@
     </div>
     @endif
 
-    <div class="table-scroll">
-        <table class="clay-table">
-            <thead>
-                <tr>
-                    <th style="width:28px;"></th>
-                    <th>Tanggal</th>
-                    <th style="text-align:right;">Total Spending</th>
-                    <th style="text-align:right;">Lead</th>
-                    <th style="text-align:right;">Paid</th>
-                    <th style="text-align:right;">Paid Ratio</th>
-                    <th style="text-align:right;">CPA Lead</th>
-                    <th style="text-align:right;">CPA Paid</th>
-                </tr>
-            </thead>
-            <tbody>
-            @if($data['summaries']->isEmpty())
-            {{-- Empty state untuk advertiser tanpa data --}}
-            <tr>
-                <td colspan="8" style="text-align:center;padding:48px 16px;">
-                    <div style="font-size:2.5rem;margin-bottom:8px;">💸</div>
-                    <p style="color:#9ca3af;">Advertiser ini belum mencantumkan spending iklan apapun</p>
-                </td>
-            </tr>
-            @else
-
-            @foreach($data['summaries'] as $dateKey => $s)
-            @php
-                $lvl1 = 'g1-'.$adv->id.'-'.str_replace('-','',$dateKey);
-                $isDisc = isset($data['discrepant_dates'][$dateKey]);
-            @endphp
-
-            {{-- ── LEVEL 1: Baris Tanggal ──────────────────────── --}}
-            <tr onclick="tog('{{ $lvl1 }}')" style="cursor:pointer;background:{{ $isDisc?'#fff0f0':'' }};"
-                onmouseenter="this.style.background='{{ $isDisc?'#ffe0e0':'#fffbfb' }}'"
-                onmouseleave="this.style.background='{{ $isDisc?'#fff0f0':'' }}'">
-                <td style="text-align:center;padding:11px 8px;">
-                    <span id="chev-{{ $lvl1 }}"
-                          style="display:inline-block;transition:transform .22s;
-                                 color:#9ca3af;font-size:.78rem;">▶</span>
-                </td>
-                <td style="font-weight:700;font-size:.88rem;">
-                    @if($isDisc)<span style="color:#ef4444;margin-right:6px;">⚠️</span>@endif
-                    {{ $s['tanggal']->translatedFormat('l, d M Y') }}
-                    @if($isDisc)
-                    <span style="display:inline-block;background:#fef2f2;color:#dc2626;font-size:.6rem;font-weight:700;padding:0 6px;border-radius:999px;margin-left:6px;vertical-align:middle;">DATA TIDAK SESUAI</span>
-                    @endif
-                    <div style="font-size:.68rem;color:#9ca3af;font-weight:400;">
-                        {{ $s['total_produk'] }} produk diiklankan
-                    </div>
-                </td>
-                <td style="text-align:right;font-weight:800;color:var(--color-primary);white-space:nowrap;">
-                    Rp {{ number_format($s['spending'],0,',','.') }}
-                </td>
-                <td style="text-align:right;font-weight:700;color:var(--color-purple);">{{ number_format($s['lead']) }}</td>
-                <td style="text-align:right;font-weight:700;color:var(--color-secondary);">{{ number_format($s['paid']) }}</td>
-                <td style="text-align:right;">
-                    <span class="clay-badge {{ $s['paid_ratio']>=75?'clay-badge-green':($s['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}">
-                        {{ round($s['paid_ratio']) }}%
-                    </span>
-                </td>
-                <td style="text-align:right;font-size:.82rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($s['cpa_lead'],0,',','.') }}</td>
-                <td style="text-align:right;font-size:.82rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($s['cpa_paid'],0,',','.') }}</td>
-            </tr>
-
-            {{-- ── LEVEL 1 Expand ──────────────────────────────── --}}
-            <tr id="{{ $lvl1 }}" style="display:none;">
-                <td colspan="8" style="padding:0;background:#fafafa;
-                    border-top:2px dashed rgba(255,107,107,.1);">
-
-                    @foreach($s['by_product'] as $prodId => $prodData)
-                    @php $lvl2 = 'g2-'.$adv->id.'-'.str_replace('-','',$dateKey).'-'.$prodId; @endphp
-
-                    {{-- ── LEVEL 2: Header Produk ──────────────── --}}
-                    <div style="border-bottom:1px solid rgba(0,0,0,.05);">
-                        <div onclick="tog('{{ $lvl2 }}')"
-                             style="display:flex;align-items:center;gap:12px;
-                                    padding:10px 20px;cursor:pointer;transition:background .15s;"
-                             onmouseenter="this.style.background='#f3f4f6'"
-                             onmouseleave="this.style.background=''">
-
-                            {{-- Select-all whitelist produk ini (bulk delete) --}}
-                            <label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0;"
-                                   onclick="event.stopPropagation()"
-                                   title="Pilih semua whitelist produk ini untuk dihapus">
-                                <input type="checkbox" class="bd-check-all" data-prod="{{ $adv->id }}-{{ $dateKey }}-{{ $prodId }}">
-                            </label>
-
-                            <span id="chev-{{ $lvl2 }}"
-                                  style="display:inline-block;transition:transform .22s;
-                                         color:var(--color-secondary);font-size:.72rem;flex-shrink:0;">▶</span>
-
-                            <div style="flex:1;min-width:0;">
-                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                                    <span style="background:var(--color-secondary);color:#fff;
-                                                 font-size:.62rem;font-weight:700;padding:2px 8px;
-                                                 border-radius:999px;flex-shrink:0;">📦 Produk</span>
-                                    <span style="font-weight:700;font-size:.85rem;color:#1e1b2e;">
-                                        {{ $prodData['product']->name ?? 'Tidak Diketahui' }}
-                                    </span>
-                                    <span style="font-size:.68rem;color:#9ca3af;">
-                                        {{ $prodData['product']->code ?? '' }}
-                                    </span>
-                                    @if(($prodData['product']->ad_status ?? 'running') === 'testing')
-                                    <span style="display:inline-block;font-size:.58rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;">🔬 Testing</span>
-                                    @endif
-                                </div>
-                                <div style="font-size:.67rem;color:#9ca3af;margin-top:2px;padding-left:52px;">
-                                    {{ count($prodData['whitelists']) }} whitelist mengiklankan produk ini
-                                </div>
-                            </div>
-
-                            <div style="display:flex;gap:14px;flex-shrink:0;align-items:center;">
-                                <div style="text-align:right;">
-                                    <div style="font-size:.66rem;color:#9ca3af;">Spending</div>
-                                    <div style="font-weight:700;font-size:.82rem;color:var(--color-primary);white-space:nowrap;">
-                                        Rp {{ number_format($prodData['spending'],0,',','.') }}
-                                    </div>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div style="font-size:.66rem;color:#9ca3af;">Lead / Paid</div>
-                                    <div style="font-weight:700;font-size:.82rem;">
-                                        <span style="color:var(--color-purple);">{{ $prodData['lead'] }}</span>
-                                        <span style="color:#d1d5db;"> / </span>
-                                        <span style="color:var(--color-secondary);">{{ $prodData['paid'] }}</span>
-                                    </div>
-                                </div>
-                                <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
-                                      style="font-size:.67rem;">{{ round($prodData['paid_ratio']) }}%</span>
-                            </div>
-                        </div>
-
-                        {{-- ── LEVEL 3: Whitelist rows ──────────── --}}
-                        <div id="{{ $lvl2 }}"
-                             style="display:none;background:#fff;
-                                    border-top:1px dashed rgba(78,205,196,.2);">
-                            <table style="width:100%;">
-                                <thead>
-                                    <tr style="background:#f9fefe;">
-                                        <th style="padding:6px 20px 6px 36px;font-size:.64rem;font-weight:700;
-                                                   color:#9ca3af;text-transform:uppercase;text-align:left;
-                                                   border-bottom:1px solid rgba(0,0,0,.05);">Whitelist</th>
-                                        @foreach(['Spending','Lead','Paid','Paid Ratio','CPA Lead','CPA Paid'] as $h)
-                                        <th style="padding:6px 10px;font-size:.64rem;font-weight:700;
-                                                   color:#9ca3af;text-transform:uppercase;text-align:right;
-                                                   border-bottom:1px solid rgba(0,0,0,.05);">{{ $h }}</th>
-                                        @endforeach
-                                        <th style="padding:6px 10px;font-size:.64rem;font-weight:700;
-                                                   color:#9ca3af;text-transform:uppercase;text-align:center;
-                                                   border-bottom:1px solid rgba(0,0,0,.05);">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                @foreach($prodData['whitelists'] as $item)
-                                @php
-                                    $itemStatus = $item->status ?? 'pending';
-                                    $itemStatusClass = $itemStatus === 'approved' ? 'clay-badge-green' : 'clay-badge-yellow';
-                                    $canApprove = auth()->user()->hasRole(['owner','super_admin','keuangan','admin'])
-                                                  && $itemStatus !== 'approved';
-                                @endphp
-                                <tr onmouseenter="this.style.background='#f0fffe'"
-                                    onmouseleave="this.style.background=''">
-                                    <td style="padding:7px 20px 7px 36px;">
-                                        <div style="display:flex;align-items:center;gap:10px;">
-                                            {{-- Checkbox bulk delete --}}
-                                            <input type="checkbox" class="bd-check"
-                                                   data-id="{{ $item->id }}"
-                                                   data-prod="{{ $adv->id }}-{{ $dateKey }}-{{ $prodId }}"
-                                                   data-tanggal="{{ $dateKey }}"
-                                                   data-product-id="{{ $prodId }}"
-                                                   data-product-name="{{ $prodData['product']->name ?? '' }}"
-                                                   data-product-code="{{ $prodData['product']->code ?? '' }}"
-                                                   data-whitelist-name="{{ $item->whitelist->nama ?? '' }}"
-                                                   data-whitelist-code="{{ $item->whitelist->kode ?? '' }}"
-                                                   data-spending="{{ $item->spending }}"
-                                                   data-lead="{{ $item->lead }}"
-                                                   data-paid="{{ $item->paid }}"
-                                                   title="Pilih untuk dihapus"
-                                                   style="flex-shrink:0;">
-                                            <div style="min-width:0;">
-                                                <div style="font-weight:600;font-size:.8rem;">{{ $item->whitelist->nama ?? '-' }}</div>
-                                                <div style="font-size:.65rem;color:#9ca3af;">{{ $item->whitelist->kode ?? '' }}</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td style="padding:7px 10px;text-align:right;font-weight:700;
-                                               color:var(--color-primary);font-size:.78rem;white-space:nowrap;">
-                                        Rp {{ number_format($item->spending,0,',','.') }}
-                                    </td>
-                                    <td style="padding:7px 10px;text-align:right;font-size:.78rem;color:var(--color-purple);font-weight:700;">{{ $item->lead }}</td>
-                                    <td style="padding:7px 10px;text-align:right;font-size:.78rem;color:var(--color-secondary);font-weight:700;">{{ $item->paid }}</td>
-                                    <td style="padding:7px 10px;text-align:right;">
-                                        <span class="clay-badge {{ $item->paid_ratio>=75?'clay-badge-green':($item->paid_ratio>=50?'clay-badge-yellow':'clay-badge-red') }}"
-                                              style="font-size:.64rem;">{{ round($item->paid_ratio) }}%</span>
-                                    </td>
-                                    <td style="padding:7px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($item->cpa_lead,0,',','.') }}</td>
-                                    <td style="padding:7px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($item->cpa_paid,0,',','.') }}</td>
-                                    <td style="padding:7px 10px;text-align:center;">
-                                        <div style="display:flex;align-items:center;justify-content:center;gap:4px;">
-                                            <span class="clay-badge {{ $itemStatusClass }}" style="font-size:.62rem;">
-                                                {{ $itemStatus === 'approved' ? '✓ Approved' : 'Pending' }}
-                                            </span>
-                                            @if($canApprove)
-                                            <form method="POST" action="{{ route('spending.approve',$item) }}" style="margin:0;">
-                                                @csrf @method('PATCH')
-                                                <button type="submit" class="clay-btn clay-btn-secondary"
-                                                        style="padding:2px 7px;font-size:.62rem;line-height:1.4;"
-                                                        title="Setujui spending ini">✓</button>
-                                            </form>
-                                            @endif
-                                        </div>
-                                    </td>
-                                </tr>
-                                @endforeach
-                                {{-- Total baris produk --}}
-                                <tr style="background:#f0fffe;font-weight:700;">
-                                    <td style="padding:6px 20px 6px 36px;font-size:.74rem;color:var(--color-secondary);">Total</td>
-                                    <td style="padding:6px 10px;text-align:right;font-size:.78rem;color:var(--color-primary);white-space:nowrap;">Rp {{ number_format($prodData['spending'],0,',','.') }}</td>
-                                    <td style="padding:6px 10px;text-align:right;font-size:.78rem;color:var(--color-purple);">{{ $prodData['lead'] }}</td>
-                                    <td style="padding:6px 10px;text-align:right;font-size:.78rem;color:var(--color-secondary);">{{ $prodData['paid'] }}</td>
-                                    <td style="padding:6px 10px;text-align:right;">
-                                        <span class="clay-badge {{ $prodData['paid_ratio']>=75?'clay-badge-green':($prodData['paid_ratio']>=50?'clay-badge-yellow':'clay-badge-red') }}"
-                                              style="font-size:.64rem;">{{ $prodData['paid_ratio'] }}%</span>
-                                    </td>
-                                    <td style="padding:6px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($prodData['cpa_lead'],0,',','.') }}</td>
-                                    <td style="padding:6px 10px;text-align:right;font-size:.74rem;color:#6b7280;white-space:nowrap;">Rp {{ number_format($prodData['cpa_paid'],0,',','.') }}</td>
-                                    <td></td>{{-- kolom status --}}
-                                </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>{{-- end produk --}}
-                    @endforeach
-
-                </td>
-            </tr>{{-- end lvl1 expand --}}
-
-            @endforeach
-            @endif
-            </tbody>
-        </table>
+    {{-- ── Sub-tab Running/Testing (lebar penuh, dibagi 2) di dalam kartu tabel ── --}}
+    <div class="table-subtabs">
+        <button type="button" id="subtab-running" class="table-subtab active" onclick="switchSubTab('running')">
+            <span class="ts-ico">🟢</span>
+            <span class="ts-label">Running</span>
+            <span class="ts-count">{{ $runningSummaries->count() }}</span>
+        </button>
+        <button type="button" id="subtab-testing" class="table-subtab" onclick="switchSubTab('testing')">
+            <span class="ts-ico">🔬</span>
+            <span class="ts-label">Testing</span>
+            <span class="ts-count">{{ $testingSummaries->count() }}</span>
+        </button>
     </div>
+
+    {{-- Tabel per sub-tab (Running default tampil, Testing disembunyikan) --}}
+    @include('spending._table_general', ['summaries' => $runningSummaries, 'tabKey' => $tabKey, 'tabDisc' => $tabDisc, 'activeTab' => $activeTab, 'emptyText' => 'Tidak ada spending produk running di periode ini', 'wrapperId' => 'spending-general-running'])
+    @include('spending._table_general', ['summaries' => $testingSummaries, 'tabKey' => $tabKey, 'tabDisc' => $tabDisc, 'activeTab' => $activeTab, 'emptyText' => 'Tidak ada spending produk testing di periode ini', 'wrapperId' => 'spending-general-testing', 'hidden' => true])
 </div>
-@endforeach
 
 @endif
 
-{{-- ═══════════════ BULK DELETE (centang produk/whitelist) ═══════════════ --}}
-<form method="POST" action="{{ route('spending.bulk-destroy') }}" id="bulk-delete-form">
-    @csrf
-    <div id="bulk-ids"></div>
-</form>
-<div class="bulk-bar" id="bulk-bar">
-    <span style="font-size:.8rem;font-weight:700;color:#b91c1c;">🗑 <span id="bulk-count">0</span> data terpilih</span>
-    <button type="button" id="bulk-edit" class="clay-btn clay-btn-secondary" style="padding:6px 14px;font-size:.75rem;">✏️ Edit</button>
-    <button type="button" id="bulk-clear" class="clay-btn clay-btn-outline" style="padding:6px 14px;font-size:.75rem;">Batal</button>
-    <button type="button" id="bulk-confirm" class="clay-btn clay-btn-danger" style="padding:6px 14px;font-size:.75rem;">Hapus Terpilih</button>
-</div>
-
-{{-- ═══════════════ MODAL BULK EDIT (spending/lead/paid) ═══════════════ --}}
-<div class="be-modal" id="bulk-edit-modal" role="dialog" aria-modal="true" aria-labelledby="be-title">
-    <div class="be-backdrop" onclick="closeBulkEdit()"></div>
-    <div class="be-container">
-        <div class="be-header">
-            <h2 id="be-title">✏️ Edit Data Terpilih</h2>
-            <button class="be-close" onclick="closeBulkEdit()" type="button">✕</button>
+{{-- ═══════════════ FAB: Filter Rentang Waktu (tanpa tombol input — admin tidak input spending) ═══════════════ --}}
+<div class="fab-container" id="fab-container">
+    <div class="fab-group">
+        <div class="fab-drp-wrap">
+            <form method="GET" action="{{ route('spending.index') }}" id="filter-form-gen-fab">
+                <x-date-range-picker
+                    :dari="$dari"
+                    :sampai="$sampai"
+                    form-id="filter-form-gen-fab"
+                    input-dari="dari"
+                    input-sampai="sampai"
+                    extra-inputs="<input type='hidden' name='tab' id='hidden-tab-fab' value='{{ $activeTab ?? 'all' }}'>"
+                />
+            </form>
         </div>
-        <form method="POST" action="{{ route('spending.bulk-update') }}" id="bulk-edit-form">
-            @csrf
-            <div class="be-body">
-                <div class="be-info" id="be-info"></div>
-                <div class="be-groups" id="be-groups"></div>
-            </div>
-            <div class="be-footer">
-                <button type="button" class="clay-btn clay-btn-outline" onclick="closeBulkEdit()">Batal</button>
-                <button type="button" class="clay-btn clay-btn-primary" id="be-save">💾 Simpan</button>
-            </div>
-        </form>
     </div>
 </div>
 
 @push('styles')
 <style>
-    /* ── Bulk delete ────────────────────────────────────── */
-    .bulk-bar {
-        position: fixed; bottom: 20px; right: 24px; z-index: 60;
-        display: none; align-items: center; gap: 10px;
-        background: #fff; border: 1px solid #fecaca;
-        border-radius: 16px; padding: 10px 14px;
-        box-shadow: 0 12px 32px rgba(220,38,38,.18);
-        animation: bulkIn .25s ease;
+    /* ── FAB: Filter rentang waktu (pill putih mengambang kanan-bawah) ── */
+    .fab-container {
+        position: fixed; bottom: 28px; right: 28px; z-index: 60;
+        margin-bottom: 20px;
+        transition: bottom .2s ease;
     }
-    @keyframes bulkIn {
-        from { opacity: 0; transform: translateY(10px); }
+    .fab-group {
+        display: flex; flex-direction: row; align-items: center; gap: 6px;
+        background: #fff;
+        border-radius: 999px; padding: 5px 6px;
+        box-shadow: 0 4px 24px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.05);
+        animation: fabIn .28s cubic-bezier(.4,0,.2,1);
+    }
+    @keyframes fabIn {
+        from { opacity: 0; transform: translateY(12px) scale(.92); }
         to   { opacity: 1; transform: none; }
     }
-    .bd-check { width: 16px; height: 16px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
-    .bd-check-all { width: 15px; height: 15px; accent-color: var(--color-primary, #FF6B6B); cursor: pointer; }
-    tr.bd-row-selected { background: #fff0f0 !important; }
+    .fab-drp-wrap { margin: 0; flex-shrink: 0; }
+    .fab-drp-wrap form { margin: 0; padding: 0; }
+    .fab-drp-wrap .drp-trigger {
+        border-radius: 999px !important; padding: 10px 16px !important;
+        background: linear-gradient(135deg, #8b5cf6, #a78bfa) !important;
+        color: #fff !important; border: none !important;
+        box-shadow: 0 2px 8px rgba(139,92,246,.3) !important;
+        gap: 6px !important; min-width: 0 !important;
+        font-size: .78rem !important; font-weight: 700 !important;
+        transition: all .2s ease !important; line-height: 1.2 !important;
+    }
+    .fab-drp-wrap .drp-trigger:hover {
+        filter: brightness(1.1) !important; transform: translateY(-1px);
+    }
+    .fab-drp-wrap .drp-trigger .drp-label { color: #fff !important; font-size: .72rem !important; }
+    .fab-drp-wrap .drp-trigger span:last-child { color: rgba(255,255,255,.55) !important; }
 
-    /* ── Modal Bulk Edit (spending/lead/paid) ───────────── */
-    .be-modal {
-        position: fixed; inset: 0; z-index: 9999;
-        display: none; align-items: center; justify-content: center; padding: 16px;
+    /* ── Tab carousel: tab lebih dari lebar konten disembunyikan, geser utk melihat ── */
+    .tab-scroll {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        scrollbar-width: none;   /* Firefox */
+        -ms-overflow-style: none;
+        overscroll-behavior-x: contain;
     }
-    .be-modal.active { display: flex; }
-    .be-modal .be-backdrop {
-        position: absolute; inset: 0;
-        background: rgba(15,23,42,.55); backdrop-filter: blur(2px);
+    .tab-scroll::-webkit-scrollbar { display: none; }
+    .tab-scroll > * { flex-shrink: 0; }
+
+    /* ── Ringkasan Periode: Chart (kiri) + 4 Kartu (kanan 2×2) ── */
+    .summary-overview {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 16px;
+        align-items: stretch;
     }
-    .be-modal .be-container {
-        position: relative; background: #fff; border-radius: 18px;
-        width: 100%; max-width: 540px; overflow: hidden;
+    .chart-card {
+        background: #fff; border-radius: 16px; padding: 18px 20px;
+        border: 1px solid rgba(0,0,0,.06);
+        box-shadow: 0 1px 3px rgba(0,0,0,.04);
         display: flex; flex-direction: column;
-        box-shadow: 0 25px 60px rgba(0,0,0,.25);
-        animation: beIn .22s ease;
+        height: 100%;
     }
-    @keyframes beIn {
-        from { opacity: 0; transform: translateY(10px) scale(.98); }
-        to   { opacity: 1; transform: translateY(0) scale(1); }
+    .chart-header {
+        display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px;
+        flex-shrink: 0;
     }
-    .be-modal .be-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 16px 20px; border-bottom: 1px solid rgba(0,0,0,.06);
-        background: linear-gradient(135deg, #FFF5F5, #fff);
+    .chart-title {
+        font-weight: 800; font-size: .88rem; color: #1e1b2e;
     }
-    .be-modal .be-header h2 { margin: 0; font-size: 1rem; font-weight: 800; color: #1e1b2e; }
-    .be-modal .be-close {
-        background: #f3f4f6; border: none; border-radius: 8px;
-        width: 30px; height: 30px; font-size: .85rem; cursor: pointer; color: #6b7280;
-        transition: background .15s;
+    .chart-sub {
+        font-size: .68rem; color: #9ca3af;
     }
-    .be-modal .be-close:hover { background: #e5e7eb; }
-    .be-modal .be-body { padding: 14px 20px 8px; }
-    .be-info { font-size: .82rem; color: #4b5563; font-weight: 600; margin-bottom: 10px; line-height: 1.5; }
-    .be-groups {
-        max-height: 48vh; overflow-y: auto; margin-bottom: 10px; padding-right: 4px;
-        scrollbar-width: thin; scrollbar-color: #d1d5db transparent;
+    .chart-body {
+        position: relative;
+        flex: 1;
+        min-height: 0;
     }
-    .be-date { font-size: .75rem; font-weight: 800; color: var(--color-secondary, #4ECDC4); margin: 10px 0 5px; }
-    .be-prod { border: 1px solid rgba(0,0,0,.07); border-radius: 12px; margin-bottom: 8px; overflow: hidden; background: #fff; }
-    .be-prod-name {
-        display: flex; align-items: center; gap: 6px; padding: 7px 12px;
-        background: #f9fefe; font-size: .75rem; font-weight: 700; color: #1e1b2e;
+    .chart-body canvas {
+        width: 100% !important;
+        height: 100% !important;
     }
-    .be-code { font-size: .62rem; color: #9ca3af; font-weight: 600; }
-    .be-row { padding: 8px 12px 10px; border-top: 1px dashed rgba(0,0,0,.06); }
-    .be-row-meta { font-size: .72rem; color: #374151; margin-bottom: 6px; }
-    .be-old { font-size: .62rem; color: #9ca3af; margin-top: 2px; }
-    .be-row-inputs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .be-row-inputs label {
-        display: block; font-size: .6rem; font-weight: 700; color: #6b7280;
-        margin-bottom: 2px; text-transform: uppercase; letter-spacing: .03em;
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0,1fr));
+        grid-template-rows: 1fr 1fr;
+        gap: 14px;
+        height: 100%;
     }
-    .be-row-inputs .clay-input { font-size: .78rem; padding: 6px 8px; }
-    .be-modal .be-footer {
-        display: flex; justify-content: flex-end; gap: 10px;
-        padding: 14px 20px; border-top: 1px solid rgba(0,0,0,.06);
+    @media (max-width: 900px) {
+        .summary-overview { grid-template-columns: 1fr; }
+        .chart-card { order: -1; }
+    }
+    @media (max-width: 560px) {
+        .summary-grid { grid-template-columns: 1fr; }
+    }
+    .summary-card {
+        display: flex; align-items: center; gap: 14px;
+        background: #fff; border-radius: 16px; padding: 16px 18px;
+        border: 1px solid rgba(0,0,0,.06);
+        box-shadow: 0 1px 3px rgba(0,0,0,.04);
+        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        position: relative; overflow: hidden;
+        min-width: 0;
+    }
+    .summary-card::after {
+        content: ''; position: absolute; right: -18px; top: -18px;
+        width: 74px; height: 74px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,107,107,.10), transparent 70%);
+        opacity: 0; transition: opacity .2s ease;
+    }
+    .summary-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 24px rgba(0,0,0,.09);
+        border-color: rgba(255,107,107,.25);
+    }
+    .summary-card:hover::after { opacity: 1; }
+    .summary-icon {
+        width: 46px; height: 46px; border-radius: 13px; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.25rem; box-shadow: 0 4px 10px rgba(0,0,0,.08);
+    }
+    .sc-primary { background: linear-gradient(135deg,#FF6B6B,#ff9a9a); }
+    .sc-purple  { background: linear-gradient(135deg,#a78bfa,#8b5cf6); }
+    .sc-teal    { background: linear-gradient(135deg,#4ECDC4,#2dd4bf); }
+    .sc-amber   { background: linear-gradient(135deg,#f59e0b,#fbbf24); }
+    .summary-body { min-width: 0; flex: 1; overflow: hidden; }
+    .summary-label {
+        font-size: .62rem; font-weight: 800; text-transform: uppercase;
+        letter-spacing: .06em; color: #9ca3af;
+    }
+    .summary-value {
+        font-size: 1.18rem; font-weight: 800; color: #1e1b2e;
+        margin-top: 2px; line-height: 1.2;
+        overflow-wrap: break-word; word-break: break-word;
+    }
+    .summary-value .sc-lead { color: var(--color-purple, #8b5cf6); }
+    .summary-value .sc-paid { color: var(--color-secondary, #4ECDC4); }
+    .summary-value .sc-sep  { color: #d1d5db; font-weight: 600; margin: 0 2px; }
+    .summary-sub { font-size: .66rem; color: #9ca3af; margin-top: 3px; overflow-wrap: break-word; word-break: break-word; }
+    .summary-ratio-track {
+        height: 6px; border-radius: 999px; background: #f3f4f6;
+        margin-top: 8px; overflow: hidden; max-width: 170px; flex-shrink: 1; min-width: 60px;
+    }
+    .summary-ratio-fill {
+        height: 100%; border-radius: 999px;
+        transition: width .5s ease;
+    }
+
+    /* ── Batas tinggi tabel utama (maks 5 baris data, sisanya scroll vertikal) ── */
+    .table-scroll-limit { overflow-y: auto; overscroll-behavior: contain; }
+    .table-scroll-limit::-webkit-scrollbar { width: 8px; }
+    .table-scroll-limit::-webkit-scrollbar-track { background: transparent; }
+    .table-scroll-limit::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 999px; }
+    .table-scroll-limit::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
+    .table-scroll-limit { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; }
+    .table-scroll-maxrows { max-height: calc(5 * 56px + 56px); }
+
+    /* ── Sub-tab Running/Testing (lebar penuh, dibagi 2) di dalam kartu tabel ── */
+    .table-subtabs {
+        display: flex;
+        width: 100%;
+        background: #fafafa;
+        border-bottom: 1px solid rgba(0,0,0,.06);
+    }
+    .table-subtab {
+        flex: 1 1 50%;
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        padding: 13px 10px;
+        border: none; background: transparent;
+        font-family: inherit; font-size: .84rem; font-weight: 600; color: #6b7280;
+        cursor: pointer; transition: background .15s, color .15s;
+    }
+    .table-subtab + .table-subtab { border-left: 1px solid rgba(0,0,0,.06); }
+    .table-subtab:hover { background: #f3f4f6; }
+    .table-subtab.active {
+        background: #fff; color: #1e1b2e; font-weight: 800;
+        box-shadow: inset 0 -3px 0 var(--color-primary, #FF6B6B);
+    }
+    #subtab-testing.active { box-shadow: inset 0 -3px 0 #f59e0b; }
+    .ts-ico { font-size: .95rem; line-height: 1; }
+    .ts-count {
+        font-size: .68rem; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+        background: rgba(0,0,0,.06); color: #9ca3af; min-width: 24px; text-align: center;
+    }
+    #subtab-running.active .ts-count { background: rgba(255,107,107,.12); color: var(--color-primary, #FF6B6B); }
+    #subtab-testing.active .ts-count { background: rgba(245,158,11,.12); color: #b45309; }
+    /* Header tetap terlihat saat scroll vertikal di dalam tabel
+       (spesifisitas table.clay-table agar menang atas media query layout) */
+    .table-scroll-limit table.clay-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #fafafa; /* solid agar baris yang lewat tidak tembus */
+        box-shadow: 0 2px 6px -3px rgba(0,0,0,.14);
+    }
+
+    @media (max-width: 640px) {
+        /* Tabel utama: sel lebih ramping agar 5 baris tetap muat di layar kecil */
+        .table-scroll-limit table.clay-table thead th,
+        .table-scroll-limit table.clay-table tbody td {
+            padding: 7px 6px !important;
+            font-size: .72rem !important;
+        }
+        /* Sub-tab lebih padat di layar kecil */
+        .table-subtab { padding: 11px 8px; font-size: .78rem; gap: 6px; }
     }
 </style>
 @endpush
 
 @push('scripts')
 <script>
-{{-- ── Bulk Delete (centang produk & whitelist) ─────────────────────────── --}}
+// ── Tab carousel: roda mouse / trackpad menggeser tab secara horizontal ──
 (function() {
-    'use strict';
+    var el = document.querySelector('.tab-scroll');
+    if (!el) return;
 
-    var form = document.getElementById('bulk-delete-form');
-    if (!form) return;
-
-    var bar     = document.getElementById('bulk-bar');
-    var countEl = document.getElementById('bulk-count');
-    var selected = new Set();
-
-    function updateUI() {
-        var n = selected.size;
-        if (bar) bar.style.display = n ? 'flex' : 'none';
-        if (countEl) countEl.textContent = n;
-
-        document.querySelectorAll('.bd-check-all').forEach(function(cb) {
-            var group = document.querySelectorAll('.bd-check[data-prod="' + cb.dataset.prod + '"]');
-            if (!group.length) { cb.checked = false; cb.indeterminate = false; return; }
-            var allChecked = Array.from(group).every(function(c) { return selected.has(c.dataset.id); });
-            var anyChecked = Array.from(group).some(function(c) { return selected.has(c.dataset.id); });
-            cb.checked = allChecked;
-            cb.indeterminate = anyChecked && !allChecked;
-        });
-
-        document.querySelectorAll('.bd-check').forEach(function(c) {
-            var row = c.closest('tr');
-            if (row) row.classList.toggle('bd-row-selected', selected.has(c.dataset.id));
-        });
-    }
-
-    document.querySelectorAll('.bd-check').forEach(function(cb) {
-        cb.addEventListener('change', function() {
-            if (cb.checked) selected.add(cb.dataset.id);
-            else selected.delete(cb.dataset.id);
-            updateUI();
-        });
-    });
-
-    document.querySelectorAll('.bd-check-all').forEach(function(cb) {
-        cb.addEventListener('change', function() {
-            var group = document.querySelectorAll('.bd-check[data-prod="' + cb.dataset.prod + '"]');
-            group.forEach(function(c) {
-                if (cb.checked) selected.add(c.dataset.id);
-                else selected.delete(c.dataset.id);
-                c.checked = cb.checked;
-            });
-            updateUI();
-        });
-    });
-
-    var clearBtn = document.getElementById('bulk-clear');
-    if (clearBtn) {
-        clearBtn.addEventListener('click', function() {
-            selected.clear();
-            document.querySelectorAll('.bd-check').forEach(function(c) { c.checked = false; });
-            updateUI();
-        });
-    }
-
-    var confirmBtn = document.getElementById('bulk-confirm');
-    if (confirmBtn) {
-        confirmBtn.addEventListener('click', function() {
-            if (!selected.size) return;
-            if (!confirm('Hapus ' + selected.size + ' data spending yang terpilih? Tindakan ini tidak dapat dibatalkan.')) return;
-            var box = document.getElementById('bulk-ids');
-            box.innerHTML = '';
-            selected.forEach(function(id) {
-                var inp = document.createElement('input');
-                inp.type = 'hidden';
-                inp.name = 'ids[]';
-                inp.value = id;
-                box.appendChild(inp);
-            });
-            confirmBtn.disabled = true;
-            confirmBtn.innerHTML = '<span class="spinner-sm"></span> Menghapus...';
-            form.submit();
-        });
-    }
-
-    // ── Bulk Edit (modal grup per tanggal & produk, edit per baris) ──
-    var beModal  = document.getElementById('bulk-edit-modal');
-    var beInfo   = document.getElementById('be-info');
-    var beGroups = document.getElementById('be-groups');
-    var beForm   = document.getElementById('bulk-edit-form');
-
-    var BE_MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
-
-    function beEsc(s) {
-        return String(s == null ? '' : s)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
-
-    function beFmtTanggal(s) {
-        if (!s || s === '?') return s;
-        var p = s.split('-').map(Number);
-        return p[2] + ' ' + BE_MONTHS[(p[1] || 1) - 1] + ' ' + p[0];
-    }
-
-    window.openBulkEdit = function() {
-        if (!selected.size || !beGroups) return;
-
-        // ── Kumpulkan baris terpilih → grup (tanggal → produk) ──
-        var byDate = {};
-        var dateKeys = [];
-
-        document.querySelectorAll('.bd-check:checked').forEach(function(c) {
-            var tanggal = c.dataset.tanggal || '?';
-            var prodKey = c.dataset.productId || '0';
-            if (!byDate[tanggal]) {
-                byDate[tanggal] = {};
-                dateKeys.push(tanggal);
-            }
-            if (!byDate[tanggal][prodKey]) {
-                byDate[tanggal][prodKey] = {
-                    name: c.dataset.productName || 'Tidak Diketahui',
-                    code: c.dataset.productCode || '',
-                    rows: [],
-                };
-            }
-            byDate[tanggal][prodKey].rows.push({
-                id: c.dataset.id,
-                wl: c.dataset.whitelistName || '-',
-                wlCode: c.dataset.whitelistCode || '',
-                spending: c.dataset.spending,
-                lead: c.dataset.lead,
-                paid: c.dataset.paid,
-            });
-        });
-
-        dateKeys.sort().reverse(); // tanggal terbaru di atas
-        var multiDate = dateKeys.length > 1;
-        var prodTotal = 0;
-        dateKeys.forEach(function(t) { prodTotal += Object.keys(byDate[t]).length; });
-
-        beInfo.textContent = 'Mengedit ' + selected.size + ' data terpilih — ' +
-            dateKeys.length + ' tanggal · ' + prodTotal + ' produk. Nilai diisi per baris.';
-
-        var html = '';
-        dateKeys.forEach(function(tanggal) {
-            var prods = byDate[tanggal];
-            if (multiDate) {
-                html += '<div class="be-date">📅 ' + beEsc(beFmtTanggal(tanggal)) + '</div>';
-            }
-            Object.keys(prods).sort(function(a, b) {
-                return (prods[a].name || '').localeCompare(prods[b].name || '');
-            }).forEach(function(pk) {
-                var p = prods[pk];
-                html += '<div class="be-prod">';
-                html += '<div class="be-prod-name">📦 ' + beEsc(p.name) +
-                        (p.code ? ' <span class="be-code">' + beEsc(p.code) + '</span>' : '') + '</div>';
-                p.rows.forEach(function(r) {
-                    html += '<div class="be-row">';
-                    html += '<div class="be-row-meta"><strong>' + beEsc(r.wl) + '</strong>' +
-                            (r.wlCode ? ' <span class="be-code">' + beEsc(r.wlCode) + '</span>' : '') +
-                            '<div class="be-old">sebelum: Rp ' + Number(r.spending).toLocaleString('id-ID') +
-                            ' · lead ' + r.lead + ' · paid ' + r.paid + '</div></div>';
-                    html += '<div class="be-row-inputs">';
-                    html += '<input type="hidden" name="items[' + r.id + '][id]" value="' + r.id + '">';
-                    html += '<div><label>Spending (Rp)</label>' +
-                            '<input type="number" class="clay-input" name="items[' + r.id + '][spending]" value="' + r.spending + '" min="0" step="any" required></div>';
-                    html += '<div><label>Lead</label>' +
-                            '<input type="number" class="clay-input" name="items[' + r.id + '][lead]" value="' + r.lead + '" min="0" required></div>';
-                    html += '<div><label>Paid</label>' +
-                            '<input type="number" class="clay-input" name="items[' + r.id + '][paid]" value="' + r.paid + '" min="0" required></div>';
-                    html += '</div></div>';
-                });
-                html += '</div>';
-            });
-        });
-        beGroups.innerHTML = html;
-        beModal.classList.add('active');
-    };
-
-    window.closeBulkEdit = function() {
-        beModal.classList.remove('active');
-    };
-
-    var editBtn = document.getElementById('bulk-edit');
-    if (editBtn) {
-        editBtn.addEventListener('click', function() {
-            if (!selected.size) return;
-            window.openBulkEdit();
-        });
-    }
-
-    // Simpan: validasi native dulu (bubble field kosong), lalu submit form
-    // (input per baris sudah dirender di dalam form → ikut terkirim)
-    var beSave = document.getElementById('be-save');
-    if (beSave && beForm) {
-        beSave.addEventListener('click', function() {
-            if (!beForm.reportValidity()) return;
-            beSave.disabled = true;
-            beSave.innerHTML = '<span class="spinner-sm"></span> Menyimpan...';
-            beForm.submit();
-        });
-    }
-
-    // Tutup dengan ESC
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && beModal && beModal.classList.contains('active')) window.closeBulkEdit();
-    });
+    el.addEventListener('wheel', function(e) {
+        if (e.deltaY !== 0) {
+            el.scrollLeft += e.deltaY;
+            e.preventDefault();
+        }
+    }, { passive: false });
 })();
 </script>
 @endpush
@@ -723,40 +516,202 @@ function tog(id) {
     }
 }
 
-function switchFolder(id) {
-    document.querySelectorAll('[id^="folder-content-"]').forEach(function(el) {
-        el.style.display = 'none';
-    });
-    document.querySelectorAll('[id^="folder-tab-"]').forEach(function(btn) {
-        btn.style.background   = '#f5f5f5';
-        btn.style.color        = '#6b7280';
-        btn.style.fontWeight   = '500';
-        btn.style.borderColor  = 'rgba(0,0,0,.08)';
-        btn.style.borderBottom = '2px solid rgba(0,0,0,.08)';
-        btn.style.zIndex       = '1';
-        var img   = btn.querySelector('img');
-        var badge = btn.querySelector('span');
-        if (img)   img.style.borderColor    = '#ddd';
-        if (badge) { badge.style.background = 'rgba(0,0,0,.06)'; badge.style.color = '#9ca3af'; }
-    });
-    var content = document.getElementById('folder-content-' + id);
-    var tab     = document.getElementById('folder-tab-'     + id);
-    if (content) content.style.display = 'block';
-    if (tab) {
-        tab.style.background   = '#fff';
-        tab.style.color        = 'var(--color-primary,#FF6B6B)';
-        tab.style.fontWeight   = '700';
-        tab.style.borderColor  = 'rgba(255,107,107,.25)';
-        tab.style.borderBottom = '2px solid #fff';
-        tab.style.zIndex       = '3';
-        var img   = tab.querySelector('img');
-        var badge = tab.querySelector('span');
-        if (img)   img.style.borderColor    = 'rgba(255,107,107,.3)';
-        if (badge) { badge.style.background = 'rgba(255,107,107,.12)'; badge.style.color = 'var(--color-primary)'; }
+{{-- ── Sub-tab tabel: Running / Testing ── --}}
+function switchSubTab(which) {
+    var running = document.getElementById('spending-general-running');
+    var testing = document.getElementById('spending-general-testing');
+    var tabRun  = document.getElementById('subtab-running');
+    var tabTest = document.getElementById('subtab-testing');
+    if (!running || !testing || !tabRun || !tabTest) return;
+
+    var showTesting = which === 'testing';
+    testing.style.display = showTesting ? '' : 'none';
+    running.style.display = showTesting ? 'none' : '';
+    tabTest.classList.toggle('active', showTesting);
+    tabRun.classList.toggle('active', !showTesting);
+
+    // Tabel yang baru tampil perlu diukur ulang (saat tersembunyi offsetHeight = 0)
+    if (window.reapplySpendingTableLimit) {
+        window.reapplySpendingTableLimit(showTesting ? 'spending-general-testing' : 'spending-general-running');
     }
-    var hiddenTab = document.getElementById('hidden-tab');
-    if (hiddenTab) hiddenTab.value = id;
 }
+</script>
+@endpush
+
+@push('scripts')
+<script>
+{{-- ── Batas tinggi tabel utama: maksimal 5 baris data, sisanya scroll vertikal ──
+     Berlaku utk KEDUA tabel sub-tab (Running & Testing). Tabel yang sedang
+     disembunyikan (sub-tab nonaktif) tidak diukur — diukur saat dibuka. --}}
+(function() {
+    'use strict';
+
+    var MAX_ROWS = 5;
+
+    function measure(table, visible) {
+        var head = table.tHead;
+        var h = head ? head.offsetHeight : 0;
+        for (var i = 0; i < MAX_ROWS; i++) h += visible[i].offsetHeight;
+        return h;
+    }
+
+    function apply(scrollEl) {
+        var table = scrollEl.querySelector('table.clay-table');
+        if (!table || !table.tBodies.length) return;
+        if (scrollEl.offsetParent === null) return; // tersembunyi (sub-tab lain) → nanti diukur saat dibuka
+
+        var tbody = table.tBodies[0];
+        // Baris terlihat = baris tanggal (level-1); baris expand awal punya display:none inline
+        var visible = Array.prototype.filter.call(tbody.rows, function(r) {
+            return r.style.display !== 'none';
+        });
+
+        // ≤ 5 baris → biarkan tinggi alami, tanpa scroll
+        if (visible.length <= MAX_ROWS) { scrollEl.style.maxHeight = ''; return; }
+
+        scrollEl.style.maxHeight = measure(table, visible) + 'px';
+
+        // Pass 2: setelah scrollbar vertikal muncul, lebar konten menyusut & baris bisa
+        // ikut berubah tinggi (reflow) → ukur sekali lagi agar tetap pas 5 baris.
+        requestAnimationFrame(function() {
+            scrollEl.style.maxHeight = measure(table, visible) + 'px';
+        });
+    }
+
+    // Dipakai switchSubTab(): ukur ulang tabel yang baru ditampilkan
+    window.reapplySpendingTableLimit = function(id) {
+        var el = document.getElementById(id);
+        if (el) apply(el);
+    };
+
+    var els = document.querySelectorAll('.table-scroll-maxrows');
+    Array.prototype.forEach.call(els, function(el) { apply(el); });
+
+    // Re-hitung saat layar berubah ukuran (teks bisa wrap ulang → baris lebih tinggi)
+    var resizeTimer;
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function() {
+            Array.prototype.forEach.call(els, function(el) { apply(el); });
+        }, 150);
+    });
+})();
+</script>
+@endpush
+
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+{{-- ── Chart Line Lead & Paid per Tanggal (data tab aktif) ── --}}
+(function() {
+    'use strict';
+    var canvas = document.getElementById('spendingChartGeneral');
+    if (!canvas) return;
+
+    var labels = @json($chartDates->map(fn($d) => \Carbon\Carbon::parse($d)->translatedFormat('d M')));
+    var runLead = @json($chartRunLead->toArray());
+    var runPaid = @json($chartRunPaid->toArray());
+    var testLead = @json($chartTestLead->toArray());
+    var testPaid = @json($chartTestPaid->toArray());
+
+    var ctx = canvas.getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Lead (Running)',
+                    data: runLead,
+                    borderColor: '#8b5cf6',
+                    backgroundColor: 'rgba(139,92,246,0.08)',
+                    borderWidth: 2.5,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#8b5cf6',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: 'Paid (Running)',
+                    data: runPaid,
+                    borderColor: '#4ECDC4',
+                    backgroundColor: 'rgba(78,205,196,0.08)',
+                    borderWidth: 2.5,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#4ECDC4',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: 'Lead (Testing)',
+                    data: testLead,
+                    borderColor: '#f97316',
+                    backgroundColor: 'rgba(249,115,22,0.06)',
+                    borderWidth: 2,
+                    borderDash: [6, 4],
+                    pointRadius: 3,
+                    pointBackgroundColor: '#f97316',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: false
+                },
+                {
+                    label: 'Paid (Testing)',
+                    data: testPaid,
+                    borderColor: '#fbbf24',
+                    backgroundColor: 'rgba(251,191,36,0.06)',
+                    borderWidth: 2,
+                    borderDash: [6, 4],
+                    pointRadius: 3,
+                    pointBackgroundColor: '#fbbf24',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.3,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { boxWidth: 12, boxHeight: 12, padding: 16, font: { size: 11, weight: '600' } }
+                },
+                tooltip: {
+                    backgroundColor: '#1e1b2e',
+                    titleFont: { size: 12, weight: '700' },
+                    bodyFont: { size: 11 },
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            return ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString('id-ID');
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 10 }, color: '#9ca3af' }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                    ticks: { font: { size: 10 }, color: '#9ca3af', callback: function(v) { return v.toLocaleString('id-ID'); } }
+                }
+            }
+        }
+    });
+})();
 </script>
 @endpush
 @endsection

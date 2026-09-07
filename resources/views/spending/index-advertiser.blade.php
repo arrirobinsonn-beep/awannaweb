@@ -34,7 +34,7 @@
         @if(count($discrepancies) > 0)
         <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
         @endif
-        <strong>Data Belum Diisi</strong>
+        <strong>Data Belum Ditambahkan</strong>
         @php
             $allMissing = collect($missingSpendingDates)->map(fn() => 'spending')
                 ->merge(collect($missingRegionalDates ?? [])->map(fn() => 'regional'))
@@ -46,16 +46,21 @@
             ⬇ Menampilkan 5 dari {{ $totalMissing }} tanggal — scroll untuk melihat sisanya
         </div>
         @endif
-        <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
-            @foreach(array_keys($allMissing) as $tgl)
+        <div style="margin-top:4px;max-height:112px;overflow:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+            @foreach(array_slice(array_keys($allMissing), 0, 5) as $tgl)
             @php
-                $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+                $tglParts = explode('-', $tgl);
+                $tglDay = (int) $tglParts[2];
+                $tglMonth = (int) $tglParts[1];
+                $tglYear = $tglParts[0];
+                $monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+                $tglLbl = $tglDay . ' ' . $monthNames[$tglMonth-1] . ' ' . $tglYear;
                 $src = $allMissing[$tgl];
             @endphp
             <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
                 📅 {{ $tglLbl }} —
                 @if($src === 'spending')
-                Anda belum mengisi data spending iklan untuk tanggal {{ $tglLbl }}
+                Anda belum mengisi data spending iklan tanggal {{ $tglLbl }}
                 @else
                 Data regional belum diisi untuk tanggal {{ $tglLbl }}
                 @endif
@@ -278,7 +283,7 @@
 
 {{-- ═══════════════ TAB CONTENT: Running ═══════════════ --}}
 <div id="adtabcontent-running" class="clay-card" style="overflow:hidden;" data-reveal>
-    <div class="table-scroll table-scroll-limit" id="spending-scroll">
+    <div class="table-scroll table-scroll-limit table-scroll-maxrows" id="spending-scroll">
         <table class="clay-table">
             <thead>
                 <tr>
@@ -556,7 +561,7 @@
 
 {{-- ═══════════════ TAB CONTENT: Testing ═══════════════ --}}
 <div id="adtabcontent-testing" class="clay-card" style="overflow:hidden;display:none;" data-reveal>
-    <div class="table-scroll table-scroll-limit">
+    <div class="table-scroll table-scroll-maxrows">
         <table class="clay-table">
             <thead>
                 <tr>
@@ -1272,6 +1277,7 @@
     .table-scroll-limit::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 999px; }
     .table-scroll-limit::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
     .table-scroll-limit { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; }
+    .table-scroll-maxrows { max-height: calc(5 * 56px + 56px); }
     /* Header tetap terlihat saat scroll vertikal di dalam tabel */
     .table-scroll-limit thead th {
         position: sticky;

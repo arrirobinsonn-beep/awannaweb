@@ -598,6 +598,25 @@ Semua elemen halaman spending advertiser (`index-advertiser`) kini fleksibel di 
 
 ### Deskripsi
 Tabel performa team (`team/performance.blade.php`, sisi advertiser & CS) dibatasi tingginya agar hanya menampilkan **±7 baris data CS**, sisanya bisa di-scroll vertikal di dalam container (pola sama dengan batas 5 baris tabel spending).
+
+## W. ✅ Batas Tinggi Tabel Utama Sisi Superadmin — Maks 5 Baris + Scroll (7 September 2026)
+
+### Deskripsi
+Tabel utama halaman **Spending sisi admin/CS** (`spending/index-general.blade.php`) dan **Whitelist** (`whitelist/_table.blade.php` via `whitelist/index.blade.php`) kini dibatasi tingginya: **maksimal 5 baris data** tampil, sisanya di-scroll vertikal di dalam wrapper (`overflow-y:auto`, scrollbar tipis). ≤5 baris → tinggi alami tanpa scroll. Pola sama dengan sisi advertiser (`index-advertiser`, sudah ada sejak sebelumnya) & tabel team (±7 baris).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `resources/views/spending/index-general.blade.php` | wrapper tabel diberi `table-scroll-limit` + id `spending-general-scroll`; CSS `.table-scroll-limit` (overflow-y + scrollbar) & `.table-scroll-maxrows` (fallback max-height 5×56px+56px) + sticky header (`table.clay-table thead th` — spesifisitas menang atas media query layout); JS ukur `maxHeight = header + 5 baris terlihat` (baris expand `display:none` dikecualikan), pass-2 requestAnimationFrame + re-measure saat resize; CSS mobile ≤640px sel lebih ramping |
+| `resources/views/whitelist/index.blade.php` | CSS + JS identik (selector `.table-scroll-maxrows`, tabel ada di partial `whitelist/_table.blade.php` yang SUDAH ber-class `table-scroll-limit table-scroll-maxrows`); baris detail (expand) awal `display:none` inline → tidak ikut dihitung; header sticky utk scroll horizontal & vertikal |
+
+### Penting
+- JS mengukur TINGGI BARIS nyata (bukan asumsi 56px) — baris tanggal spending punya sub-label 2 baris sehingga lebih tinggi dari baris whitelist.
+- `table-scroll-maxrows` (max-height CSS statis) hanyalah fallback anti-flash; JS override dengan inline `max-height` presisi. Tanpa JS (atau ≤5 baris) fallback tetap masuk akal.
+- Sticky header butuh background solid (`#fafafa` dari `clay-table thead th`) agar baris yang lewat tidak tembus; border-collapse `separate` (default clay-table) — sticky aman.
+- `requestAnimationFrame` pass-2 penting: setelah scrollbar vertikal muncul, lebar konten menyusut → baris bisa wrap ulang (reflow) → ukur sekali lagi agar tepat 5 baris.
+- Test: `SpendingGeneralTest` (2) + `WhitelistPageTest` (5) tetap hijau (7 pass, 72 assertions).
+
 ## M. ✅ Halaman Admin Kelola Aturan Courier (Dinamis dari DB) (12 Agustus 2026)
 
 ### Deskripsi

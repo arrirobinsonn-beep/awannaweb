@@ -395,7 +395,7 @@
             @if(count($discrepancies) > 0)
             <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
             @endif
-            <strong>Data Belum Diisi</strong>
+            <strong>Data Belum Ditambahkan</strong>
             @if($totalMissingR > 5)
             <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
                 ⬇ Menampilkan 5 dari {{ $totalMissingR }} tanggal — scroll untuk melihat sisanya
@@ -410,7 +410,7 @@
                 <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
                     📅 {{ $tglLbl }} —
                     @if($src === 'spending')
-                    Belum mengisi data spending iklan untuk tanggal {{ $tglLbl }}
+                    Belum mengisi data spending iklan tanggal {{ $tglLbl }}
                     @else
                     Data regional belum diisi untuk tanggal {{ $tglLbl }}
                     @endif

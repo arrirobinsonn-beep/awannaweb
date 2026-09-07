@@ -299,16 +299,15 @@ class SpendingHarianController extends Controller
 
         if ($advertisers->isEmpty()) {
             return view('spending.index-general', [
-                'dataPerAdvertiser' => [],
                 'advertisers' => $advertisers,
-                'activeTab' => null,
+                'activeTab' => 'all',
                 'dari' => $dari,
                 'sampai' => $sampai,
             ]);
         }
 
         // ─── BATCH: Ambil semua spending untuk semua advertiser dalam 1 query ──
-        $allSpending = SpendingHarian::with(['product', 'whitelist'])
+        $allSpending = SpendingHarian::with(['product', 'whitelist.user'])
             ->whereIn('user_id', $advertisers->pluck('id'))
             ->whereBetween('tanggal', [$dari, $sampai])
             ->orderByDesc('tanggal')
@@ -334,7 +333,7 @@ class SpendingHarianController extends Controller
             ->get()
             ->groupBy('user_id');
 
-        // ─── BATCH: Proses semua advertiser ──
+        // ─── BATCH: Proses semua advertiser (data per advertiser utk tab & banner) ──
         $dataPerAdvertiser = [];
         foreach ($advertisers as $adv) {
             $rows = $allSpending->get($adv->id, collect());
@@ -346,72 +345,123 @@ class SpendingHarianController extends Controller
                 $spendingTotals->get($adv->id, collect())
             );
 
-            if ($rows->isEmpty()) {
-                $dataPerAdvertiser[$adv->id] = [
-                    'user' => $adv,
-                    'summaries' => collect(),
-                    'total_spending' => 0,
-                    'has_discrepancy' => $disc['hasDiscrepancy'],
-                    'discrepancies' => $disc['discrepancies'],
-                    'discrepant_dates' => $disc['discrepantDates'],
-                    'missing_spending_dates' => $disc['missingSpendingDates'] ?? [],
-                    'missing_regional_dates' => $disc['missingRegionalDates'] ?? [],
-                ];
-
-                continue;
-            }
-
-            $grouped = $rows->groupBy(fn ($r) => $r->tanggal->format('Y-m-d'));
-
             $dataPerAdvertiser[$adv->id] = [
                 'user' => $adv,
-                'total_spending' => $rows->sum('spending'),
+                'summaries' => $rows->isEmpty() ? collect() : $this->summarizeRows($rows),
+                'total_spending' => (float) $rows->sum('spending'),
                 'has_discrepancy' => $disc['hasDiscrepancy'],
                 'discrepancies' => $disc['discrepancies'],
                 'discrepant_dates' => $disc['discrepantDates'],
                 'missing_spending_dates' => $disc['missingSpendingDates'] ?? [],
                 'missing_regional_dates' => $disc['missingRegionalDates'] ?? [],
-                'summaries' => $grouped->map(function ($items) {
-                    $byProduct = $items->groupBy('product_id')->map(function ($pItems) {
-                        return [
-                            'product' => $pItems->first()->product,
-                            'spending' => $pItems->sum('spending'),
-                            'lead' => $pItems->sum('lead'),
-                            'paid' => $pItems->sum('paid'),
-                            'paid_ratio' => $pItems->sum('lead') > 0
-                                                ? round($pItems->sum('paid') / $pItems->sum('lead') * 100, 2) : 0,
-                            'cpa_lead' => $pItems->sum('lead') > 0
-                                                ? round($pItems->sum('spending') / $pItems->sum('lead'), 2) : 0,
-                            'cpa_paid' => $pItems->sum('paid') > 0
-                                                ? round($pItems->sum('spending') / $pItems->sum('paid'), 2) : 0,
-                            'whitelists' => $pItems,
-                        ];
-                    });
-
-                    return [
-                        'tanggal' => $items->first()->tanggal,
-                        'spending' => $items->sum('spending'),
-                        'lead' => $items->sum('lead'),
-                        'paid' => $items->sum('paid'),
-                        'paid_ratio' => $items->sum('lead') > 0
-                                              ? round($items->sum('paid') / $items->sum('lead') * 100, 2) : 0,
-                        'cpa_lead' => $items->sum('lead') > 0
-                                              ? round($items->sum('spending') / $items->sum('lead'), 2) : 0,
-                        'cpa_paid' => $items->sum('paid') > 0
-                                              ? round($items->sum('spending') / $items->sum('paid'), 2) : 0,
-                        'by_product' => $byProduct,
-                        'total_produk' => $byProduct->count(),
-                    ];
-                }),
             ];
         }
 
-        // Tab aktif (dari query string atau advertiser pertama)
-        $activeTab = $request->input('tab', $advertisers->first()?->id);
+        // Tab aktif: default "Semua spending" ('all'), validasi id advertiser
+        $activeTab = (string) $request->input('tab', 'all');
+        if ($activeTab !== 'all' && ! $advertisers->contains('id', (int) $activeTab)) {
+            $activeTab = 'all';
+        }
+
+        // ─── Baris data tab aktif: 'all' = gabungan SEMUA advertiser ──
+        if ($activeTab === 'all') {
+            $tabRows = collect();
+            foreach ($advertisers as $adv) {
+                $tabRows = $tabRows->merge($allSpending->get($adv->id, collect()));
+            }
+            $tabRows = $tabRows->sortByDesc(fn ($r) => $r->tanggal->format('Y-m-d'))->values();
+        } else {
+            $tabRows = $allSpending->get((int) $activeTab, collect());
+        }
+
+        $tabSummaries = $tabRows->isEmpty() ? collect() : $this->summarizeRows($tabRows);
+        $summary = $this->computeSummary($tabRows);
+
+        // ─── Sub-tab Running/Testing di dalam tabel: summaries per ad_status ──
+        $isRunningRow = fn ($r) => ($r->product->ad_status ?? 'running') === Product::AD_STATUS_RUNNING;
+        $runningRows = $tabRows->filter($isRunningRow)->values();
+        $testingRows = $tabRows->reject($isRunningRow)->values();
+        $runningSummaries = $runningRows->isEmpty() ? collect() : $this->summarizeRows($runningRows);
+        $testingSummaries = $testingRows->isEmpty() ? collect() : $this->summarizeRows($testingRows);
+
+        // ─── Data chart: 4 garis per tanggal (Running & Testing) utk tab aktif ──
+        $chartDates = $tabSummaries->keys()->sort()->values();
+        $isRunning = fn ($p) => ($p['product']->ad_status ?? 'running') === 'running';
+        $isTesting = fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing';
+        $chartRunLead = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter($isRunning)->sum('lead'));
+        $chartRunPaid = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter($isRunning)->sum('paid'));
+        $chartTestLead = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter($isTesting)->sum('lead'));
+        $chartTestPaid = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter($isTesting)->sum('paid'));
+
+        // Tanggal bermasalah utk menandai baris tabel (hanya advertiser yg sedang dibuka)
+        $tabDisc = [];
+        if ($activeTab === 'all') {
+            foreach ($advertisers as $adv) {
+                foreach (($dataPerAdvertiser[$adv->id]['discrepant_dates'] ?? []) as $d => $v) {
+                    $tabDisc[$d] = true;
+                }
+            }
+        } else {
+            $tabDisc = $dataPerAdvertiser[(int) $activeTab]['discrepant_dates'] ?? [];
+        }
+
+        // Total spending per advertiser (badge tab) + total semua
+        $totalPerAdv = [];
+        foreach ($advertisers as $adv) {
+            $totalPerAdv[$adv->id] = (float) ($allSpending->get($adv->id, collect())->sum('spending'));
+        }
+        $allTotalSpending = array_sum($totalPerAdv);
 
         return view('spending.index-general', compact(
-            'dataPerAdvertiser', 'advertisers', 'activeTab', 'dari', 'sampai'
+            'advertisers', 'activeTab', 'dari', 'sampai',
+            'tabSummaries', 'summary', 'dataPerAdvertiser', 'tabDisc',
+            'runningSummaries', 'testingSummaries',
+            'chartDates', 'chartRunLead', 'chartRunPaid', 'chartTestLead', 'chartTestPaid',
+            'totalPerAdv', 'allTotalSpending'
         ));
+    }
+
+    /**
+     * Kelompokkan baris SpendingHarian → summaries per tanggal (level 1),
+     * per produk (level 2), per whitelist (level 3). Dipakai per advertiser
+     * maupun gabungan "Semua spending".
+     */
+    private function summarizeRows($rows)
+    {
+        $grouped = $rows->groupBy(fn ($r) => $r->tanggal->format('Y-m-d'));
+
+        return $grouped->map(function ($items) {
+            $byProduct = $items->groupBy('product_id')->map(function ($pItems) {
+                return [
+                    'product' => $pItems->first()->product,
+                    'spending' => $pItems->sum('spending'),
+                    'lead' => $pItems->sum('lead'),
+                    'paid' => $pItems->sum('paid'),
+                    'paid_ratio' => $pItems->sum('lead') > 0
+                                        ? round($pItems->sum('paid') / $pItems->sum('lead') * 100, 2) : 0,
+                    'cpa_lead' => $pItems->sum('lead') > 0
+                                        ? round($pItems->sum('spending') / $pItems->sum('lead'), 2) : 0,
+                    'cpa_paid' => $pItems->sum('paid') > 0
+                                        ? round($pItems->sum('spending') / $pItems->sum('paid'), 2) : 0,
+                    'whitelists' => $pItems,
+                ];
+            });
+
+            return [
+                'tanggal' => $items->first()->tanggal,
+                'spending' => $items->sum('spending'),
+                'lead' => $items->sum('lead'),
+                'paid' => $items->sum('paid'),
+                'paid_ratio' => $items->sum('lead') > 0
+                                      ? round($items->sum('paid') / $items->sum('lead') * 100, 2) : 0,
+                'cpa_lead' => $items->sum('lead') > 0
+                                      ? round($items->sum('spending') / $items->sum('lead'), 2) : 0,
+                'cpa_paid' => $items->sum('paid') > 0
+                                      ? round($items->sum('spending') / $items->sum('paid'), 2) : 0,
+                'by_product' => $byProduct,
+                'total_produk' => $byProduct->count(),
+            ];
+        });
     }
 
     /**
