@@ -106,6 +106,30 @@ test.describe('Orders page AJAX filter', () => {
       }
     }
   });
+
+  test('reset button navigates to /orders clean', async ({ page }) => {
+    await page.goto('/orders');
+    await page.waitForTimeout(2000);
+
+    // Apply a filter first
+    await page.selectOption('#ord-filter-status', 'real');
+    await page.waitForTimeout(1500);
+
+    // Click reset
+    await page.click('#ord-filter-reset');
+    await page.waitForURL('**/orders');
+
+    // URL should be clean /orders with no query params
+    const url = new URL(page.url());
+    expect(url.pathname).toBe('/orders');
+    expect(url.searchParams.has('status')).toBe(false);
+    expect(url.searchParams.has('courier')).toBe(false);
+    expect(url.searchParams.has('batch')).toBe(false);
+
+    // Table should show all orders
+    const text = await page.textContent('#ord-table-wrap');
+    expect(text).toContain('Menampilkan');
+  });
 });
 
 test.describe('Orders filter endpoint redirects non-AJAX', () => {
