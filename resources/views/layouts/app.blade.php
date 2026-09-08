@@ -547,9 +547,6 @@
             @endif
             @endif
 
-            </div>
-            @endif
-
         </nav>
 
         {{-- Logout --}}
