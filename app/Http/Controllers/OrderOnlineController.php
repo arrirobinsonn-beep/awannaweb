@@ -15,6 +15,7 @@ use App\Services\OrderTemplateExportService;
 use App\Services\StockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -196,11 +197,11 @@ class OrderOnlineController extends Controller
 
     public function preview(Request $request): JsonResponse
     {
-        $request->validate([
-            'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
-        ]);
-
         try {
+            $request->validate([
+                'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
+            ]);
+
             $result = $this->import->preview($request->file('file')->getPathname());
 
             return response()->json([
@@ -210,7 +211,17 @@ class OrderOnlineController extends Controller
                 'errors' => $result['skips'],
                 'unknown_cs' => $result['unknown_cs'],
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('OrderOnline preview validation failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'errors' => $e->errors(),
+            ]);
+            throw $e;
         } catch (\Throwable $e) {
+            Log::error('OrderOnline preview failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'exception' => $e,
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal membaca file: '.$e->getMessage(),
@@ -222,12 +233,12 @@ class OrderOnlineController extends Controller
     {
         abort_if(auth()->user()->hasRole('cs'), 403, 'CS tidak bisa mengimport data.');
 
-        $request->validate([
-            'sender' => ['required', 'string', 'max:191'],
-            'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
-        ]);
-
         try {
+            $request->validate([
+                'sender' => ['required', 'string', 'max:191'],
+                'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
+            ]);
+
             $path = $request->file('file')->store('order-online');
             $result = $this->import->import(
                 Storage::path($path),
@@ -259,7 +270,19 @@ class OrderOnlineController extends Controller
                 'inserted' => $result['inserted'],
                 'updated' => $result['updated'],
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('OrderOnline import validation failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'sender' => $request->input('sender'),
+                'errors' => $e->errors(),
+            ]);
+            throw $e;
         } catch (\Throwable $e) {
+            Log::error('OrderOnline import failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'sender' => $request->input('sender'),
+                'exception' => $e,
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal import: '.$e->getMessage(),
@@ -358,6 +381,11 @@ class OrderOnlineController extends Controller
                 'stock_returned' => $result['stock_returned'],
             ]);
         } catch (\Throwable $e) {
+            Log::error('OrderOnline tracking import failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'courier' => $request->input('courier'),
+                'exception' => $e,
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal import tracking: '.$e->getMessage(),
