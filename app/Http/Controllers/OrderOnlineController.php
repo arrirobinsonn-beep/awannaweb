@@ -135,8 +135,13 @@ class OrderOnlineController extends Controller
         return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions', 'isCs', 'summaryByCourier', 'summaryByStatus', 'summaryByAggregator', 'summaryTotal', 'chartData'));
     }
 
-    public function filter(Request $request): JsonResponse
+    public function filter(Request $request)
     {
+        // Non-AJAX (direct URL access / browser navigation) → redirect ke halaman utama
+        if (! $request->expectsJson()) {
+            return redirect()->route('orders.index', $request->query());
+        }
+
         $batchId = $request->integer('batch');
         $selectedBatch = $batchId ? OrderOnlineImportBatch::find($batchId) : null;
 

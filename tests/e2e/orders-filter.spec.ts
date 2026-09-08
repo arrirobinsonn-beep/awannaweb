@@ -13,7 +13,6 @@ test.describe('Orders page AJAX filter', () => {
     await page.goto('/orders');
     await page.waitForTimeout(2000);
 
-    // Should show all orders (no DRP dates applied by default)
     const text = await page.textContent('#ord-table-wrap');
     expect(text).toContain('Menampilkan');
     expect(text).not.toContain('Belum ada order');
@@ -25,15 +24,12 @@ test.describe('Orders page AJAX filter', () => {
 
     const initial = await page.textContent('#ord-table-wrap');
 
-    // Intercept AJAX to verify no dates sent
     const respPromise = page.waitForResponse(r => r.url().includes('orders/filter'));
 
-    // Filter by status=real
     await page.selectOption('#ord-filter-status', 'real');
     const resp = await respPromise;
     await page.waitForTimeout(500);
 
-    // AJAX URL should NOT contain dari/sampai (dates not applied by user)
     const url = new URL(resp.url());
     expect(url.searchParams.has('dari')).toBe(false);
     expect(url.searchParams.has('sampai')).toBe(false);
@@ -47,7 +43,6 @@ test.describe('Orders page AJAX filter', () => {
     await page.goto('/orders');
     await page.waitForTimeout(2000);
 
-    // Trigger a status filter change — dates should NOT be in the request
     const noDateRequest = page.waitForResponse(r => {
       if (!r.url().includes('orders/filter')) return false;
       const url = new URL(r.url());
@@ -56,7 +51,6 @@ test.describe('Orders page AJAX filter', () => {
     await page.selectOption('#ord-filter-status', 'duplikat');
     await noDateRequest;
 
-    // Now apply DRP — dates SHOULD be in the request
     const drpTrigger = page.locator('.drp-trigger').first();
     if (await drpTrigger.count() > 0) {
       await drpTrigger.click();
@@ -78,11 +72,9 @@ test.describe('Orders page AJAX filter', () => {
     await page.goto('/orders');
     await page.waitForTimeout(2000);
 
-    // Filter by status=real (many results → pagination needed)
     await page.selectOption('#ord-filter-status', 'real');
     await page.waitForTimeout(1500);
 
-    // Pagination nav should be inside #ord-table-wrap
     const paginationLinks = await page.locator('#ord-table-wrap a[href*="page="]').count();
     expect(paginationLinks).toBeGreaterThan(0);
   });
@@ -91,7 +83,6 @@ test.describe('Orders page AJAX filter', () => {
     await page.goto('/orders');
     await page.waitForTimeout(2000);
 
-    // Search for a term — results should filter
     await page.fill('#ord-filter-search', 'tokopedia');
     await page.waitForTimeout(1500);
 
@@ -103,7 +94,6 @@ test.describe('Orders page AJAX filter', () => {
     await page.goto('/orders');
     await page.waitForTimeout(2000);
 
-    // Select first non-empty batch option
     const options = page.locator('#ord-filter-batch option');
     const count = await options.count();
     if (count > 1) {
@@ -114,6 +104,121 @@ test.describe('Orders page AJAX filter', () => {
         const text = await page.textContent('#ord-table-wrap');
         expect(text).toContain('Menampilkan');
       }
+    }
+  });
+});
+
+test.describe('Orders filter endpoint redirects non-AJAX', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/login');
+    await page.fill('input[name="email"]', 'owner@awanna.id');
+    await page.fill('input[name="password"]', 'password');
+    await page.click('button[type="submit"]');
+    await page.waitForURL('**/dashboard**');
+  });
+
+  test('direct access to /orders/filter redirects to /orders', async ({ page }) => {
+    const response = await page.goto('/orders/filter?courier=spx&page=2');
+    expect(response?.url()).toContain('/orders');
+    expect(response?.url()).not.toContain('/orders/filter');
+    await expect(page.locator('#ord-table-wrap')).toBeVisible();
+  });
+
+  test('direct access to /orders/filter preserves all query params', async ({ page }) => {
+    const response = await page.goto('/orders/filter?courier=spx&status=real&page=1');
+    const finalUrl = new URL(response?.url() || '');
+    expect(finalUrl.pathname).toBe('/orders');
+    expect(finalUrl.searchParams.get('courier')).toBe('spx');
+    expect(finalUrl.searchParams.get('status')).toBe('real');
+    expect(finalUrl.searchParams.get('page')).toBe('1');
+  });
+
+  test('pagination links in AJAX-loaded table use /orders path not /orders/filter', async ({ page }) => {
+    await page.goto('/orders');
+    await page.waitForTimeout(2000);
+
+    // Apply a filter to trigger AJAX load
+    await page.selectOption('#ord-filter-status', 'real');
+    await page.waitForTimeout(1500);
+
+    // Check that pagination links point to /orders, not /orders/filter
+    const paginationHrefs = await page.locator('#ord-table-wrap .pagination a').allInnerTexts();
+    const paginationUrls = await page.locator('#ord-table-wrap .pagination a').evaluateAll(
+      (links: HTMLAnchorElement[]) => links.map(l => l.href)
+    );
+
+    for (const url of paginationUrls) {
+      expect(url).toContain('/orders?');
+      expect(url).not.toContain('/orders/filter');
+    }
+  });
+
+  test('clicking pagination after AJAX filter loads correct page without JSON response', async ({ page }) => {
+    await page.goto('/orders');
+    await page.waitForTimeout(2000);
+
+    // Apply filter
+    await page.selectOption('#ord-filter-status', 'real');
+    await page.waitForTimeout(1500);
+
+    // Find pagination links
+    const paginationLinks = page.locator('#ord-table-wrap .pagination a');
+    const count = await paginationLinks.count();
+    if (count > 0) {
+      // Click the last pagination link (e.g. page 2 or higher)
+      const targetLink = paginationLinks.last();
+      const linkText = await targetLink.innerText();
+
+      // Intercept the AJAX request
+      const respPromise = page.waitForResponse(r => r.url().includes('orders/filter'));
+
+      await targetLink.click();
+      const resp = await respPromise;
+      await page.waitForTimeout(1000);
+
+      // Response should be JSON (AJAX), not a page navigation
+      const contentType = resp.headers()['content-type'] || '';
+      expect(contentType).toContain('application/json');
+
+      // Table should still be visible (not navigated away)
+      await expect(page.locator('#ord-table-wrap')).toBeVisible();
+
+      // Content should have updated
+      const text = await page.textContent('#ord-table-wrap');
+      expect(text).toContain('Menampilkan');
+    }
+  });
+
+  test('pagination with multiple filters preserves all params', async ({ page }) => {
+    await page.goto('/orders');
+    await page.waitForTimeout(2000);
+
+    // Apply multiple filters
+    await page.selectOption('#ord-filter-status', 'real');
+    await page.waitForTimeout(500);
+
+    const respPromise = page.waitForResponse(r => r.url().includes('orders/filter'));
+    await page.selectOption('#ord-filter-courier', 'spx');
+    const resp = await respPromise;
+    await page.waitForTimeout(500);
+
+    const url = new URL(resp.url());
+    expect(url.searchParams.get('status')).toBe('real');
+    expect(url.searchParams.get('courier')).toBe('spx');
+
+    // Now click pagination — should preserve status=real AND courier=spx
+    const paginationLinks = page.locator('#ord-table-wrap .pagination a');
+    const count = await paginationLinks.count();
+    if (count > 0) {
+      const pageRespPromise = page.waitForResponse(r => r.url().includes('orders/filter'));
+      await paginationLinks.first().click();
+      const pageResp = await pageRespPromise;
+      await page.waitForTimeout(1000);
+
+      const pageUrl = new URL(pageResp.url());
+      expect(pageUrl.searchParams.get('status')).toBe('real');
+      expect(pageUrl.searchParams.get('courier')).toBe('spx');
+      expect(pageUrl.searchParams.has('page')).toBe(true);
     }
   });
 });

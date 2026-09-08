@@ -812,6 +812,42 @@
       this._debounce = setTimeout(fetchOrderTable, 400);
     });
   }
+  // Pagination inside AJAX-loaded table: intercept clicks → fetchOrderTable with page
+  document.getElementById('ord-table-wrap').addEventListener('click', function(e) {
+    var link = e.target.closest('.pagination a');
+    if (!link) return;
+    e.preventDefault();
+    var url = new URL(link.href);
+    var page = url.searchParams.get('page') || '1';
+    var params = new URLSearchParams();
+    var fields = [
+      ['ord-filter-batch', 'batch'],
+      ['ord-filter-search', 'search'],
+      ['ord-filter-courier', 'courier'],
+      ['ord-filter-status', 'status'],
+      ['ord-filter-product', 'product_code'],
+    ];
+    fields.forEach(function(f) {
+      var v = document.getElementById(f[0]).value;
+      if (v) params.set(f[1], v);
+    });
+    if (_datesApplied) {
+      var dariInput = document.querySelector('input[name="dari"]');
+      var sampaiInput = document.querySelector('input[name="sampai"]');
+      if (dariInput && dariInput.value) params.set('dari', dariInput.value);
+      if (sampaiInput && sampaiInput.value) params.set('sampai', sampaiInput.value);
+    }
+    params.set('page', page);
+
+    fetch('{{ route("orders.filter") }}?' + params.toString(), {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('ord-table-wrap').innerHTML = data.html;
+    });
+  });
+
   // Override DRP applyAndSubmit — wait for DRP to be defined
   window.addEventListener('load', function() {
     if (!window.DRP) return;
