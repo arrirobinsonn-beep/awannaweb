@@ -407,7 +407,6 @@
   <div id="ord-table-wrap">
     @include('order._table', ['orders' => $orders, 'courierList' => $courierList, 'products' => $products, 'isCs' => $isCs, 'selectedBatch' => $selectedBatch])
   </div>
-  <div style="padding:12px 20px;">{{ $orders->links() }}</div>
 </div>
 
 @endsection
@@ -766,6 +765,7 @@
 ══════════════════════════════════════════════════ */
 (function () {
   var CSRF = document.querySelector('meta[name="csrf-token"]').content;
+  var _datesApplied = false;
 
   function fetchOrderTable() {
     var params = new URLSearchParams();
@@ -781,11 +781,13 @@
       if (v) params.set(f[1], v);
     });
 
-    // Date range from DRP hidden inputs
-    var dariInput = document.querySelector('input[name="dari"]');
-    var sampaiInput = document.querySelector('input[name="sampai"]');
-    if (dariInput && dariInput.value) params.set('dari', dariInput.value);
-    if (sampaiInput && sampaiInput.value) params.set('sampai', sampaiInput.value);
+    // Date range: only include if user explicitly applied DRP
+    if (_datesApplied) {
+      var dariInput = document.querySelector('input[name="dari"]');
+      var sampaiInput = document.querySelector('input[name="sampai"]');
+      if (dariInput && dariInput.value) params.set('dari', dariInput.value);
+      if (sampaiInput && sampaiInput.value) params.set('sampai', sampaiInput.value);
+    }
 
     fetch('{{ route("orders.filter") }}?' + params.toString(), {
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -824,6 +826,7 @@
         if (formNext) formParent.insertBefore(form, formNext);
         else formParent.appendChild(form);
       }
+      _datesApplied = true;
       fetchOrderTable();
     };
   });
