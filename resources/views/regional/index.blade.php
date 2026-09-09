@@ -1040,7 +1040,8 @@
                                 tanggal: csItem.tanggal,
                                 cs_panggilan: csItem.cs_panggilan,
                                 lead: csItem.lead,
-                                paid: csItem.paid
+                                paid: csItem.paid,
+                                product_status: csItem.product_status || 'running'
                             });
                         });
                     });
@@ -1359,7 +1360,8 @@
                 tanggal: cs.tanggal,
                 cs_panggilan: cs.cs_panggilan,
                 lead: cs.lead,
-                paid: cs.paid
+                paid: cs.paid,
+                product_status: cs.product_status || 'running'
             });
         });
 

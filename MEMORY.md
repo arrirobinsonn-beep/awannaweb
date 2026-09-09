@@ -1,3 +1,31 @@
+# MEMORY — 10 September 2026
+
+## Follow-up: Upload spending Meta "gagal masuk DB" — sebenarnya tersimpan, UX salah hitung
+
+- **Laporan user**: parsing sukses tapi "gagal ditambahkan ke database".
+- **Investigasi**: data SEBENARNYA masuk DB — `spending_harians` 254 baris / 30 tanggal / 4 user (created_at 22:41 UTC = dummy `SpendingHarianSeeder` via `DatabaseSeeder` saat `db:seed` dev), uji coba user tersimpan 3 baris (23:35–23:36 UTC). Yang menyesatkan: `store()` diam-diam melewati combo `(user_id, tanggal, product_id)` yang sudah ada (idempotent), tapi JS menampilkan "✅ N data berhasil disimpan" dengan N = jumlah dikirim (bukan tersimpan).
+- **Fix**: `store()` return `JsonResponse {success, imported, skipped}`; JS `storeSpending` tampilkan "✅ N berhasil disimpan" + "⚠️ M dilewati (sudah ada)" bila `skipped>0`. Return type diganti `RedirectResponse` → `JsonResponse` (test gagal karena signature).
+- **Bonus**: error `ApprovalController not found` di log (23:13 UTC, tepat saat sesi user) = autoloader optimize belum memuat file yang ADA — sudah teratasi `composer install` sebelumnya (`class_exists` true).
+- **Test**: `SpendingUploadTest` +`test_store_returns_json_with_imported_and_skipped_counts` (imported=1 lalu skip=1). Suite **245/245 pass (1306 assertions)**.
+
+## Session: Baris Testing Tetap ke Performa Team — 2 Tabel Running/Testing (fitur X)
+
+- **Latar**: user minta (1) konfirmasi bahwa regional mengecualikan baris produk testing berdasarkan created_at vs start_running — sudah benar (fitur W); (2) baris yang dilewati TETAP diteruskan ke tabel performa team, dipisah jadi **2 tabel** (Running & Testing). Q&A user: data lama **dibersihkan** (upload ulang), layout **tab** (pola spending), doughnut **dipisah per tabel**.
+- **Akar**: `RegionalCsStat` dulu agregat campur tanpa info status produk → tidak bisa dipisah. Solusi: dimensi `product_status` di tabel + klasifikasi saat parse (baris sudah punya `product_status` dari fitur W).
+- **Implementasi inti**: migration `2026_09_10_000000` (kolom NOT NULL default running + index + UNIQUE baru `cs_stats_status_unique` (tanggal,user_id,cs_panggilan,product_status) + **hapus semua baris lama**); `RegionalImportService::previewData` CS stats per status (tanpa kolom product → running); `savePreview` simpan status (default running); `TeamController::performance` pecah `$statsRunning/Testing` + byDate/totalPerCs/members/chartData per status; view `team/performance` tab 🟢/🔬 (2 tabel + 2 donut + kartu stat data-run/data-test); donut diekstrak ke partial `performa-donut.blade.php` (param `$groupKey` utk id svg + `data-donut-group` utk scope hover).
+- **Jebakan teknis**: (1) UNIQUE lama `cs_stats_unique` HARUS diganti (kolom baru tanpa itu → 1 CS tidak bisa punya baris running & testing di tanggal sama); (2) 2 donut di DOM → hover global lama hanya bind ke donut pertama → di-scope per group; (3) batas tinggi tabel `.perf-scroll-limit` mengukur saat load → tabel tab tersembunyi offsetHeight 0 → pola index-general: skip `offsetParent === null` + `reapplyPerfTableLimit()` dipanggil `switchPerfTab`; (4) test "null status" gagal karena kolom NOT NULL → ganti jadi test payload tanpa status → default running (jalur backward-compat yang benar).
+- **Fix lingkungan**: DB test `webawanna_test` roles kosong (`RoleDoesNotExist` semua test) → `DB_DATABASE=webawanna_test php artisan migrate:fresh --seed`. Juga ada beberapa migration tertunda yang ikut ter-apply.
+- **Pre-existing flaky**: `AggregatorTrackingImportTest` 1× gagal di run penuh (assert matched=1, resi tetap + tanpa cleanup di DB test menumpuk) — lolos saat dijalankan ulang, tidak terkait fitur ini.
+- **Hasil**: suite **244/244 pass (1297 assertions)** · migration sudah di-apply ke DB dev (cs_stats dev = 0, regional_reports tidak disentuh). AGENTS.md section X ditulis.
+
+## Follow-up (10 September): Fix modal produk tampil polos di bawah tabel — clay.css tidak dimuat
+
+- **Laporan user**: halaman produk sisi admin rusak — modal tambah data & varian tidak berfungsi, form tampil di bawah tabel utama.
+- **Diagnosis (BUKAN dari fitur X)**: layout `app.blade.php`/`guest.blade.php` memuat `clay.css` HANYA di cabang `@else` (saat `public/build/manifest.json` TIDAK ada). Manifest ADA di repo lokal (untracked, mtime 11 Agu) → branch `@vite` dipakai → hanya `app.css`+`app.js` termuat. `resources/css/app.css` (0 match) & asset build TIDAK memuat `.clay-modal` (12 match HANYA di `public/css/clay.css`) → `.clay-modal{display:none}` hilang → markup modal di bawah tabel tampil polos + `.active` tidak jadi overlay. Semua gaya clay lain yang cuma ada di clay.css (dropzone, toggle) ikut hilang.
+- **Fix**: `<link clay.css>` dipindah KELUAR dari if/else manifest — **selalu dimuat** di kedua mode build (app + guest). Ini juga memperbaiki lingkungan production yang punya built assets (bug yang sama).
+- **Regression guard**: `test_product_master_page_create_update_toggle_destroy` di OrderOnlineTest kini assert `css/clay.css` + `id="modal-product"`/`id="modal-variant"`.
+- **Hasil**: suite **244/244 pass (1300 assertions)**. AGENTS.md diberi catatan fix (di section T).
+
 # MEMORY — 9 September 2026
 
 ## Session: Fase Iklan Produk Berbasis Tanggal — start_testing & start_running (fitur W)

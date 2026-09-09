@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Product;
+use App\Models\RegionalCsStat;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class RegionalImportService
@@ -207,7 +208,10 @@ class RegionalImportService
     {
         $grouped = [];
 
-        // ─── CS Stats: hitung lead/paid per CS per tanggal ───
+        // ─── CS Stats: hitung lead/paid per CS per tanggal PER STATUS PRODUK ───
+        // Baris produk TESTING tetap diteruskan ke performa team (CS stats), hanya
+        // tabel provinsi regional yang mengecualikannya. Row tanpa kolom product
+        // (atau produk tak dikenal) dianggap running (perilaku lama).
         $csGrouped = [];
         foreach ($parsedData as $row) {
             $handledBy = $row['handled_by'] ?? '';
@@ -215,13 +219,18 @@ class RegionalImportService
                 continue;
             }
 
-            $key = $row['tanggal'].'|'.$handledBy;
+            $status = ($row['product_status'] ?? null) === Product::AD_STATUS_TESTING
+                ? RegionalCsStat::STATUS_TESTING
+                : RegionalCsStat::STATUS_RUNNING;
+
+            $key = $row['tanggal'].'|'.$handledBy.'|'.$status;
             if (! isset($csGrouped[$key])) {
                 $csGrouped[$key] = [
                     'tanggal' => $row['tanggal'],
                     'cs_panggilan' => $handledBy,
                     'lead' => 0,
                     'paid' => 0,
+                    'product_status' => $status,
                 ];
             }
             $csGrouped[$key]['lead']++;

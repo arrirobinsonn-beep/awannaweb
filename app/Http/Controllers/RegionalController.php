@@ -294,6 +294,7 @@ class RegionalController extends Controller
             'cs_stats.*.cs_panggilan' => ['required_with:cs_stats', 'string', 'max:100'],
             'cs_stats.*.lead' => ['required_with:cs_stats', 'integer', 'min:0'],
             'cs_stats.*.paid' => ['required_with:cs_stats', 'integer', 'min:0'],
+            'cs_stats.*.product_status' => ['nullable', 'string', 'in:running,testing'],
 
             // Phone → CS mapping dari file yang sama (opsional)
             'phone_contacts' => ['nullable', 'array'],
@@ -368,7 +369,7 @@ class RegionalController extends Controller
                     $existingCsMap = RegionalCsStat::where('user_id', $targetUserId)
                         ->whereIn('tanggal', $csDates)
                         ->get()
-                        ->keyBy(fn ($s) => $s->tanggal->format('Y-m-d').'|'.$s->cs_panggilan);
+                        ->keyBy(fn ($s) => $s->tanggal->format('Y-m-d').'|'.$s->cs_panggilan.'|'.$s->product_status);
 
                     foreach ($csStats as $stat) {
                         $csPanggilan = trim($stat['cs_panggilan']);
@@ -377,6 +378,7 @@ class RegionalController extends Controller
                         }
 
                         $csUser = $csUsers[$csPanggilan] ?? null;
+                        $status = $stat['product_status'] ?? RegionalCsStat::STATUS_RUNNING;
 
                         $data = [
                             'tanggal' => $stat['tanggal'],
@@ -385,9 +387,10 @@ class RegionalController extends Controller
                             'cs_user_id' => $csUser?->id,
                             'lead' => (int) $stat['lead'],
                             'paid' => (int) $stat['paid'],
+                            'product_status' => $status,
                         ];
 
-                        $existing = $existingCsMap[date('Y-m-d', strtotime($stat['tanggal'])).'|'.$csPanggilan] ?? null;
+                        $existing = $existingCsMap[date('Y-m-d', strtotime($stat['tanggal'])).'|'.$csPanggilan.'|'.$status] ?? null;
 
                         if ($existing) {
                             $existing->update($data);

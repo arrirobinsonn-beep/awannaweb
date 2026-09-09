@@ -2292,7 +2292,13 @@ class OrderOnlineTest extends TestCase
         $user = $this->adminUser();
         $code = 'MP-'.strtoupper(substr(uniqid(), -5));
 
-        $this->actingAs($user)->get(route('product.index'))->assertOk()->assertSee('Produk');
+        // Halaman produk: layout WAJIB memuat clay.css (tanpa itu modal tambah/edit
+        // tampil polos di bawah tabel — regresi manifest build Vite) + markup modal ada.
+        $this->actingAs($user)->get(route('product.index'))->assertOk()
+            ->assertSee('Produk')
+            ->assertSee('css/clay.css')
+            ->assertSee('id="modal-product"', false)
+            ->assertSee('id="modal-variant"', false);
 
         // Buat produk di halaman master → varian default otomatis, BELUM terdaftar gudang mana pun
         $this->actingAs($user)

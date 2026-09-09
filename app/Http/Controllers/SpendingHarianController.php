@@ -583,7 +583,7 @@ class SpendingHarianController extends Controller
 
     // ─── Store ─────────────────────────────────────────────────────
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request): RedirectResponse|JsonResponse
     {
         $validated = $request->validate([
             // Multi-tanggal: setiap item bisa membawa tanggal sendiri (fitur upload Excel).
@@ -684,6 +684,18 @@ class SpendingHarianController extends Controller
         $message = "Berhasil menyimpan {$imported} data spending.";
         if ($skipped > 0) {
             $message .= " {$skipped} data dilewati karena sudah tercatat (tanggal + whitelist + produk yang sama).";
+        }
+
+        // Upload otomatis Meta memakai fetch dengan Accept: application/json →
+        // beri jumlah REAL (tersimpan vs dilewati) agar toast tidak menyesatkan
+        // (sebelumnya selalu "N data berhasil disimpan" padahal banyak yang di-skip).
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'imported' => $imported,
+                'skipped' => $skipped,
+                'message' => $message,
+            ]);
         }
 
         return redirect()->route('spending.index')

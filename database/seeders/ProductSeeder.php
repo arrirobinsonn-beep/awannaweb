@@ -126,6 +126,18 @@ class ProductSeeder extends Seeder
                 'stok' => 1000,
             ],
             [
+                'code' => 'CTA',
+                'name' => 'Celengan target ATM',
+                'category' => 'Aksesoris',
+                'goods_type' => 'core',
+                'description' => 'Celengan target ATM untuk menyimpan uang secara aman.',
+                'purchase_price' => 25000,
+                'selling_price' => 119000,
+                'unit' => 'Pcs',
+                'status' => 'active',
+                'stok' => 1000,
+            ],
+            [
                 'code' => 'BOX',
                 'name' => 'Box Kacamata',
                 'category' => 'Aksesoris',

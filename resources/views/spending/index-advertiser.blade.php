@@ -2703,19 +2703,25 @@ function toggle(id) {
 
         fetch(STORE_URL, {
             method: 'POST',
-            headers: { 'X-CSRF-TOKEN': CSRF },
+            headers: { 'X-CSRF-TOKEN': CSRF, 'Accept': 'application/json' },
             body: fd
         })
         .then(function(r) {
-            if (r.redirected || r.ok) {
+            if (r.redirected) {
+                // 302 tanpa JSON (fallback lama) → anggap sukses, jumlah tak diketahui
                 closeUploadModal();
-                showFlash('✅ ' + items.length + ' data spending berhasil disimpan!');
+                showFlash('✅ Data berhasil disimpan!');
                 setTimeout(function() { window.location.reload(); }, 1200);
-            } else {
-                return r.json().then(function(d) {
-                    throw new Error(d.message || 'Gagal menyimpan');
-                });
+                return;
             }
+            return r.json().then(function(d) {
+                if (!r.ok) throw new Error(d.message || 'Gagal menyimpan');
+                closeUploadModal();
+                var msg = '✅ ' + d.imported + ' data tersimpan'
+                    + (d.skipped > 0 ? ', ' + d.skipped + ' dilewati (sudah ada)' : '') + '!';
+                showFlash(msg);
+                setTimeout(function() { window.location.reload(); }, 1200);
+            });
         })
         .catch(function(err) {
             if (applyBtn) { applyBtn.disabled = false; applyBtn.innerHTML = '💾 Simpan ke Server'; }

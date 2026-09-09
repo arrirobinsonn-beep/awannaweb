@@ -15,8 +15,11 @@
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     @else
         <script src="https://cdn.tailwindcss.com"></script>
-        <link rel="stylesheet" href="{{ asset('css/clay.css') }}">
     @endif
+    {{-- clay.css = stylesheet inti aplikasi (clay-modal, clay-dropzone, clay-toggle, dll) —
+         WAJIB selalu dimuat TERLEPAS dari mode build Vite (app.css hasil build TIDAK
+         memuat gaya-gaya ini; tanpa file ini modal/form tampil polos di bawah tabel). --}}
+    <link rel="stylesheet" href="{{ asset('css/clay.css') }}">
 
     @stack('styles')
 
