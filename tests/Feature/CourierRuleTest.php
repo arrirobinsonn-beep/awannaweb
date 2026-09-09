@@ -68,7 +68,8 @@ class CourierRuleTest extends TestCase
                 'courier' => 'sicepat',
                 'is_active' => '1',
             ])
-            ->assertRedirect();
+            ->assertOk()
+            ->assertJson(['success' => true]);
 
         $rule = CourierRule::where('province', $province)->first();
         $this->assertNotNull($rule);
@@ -91,7 +92,8 @@ class CourierRuleTest extends TestCase
                 'province' => ' '.\strtolower($province).' ',
                 'courier' => 'flix-tf',
             ])
-            ->assertRedirect();
+            ->assertOk()
+            ->assertJson(['success' => true]);
 
         $rule = CourierRule::where('province', $province)->first();
         $this->assertNotNull($rule);
@@ -113,7 +115,8 @@ class CourierRuleTest extends TestCase
                 'province' => $province,
                 'courier' => 'sicepat',
             ])
-            ->assertSessionHasErrors('rule');
+            ->assertStatus(422)
+            ->assertJson(['success' => false]);
 
         $rule->delete();
     }
@@ -143,7 +146,8 @@ class CourierRuleTest extends TestCase
                 'courier' => 'flix-spx',
                 'is_active' => '1',
             ])
-            ->assertRedirect();
+            ->assertOk()
+            ->assertJson(['success' => true]);
 
         $rule->refresh();
         $this->assertSame('flix-spx', $rule->courier);
@@ -161,7 +165,8 @@ class CourierRuleTest extends TestCase
 
         $this->actingAs($this->adminUser())
             ->patch(route('courier-rule.toggle', $rule))
-            ->assertRedirect();
+            ->assertOk()
+            ->assertJson(['success' => true, 'is_active' => false]);
 
         $rule->refresh();
         $this->assertFalse($rule->is_active);
@@ -179,7 +184,8 @@ class CourierRuleTest extends TestCase
 
         $this->actingAs($this->adminUser())
             ->delete(route('courier-rule.destroy', $rule))
-            ->assertRedirect();
+            ->assertOk()
+            ->assertJson(['success' => true]);
 
         $this->assertNull(CourierRule::find($rule->id));
         $this->assertSame('spx', (new CourierRuleService)->resolve('cod', $province));
@@ -187,18 +193,24 @@ class CourierRuleTest extends TestCase
 
     public function test_move_down_swaps_sort_order(): void
     {
-        $a = $this->createRule(['sort_order' => 50, 'payment_method' => 'cod', 'province' => 'TEST PROVINCE A '.uniqid(), 'courier' => 'sicepat']);
-        $b = $this->createRule(['sort_order' => 51, 'payment_method' => 'cod', 'province' => 'TEST PROVINCE B '.uniqid(), 'courier' => 'flix-spx']);
+        // sort_order dinamis di atas max saat ini → dijamin adjacency & tidak
+        // bentrok dengan sisa rule test dari run sebelumnya (DB tanpa refresh)
+        $base = (CourierRule::max('sort_order') ?? 100) + 10;
+        $a = $this->createRule(['sort_order' => $base, 'payment_method' => 'cod', 'province' => 'TEST PROVINCE A '.uniqid(), 'courier' => 'sicepat']);
+        $b = $this->createRule(['sort_order' => $base + 1, 'payment_method' => 'cod', 'province' => 'TEST PROVINCE B '.uniqid(), 'courier' => 'flix-spx']);
 
-        $this->actingAs($this->adminUser())
-            ->post(route('courier-rule.move', [$a, 'down']))
-            ->assertRedirect();
+        try {
+            $this->actingAs($this->adminUser())
+                ->post(route('courier-rule.move', [$a, 'down']))
+                ->assertOk()
+                ->assertJson(['success' => true]);
 
-        $this->assertSame(51, $a->refresh()->sort_order);
-        $this->assertSame(50, $b->refresh()->sort_order);
-
-        $a->delete();
-        $b->delete();
+            $this->assertSame($base + 1, $a->refresh()->sort_order);
+            $this->assertSame($base, $b->refresh()->sort_order);
+        } finally {
+            $a->delete();
+            $b->delete();
+        }
     }
 
     public function test_lower_sort_order_wins(): void
@@ -264,7 +276,8 @@ class CourierRuleTest extends TestCase
                 'courier' => 'flix-tf',
                 'is_active' => '1',
             ])
-            ->assertRedirect();
+            ->assertOk()
+            ->assertJson(['success' => true]);
 
         $rule = CourierRule::where('product_code', $code)->first();
         $this->assertNotNull($rule);
@@ -293,7 +306,8 @@ class CourierRuleTest extends TestCase
                 'product_code' => $code,
                 'courier' => 'sicepat',
             ])
-            ->assertSessionHasErrors('rule');
+            ->assertStatus(422)
+            ->assertJson(['success' => false]);
 
         $rule->delete();
     }

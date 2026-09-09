@@ -1381,6 +1381,18 @@ class OrderOnlineTest extends TestCase
     private function ensureCatalog(): void
     {
         $this->seed(ProductSeeder::class);
+
+        // Reset stok katalog ke baseline tiap test mulai (DB test tanpa refresh):
+        // semua jurnal order_online dari run test sebelumnya dibalik + stok dihitung
+        // ulang, agar test packaging/export idempotent walau suite dijalankan berulang
+        // (tanpa ini, stok varian default bisa terkuras sampai 0 oleh run-run lama).
+        $stock = app(StockService::class);
+        $orderOnlineRefIds = StockMovement::where('reference', 'order_online')
+            ->distinct()
+            ->pluck('reference_id');
+        if ($orderOnlineRefIds->isNotEmpty()) {
+            $stock->reverseReferences('order_online', $orderOnlineRefIds->all());
+        }
     }
 
     private function newBatch(): OrderOnlineImportBatch

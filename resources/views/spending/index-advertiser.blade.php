@@ -115,20 +115,22 @@
         ? \Carbon\Carbon::parse($dari)->translatedFormat('d M Y')
         : \Carbon\Carbon::parse($dari)->translatedFormat('d M Y').' – '.\Carbon\Carbon::parse($sampai)->translatedFormat('d M Y');
 
-    // Data chart: 4 garis — Lead/Paid per status iklan (Running & Testing) per tanggal.
-    // Nilai dihitung per produk (bukan total harian) agar tiap garis murni per status.
+    // Data chart: 4 garis — Lead/Paid per FASE iklan (Running & Testing) per tanggal.
+    // Nilai dihitung per produk (bukan total harian) agar tiap garis murni per fase
+    // — klasifikasi memakai timeline produk (start_running), bukan ad_status saat ini.
+    $phaseOn = fn ($prod, $d) => $prod ? $prod->phaseOn($d) : 'testing';
     $chartDates = $summaries->keys()->sort()->values();
-    $chartRunLead = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'running')->sum('lead'));
-    $chartRunPaid = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'running')->sum('paid'));
-    $chartTestLead = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing')->sum('lead'));
-    $chartTestPaid = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing')->sum('paid'));
+    $chartRunLead = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === 'running')->sum('lead'));
+    $chartRunPaid = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === 'running')->sum('paid'));
+    $chartTestLead = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === 'testing')->sum('lead'));
+    $chartTestPaid = $chartDates->map(fn ($d) => (int) collect($summaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === 'testing')->sum('paid'));
 @endphp
 
 {{-- ═══════════════ TAB: Running / Testing ═══════════════ --}}
 @php
-    // Pisahkan summaries per ad_status untuk tab Running/Testing
-    $runningSummaries = $summaries->map(function ($s) {
-        $filteredProducts = collect($s['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'running');
+    // Pisahkan summaries per FASE tanggal untuk tab Running/Testing
+    $runningSummaries = $summaries->map(function ($s) use ($phaseOn) {
+        $filteredProducts = collect($s['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $s['tanggal']) === 'running');
         if ($filteredProducts->isEmpty()) return null;
         $spending = $filteredProducts->sum('spending');
         $lead = $filteredProducts->sum('lead');
@@ -146,8 +148,8 @@
 
     // CPA Lead/Paid Testing dihitung sendiri di tab ini (untuk evaluasi fase uji),
     // tapi TIDAK masuk hitungan global: kartu summary & chart tetap Running saja.
-    $testingSummaries = $summaries->map(function ($s) {
-        $filteredProducts = collect($s['by_product'])->filter(fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing');
+    $testingSummaries = $summaries->map(function ($s) use ($phaseOn) {
+        $filteredProducts = collect($s['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $s['tanggal']) === 'testing');
         if ($filteredProducts->isEmpty()) return null;
         $spending = $filteredProducts->sum('spending');
         $lead = $filteredProducts->sum('lead');

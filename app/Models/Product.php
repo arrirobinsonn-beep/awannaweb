@@ -24,12 +24,16 @@ class Product extends Model
         'unit',
         'status',
         'ad_status',
+        'start_testing',
+        'start_running',
     ];
 
     protected $casts = [
         'purchase_price' => 'decimal:2',
         'selling_price' => 'decimal:2',
         'min_stock' => 'integer',
+        'start_testing' => 'date',
+        'start_running' => 'date',
     ];
 
     /** Status iklan: testing (fase uji coba) atau running (sudah aktif). */
@@ -192,5 +196,27 @@ class Product extends Model
     public function isRunning(): bool
     {
         return $this->ad_status === self::AD_STATUS_RUNNING;
+    }
+
+    /**
+     * Fase iklan produk pada tanggal tertentu — berbasis TIMELINE, bukan status
+     * saat ini. Spending yang dicatat sebelum `start_running` tetap Testing walau
+     * produk sudah di-toggle Running belakangan.
+     *
+     * @param  \Carbon\CarbonInterface|string|null  $date
+     */
+    public function phaseOn($date): string
+    {
+        if (! $this->start_running) {
+            return self::AD_STATUS_TESTING;
+        }
+
+        $d = $date instanceof \Carbon\CarbonInterface
+            ? $date->toDateString()
+            : (string) $date;
+
+        return $d >= $this->start_running->toDateString()
+            ? self::AD_STATUS_RUNNING
+            : self::AD_STATUS_TESTING;
     }
 }

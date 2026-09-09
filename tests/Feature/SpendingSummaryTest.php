@@ -43,6 +43,8 @@ class SpendingSummaryTest extends TestCase
             'name' => 'Produk Test '.$adStatus,
             'status' => 'active',
             'ad_status' => $adStatus,
+            'start_testing' => '2026-01-01',
+            'start_running' => $adStatus === 'running' ? '2026-01-01' : null,
         ]);
     }
 
@@ -272,5 +274,68 @@ class SpendingSummaryTest extends TestCase
             ->assertSee('Ketidaksesuaian Data Ditemukan!')
             ->assertSee('Data Belum Ditambahkan')
             ->assertSee('Belum mengisi data spending iklan tanggal 2 Agustus 2026');
+    }
+
+    public function test_product_phase_splits_spending_by_date_not_current_status(): void
+    {
+        $user = $this->makeUser();
+        $wl = $this->makeWhitelist($user);
+
+        // Produk sudah running SEKARANG, tapi baru di-toggle running pada 2 Sep →
+        // spending 1 Sep (masa testing) TIDAK boleh ikut pindah ke Running.
+        $product = Product::create([
+            'code' => 'P'.strtoupper(substr(uniqid(), -6)),
+            'name' => 'Produk Fase '.uniqid(),
+            'status' => 'active',
+            'ad_status' => 'running',
+            'start_testing' => '2026-08-01',
+            'start_running' => '2026-09-02',
+        ]);
+
+        $this->makeSpending($user, $wl, $product, '2026-09-01', 100000, 10, 4); // masa testing
+        $this->makeSpending($user, $wl, $product, '2026-09-02', 50000, 5, 2);  // masa running
+
+        $res = $this->actingAs($user)
+            ->get(route('spending.index', ['dari' => '2026-09-01', 'sampai' => '2026-09-02']))
+            ->assertOk();
+
+        // Kartu summary: tab Running = 2 Sep (50.000), tab Testing = 1 Sep (100.000)
+        $res->assertSee('data-run="Rp 50.000"', false);
+        $res->assertSee('data-test="Rp 100.000"', false);
+
+        // Sanity: status SAAT INI produk running, tapi klasifikasi ikut timeline
+        $this->assertSame('running', $product->ad_status);
+        $this->assertSame('2026-08-01', $product->start_testing->toDateString());
+    }
+
+    public function test_toggle_ad_status_is_one_way(): void
+    {
+        $user = $this->makeUser();
+        $product = Product::create([
+            'code' => 'P'.strtoupper(substr(uniqid(), -6)),
+            'name' => 'Produk Toggle '.uniqid(),
+            'status' => 'active',
+            'ad_status' => 'running',
+            'start_testing' => '2026-08-01',
+            'start_running' => '2026-09-01',
+        ]);
+
+        // Running → Testing DITOLAK (lifecycle satu arah)
+        $this->actingAs($user)
+            ->patch(route('product.toggle-ad-status', $product))
+            ->assertStatus(422);
+        $product->refresh();
+        $this->assertSame('running', $product->ad_status);
+        $this->assertSame('2026-09-01', $product->start_running->toDateString());
+
+        // Testing → Running: start_running otomatis terisi hari ini
+        $product->update(['ad_status' => 'testing', 'start_running' => null]);
+        $this->actingAs($user)
+            ->patch(route('product.toggle-ad-status', $product))
+            ->assertOk()
+            ->assertJson(['success' => true]);
+        $product->refresh();
+        $this->assertSame('running', $product->ad_status);
+        $this->assertSame(now()->toDateString(), $product->start_running->toDateString());
     }
 }

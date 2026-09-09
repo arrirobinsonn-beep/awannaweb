@@ -133,12 +133,15 @@ class RegionalController extends Controller
         }
 
         // ─── Alarm: bandingkan dengan Spending Harian ────────
-        // Regional hanya memuat produk RUNNING → spending pembanding juga running saja
+        // Regional hanya memuat produk RUNNING → spending pembanding juga hanya
+        // spending yang jatuh di fase running (tanggal >= products.start_running)
         $spendingTotals = SpendingHarian::where('user_id', $targetUserId)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
-            ->selectRaw('tanggal, COALESCE(SUM(`lead`), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
-            ->groupBy('tanggal')
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
+            ->selectRaw('spending_harians.tanggal, COALESCE(SUM(`lead`), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
+            ->groupBy('spending_harians.tanggal')
             ->get()
             ->keyBy('tanggal')
             ->mapWithKeys(fn ($item, $key) => [substr((string) $key, 0, 10) => $item]);
@@ -595,15 +598,20 @@ class RegionalController extends Controller
             ->whereBetween('tanggal', [$dari, $sampai])
             ->sum('paid');
 
-        // Regional hanya memuat produk RUNNING → spending pembanding juga running saja
+        // Regional hanya memuat produk RUNNING → spending pembanding juga hanya
+        // spending yang jatuh di fase running (tanggal >= products.start_running)
         $spendingLead = (int) SpendingHarian::where('user_id', $user->id)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
             ->sum('lead');
 
         $spendingPaid = (int) SpendingHarian::where('user_id', $user->id)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
             ->sum('paid');
 
         return response()->json([

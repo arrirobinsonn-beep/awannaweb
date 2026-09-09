@@ -65,11 +65,13 @@ Route::middleware('auth')->group(function () {
         Route::put('/profil/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
 
         // Supplier
+        Route::get('/supplier/filter', [SupplierController::class, 'filter'])->name('supplier.filter');
         Route::resource('supplier', SupplierController::class)->names('supplier');
 
         // Produk & Varian — dikelola DI DALAM halaman Gudang (inventory otomatis = gudang yang dibuka)
 
         // Aturan Courier (auto-mapping kurir berdasarkan provinsi — dinamis dari DB)
+        Route::get('/courier-rules/filter', [CourierRuleController::class, 'filter'])->name('courier-rule.filter');
         Route::get('/courier-rules', [CourierRuleController::class, 'index'])->name('courier-rule.index');
         Route::post('/courier-rules', [CourierRuleController::class, 'store'])->name('courier-rule.store');
         Route::put('/courier-rules/{courierRule}', [CourierRuleController::class, 'update'])->name('courier-rule.update');
@@ -90,6 +92,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/tracking-status-rules/upload', [TrackingStatusRuleController::class, 'upload'])->name('tracking-status-rule.upload');
         Route::post('/tracking-status-rules/{source}/mapping', [TrackingStatusRuleController::class, 'saveMapping'])->name('tracking-status-rule.mapping');
         Route::post('/tracking-status-rules/{source}/config', [TrackingStatusRuleController::class, 'saveConfig'])->name('tracking-status-rule.config');
+        Route::get('/tracking-status-rules/{source}/filter', [TrackingStatusRuleController::class, 'filter'])->name('tracking-status-rule.filter');
         Route::post('/tracking-status-rules', [TrackingStatusRuleController::class, 'store'])->name('tracking-status-rule.store');
         Route::put('/tracking-status-rules/{trackingStatusRule}', [TrackingStatusRuleController::class, 'update'])->name('tracking-status-rule.update');
         Route::patch('/tracking-status-rules/{trackingStatusRule}/toggle', [TrackingStatusRuleController::class, 'toggle'])->name('tracking-status-rule.toggle');
@@ -169,6 +172,7 @@ Route::middleware('auth')->group(function () {
 
         // Master Produk — halaman produk sendiri (CRUD produk & varian).
         // Produk dibuat DI SINI; halaman Gudang hanya meng-attach produk yang sudah ada.
+        Route::get('/product/filter', [ProductController::class, 'filter'])->name('product.filter');
         Route::get('/product', [ProductController::class, 'index'])->name('product.index');
         Route::post('/product', [ProductController::class, 'store'])->name('product.store');
         Route::put('/product/{product}', [ProductController::class, 'update'])->name('product.update');

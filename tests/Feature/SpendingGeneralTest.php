@@ -46,6 +46,8 @@ class SpendingGeneralTest extends TestCase
             'name' => 'Produk Test '.uniqid(),
             'status' => 'active',
             'ad_status' => $adStatus,
+            'start_testing' => '2026-01-01',
+            'start_running' => $adStatus === 'running' ? '2026-01-01' : null,
         ]);
     }
 

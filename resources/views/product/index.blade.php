@@ -5,7 +5,23 @@
 
 @push('styles')
 <style>
-    /* Modal styles — now centralized in clay.css (clay-modal) */
+    .product-section-header {
+        display: flex; align-items: center; gap: 10px;
+        padding: 14px 20px; margin-bottom: 0;
+        border-bottom: 1px solid rgba(0,0,0,.05);
+    }
+    .product-section-header h3 {
+        margin: 0; font-size: .95rem; font-weight: 700;
+    }
+    .product-section-header .section-count {
+        font-size: .72rem; color: #9ca3af; font-weight: 400;
+    }
+    .product-section-wrap {
+        overflow: hidden; margin-bottom: 20px;
+    }
+    .empty-table-note {
+        text-align: center; padding: 36px 20px; color: #9ca3af; font-size: .82rem;
+    }
 </style>
 @endpush
 
@@ -22,39 +38,59 @@
 <div class="clay-card" style="padding:16px 20px;margin-bottom:16px;" data-reveal>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <div style="flex:1;min-width:220px;display:flex;gap:8px;flex-wrap:wrap;">
-            <input type="text" id="search-input" value="{{ request('search') }}" placeholder="Cari kode / nama / kategori…" class="clay-input" style="flex:1;min-width:160px;">
+            <input type="text" id="search-input" value="{{ $search }}" placeholder="Cari kode / nama / kategori…" class="clay-input" style="flex:1;min-width:160px;">
             <select id="goods-type-filter" class="clay-input" style="width:150px;">
                 <option value="">Semua Tipe</option>
-                @foreach(\App\Models\Product::GOODS_TYPE_LABELS as $key => $label)
-                    <option value="{{ $key }}" {{ request('goods_type') === $key ? 'selected' : '' }}>{{ $label }}</option>
-                @endforeach
+                <option value="consumable" {{ $goodsType === 'consumable' ? 'selected' : '' }}>Barang Pasti</option>
+                <option value="core" {{ $goodsType === 'core' ? 'selected' : '' }}>Barang Inti</option>
+                <option value="additional" {{ $goodsType === 'additional' ? 'selected' : '' }}>Barang Additional</option>
             </select>
             <select id="status-filter" class="clay-input" style="width:120px;">
                 <option value="">Semua Status</option>
-                <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Aktif</option>
-                <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
+                <option value="active" {{ $status === 'active' ? 'selected' : '' }}>Aktif</option>
+                <option value="inactive" {{ $status === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
             </select>
             <select id="ad-status-filter" class="clay-input" style="width:130px;">
                 <option value="">Semua Iklan</option>
-                <option value="running" {{ request('ad_status') === 'running' ? 'selected' : '' }}>🟢 Running</option>
-                <option value="testing" {{ request('ad_status') === 'testing' ? 'selected' : '' }}>🔬 Testing</option>
+                <option value="running" {{ $adStatus === 'running' ? 'selected' : '' }}>🟢 Running</option>
+                <option value="testing" {{ $adStatus === 'testing' ? 'selected' : '' }}>🔬 Testing</option>
             </select>
         </div>
-        <button type="button" class="clay-btn clay-btn-primary" onclick="openProductModal(this,'create')">＋ Tambah Produk</button>
     </div>
 </div>
 
-<div id="product-count" style="font-size:.78rem;color:#9ca3af;margin-bottom:12px;padding:0 4px;">
-    Menampilkan {{ $products->total() }} produk
+{{-- ═══════════════ SECTION: BARANG INTI & ADDITIONAL ═══════════════ --}}
+<div class="clay-card product-section-wrap" id="core-section" data-reveal>
+    <div class="product-section-header">
+        <h3>📦 Barang Inti &amp; Additional</h3>
+        <span class="section-count" id="core-count">{{ $coreProducts->count() }} produk</span>
+        <button type="button" class="clay-btn clay-btn-primary" style="margin-left:auto;padding:6px 14px;font-size:.78rem;"
+                onclick="openProductModal(this,'create','core')">＋ Tambah Produk</button>
+    </div>
+    <div class="table-scroll" id="core-table-wrap">
+        @include('product._table', ['products' => $coreProducts, 'showAdColumn' => true, 'tableId' => 'core-tbody', 'emptyMessage' => 'Tidak ada produk inti ditemukan'])
+    </div>
+    <div id="core-pagination" style="padding:12px 20px;border-top:1px solid rgba(0,0,0,.05);">
+        @if($coreProducts->hasPages())
+            {{ $coreProducts->links() }}
+        @endif
+    </div>
 </div>
 
-<div class="clay-card" style="overflow:hidden;" data-reveal>
-    <div class="table-scroll" id="product-table-wrap">
-        @include('product._table')
+{{-- ═══════════════ SECTION: BARANG PASTI ═══════════════ --}}
+<div class="clay-card product-section-wrap" id="consumable-section" data-reveal>
+    <div class="product-section-header">
+        <h3>📋 Barang Pasti</h3>
+        <span class="section-count" id="consumable-count">{{ $consumableProducts->count() }} produk</span>
+        <button type="button" class="clay-btn clay-btn-primary" style="margin-left:auto;padding:6px 14px;font-size:.78rem;"
+                onclick="openProductModal(this,'create','consumable')">＋ Tambah Barang Pasti</button>
     </div>
-    <div id="product-pagination" style="padding:12px 20px;border-top:1px solid rgba(0,0,0,.05);">
-        @if($products->hasPages())
-            {{ $products->links() }}
+    <div class="table-scroll" id="consumable-table-wrap">
+        @include('product._table', ['products' => $consumableProducts, 'showAdColumn' => false, 'tableId' => 'consumable-tbody', 'emptyMessage' => 'Tidak ada produk pasti ditemukan'])
+    </div>
+    <div id="consumable-pagination" style="padding:12px 20px;border-top:1px solid rgba(0,0,0,.05);">
+        @if($consumableProducts->hasPages())
+            {{ $consumableProducts->links() }}
         @endif
     </div>
 </div>
@@ -112,13 +148,23 @@
                         <option value="inactive">Nonaktif</option>
                     </select>
                 </div>
-                <div>
+                <div id="pm-ad-fields">
                     <label>Status Iklan</label>
                     <select id="pm-ad-status" class="clay-input">
                         <option value="testing">🔬 Testing</option>
                         <option value="running">🟢 Running</option>
                     </select>
-                    <div style="font-size:.65rem;color:#9ca3af;margin-top:2px;">Testing = produk fase uji; Running = sudah aktif diiklankan.</div>
+                    <div style="font-size:.65rem;color:#9ca3af;margin-top:2px;">Testing = fase uji; Running = sudah aktif diiklankan (satu arah, tidak bisa balik).</div>
+                </div>
+                <div id="pm-start-testing-field">
+                    <label>Mulai Testing</label>
+                    <input type="date" id="pm-start-testing" class="clay-input">
+                    <div style="font-size:.65rem;color:#9ca3af;margin-top:2px;">Otomatis terisi saat produk dibuat. Spending sebelum Mulai Running masuk tab Testing.</div>
+                </div>
+                <div id="pm-start-running-field">
+                    <label>Mulai Running</label>
+                    <input type="date" id="pm-start-running" class="clay-input">
+                    <div style="font-size:.65rem;color:#9ca3af;margin-top:2px;">Otomatis terisi saat toggle Running diaktifkan. Kosongkan bila masih Testing.</div>
                 </div>
                 <div style="grid-column: span 2;">
                     <label>Deskripsi</label>
@@ -219,15 +265,20 @@ function toggleVarian(id) {
     }
 
     // ══════════════════════════════════════════════════════
-    // LIVE FILTERING (AJAX)
+    // LIVE FILTERING (AJAX) — DUAL TABLE
     // ══════════════════════════════════════════════════════
     var searchInput = document.getElementById('search-input');
     var goodsTypeFilter = document.getElementById('goods-type-filter');
     var statusFilter = document.getElementById('status-filter');
     var adStatusFilter = document.getElementById('ad-status-filter');
-    var tableWrap = document.getElementById('product-table-wrap');
-    var paginationWrap = document.getElementById('product-pagination');
-    var countEl = document.getElementById('product-count');
+    var consumableWrap = document.getElementById('consumable-table-wrap');
+    var consumablePag = document.getElementById('consumable-pagination');
+    var consumableSection = document.getElementById('consumable-section');
+    var consumableCountEl = document.getElementById('consumable-count');
+    var coreWrap = document.getElementById('core-table-wrap');
+    var corePag = document.getElementById('core-pagination');
+    var coreSection = document.getElementById('core-section');
+    var coreCountEl = document.getElementById('core-count');
     var filterUrl = '{{ route("product.filter") }}';
     var debounceTimer = null;
 
@@ -245,39 +296,56 @@ function toggleVarian(id) {
         return params;
     }
 
+    function applyTableSection(wrap, pag, section, countEl, html, pagination, total, label) {
+        if (html) {
+            wrap.innerHTML = html;
+            pag.innerHTML = pagination || '';
+            countEl.textContent = total + ' ' + label;
+            section.style.display = '';
+        } else {
+            section.style.display = 'none';
+        }
+    }
+
     function fetchFiltered() {
         var url = filterUrl + '?' + getFilterParams().toString();
         fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            tableWrap.innerHTML = data.html;
-            paginationWrap.innerHTML = data.pagination || '';
-            countEl.textContent = 'Menampilkan ' + data.total + ' produk';
+            applyTableSection(consumableWrap, consumablePag, consumableSection, consumableCountEl,
+                data.consumable_html, data.consumable_pagination, data.consumable_total, 'produk');
+            applyTableSection(coreWrap, corePag, coreSection, coreCountEl,
+                data.core_html, data.core_pagination, data.core_total, 'produk');
             bindToggleEvents();
-            bindPaginationLinks();
+            bindPaginationLinks(consumablePag);
+            bindPaginationLinks(corePag);
         })
         .catch(function(err) { console.error('Filter error:', err); });
     }
 
-    function fetchPage(url) {
+    function fetchPage(url, wrap, pag, section, countEl, label) {
         fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            tableWrap.innerHTML = data.html;
-            paginationWrap.innerHTML = data.pagination || '';
-            countEl.textContent = 'Menampilkan ' + data.total + ' produk';
+            applyTableSection(wrap, pag, section, countEl,
+                data.html, data.pagination, data.total, label);
             bindToggleEvents();
-            bindPaginationLinks();
-            tableWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            bindPaginationLinks(pag);
+            wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
         })
         .catch(function(err) { console.error('Page fetch error:', err); });
     }
 
-    function bindPaginationLinks() {
-        paginationWrap.querySelectorAll('a').forEach(function(link) {
+    function bindPaginationLinks(container) {
+        container.querySelectorAll('a').forEach(function(link) {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
-                fetchPage(this.href);
+                var href = this.href;
+                if (container === consumablePag) {
+                    fetchPage(href, consumableWrap, consumablePag, consumableSection, consumableCountEl, 'produk');
+                } else {
+                    fetchPage(href, coreWrap, corePag, coreSection, coreCountEl, 'produk');
+                }
             });
         });
     }
@@ -294,13 +362,14 @@ function toggleVarian(id) {
     adStatusFilter.addEventListener('change', fetchFiltered);
 
     // Bind initial pagination
-    bindPaginationLinks();
+    bindPaginationLinks(consumablePag);
+    bindPaginationLinks(corePag);
 
     // ══════════════════════════════════════════════════════
     // TOGGLE STATUS (NO RELOAD)
     // ══════════════════════════════════════════════════════
     function bindToggleEvents() {
-        tableWrap.querySelectorAll('.clay-toggle input[type="checkbox"]').forEach(function(input) {
+        document.querySelectorAll('.clay-toggle input[type="checkbox"]').forEach(function(input) {
             input.addEventListener('change', function() {
                 var self = this;
                 var url = self.dataset.toggleUrl;
@@ -312,7 +381,6 @@ function toggleVarian(id) {
                             self.checked = !self.checked;
                             alert('Gagal: ' + json.message);
                         }
-                        // No reload — just re-enable the toggle
                     })
                     .catch(function(err) {
                         self.checked = !self.checked;
@@ -331,7 +399,15 @@ function toggleVarian(id) {
     var mProd = document.getElementById('modal-product');
     var pmTitle = document.getElementById('pm-title');
 
-    window.openProductModal = function(btn, mode) {
+    function toggleAdFields(visible) {
+        var fields = ['pm-ad-fields', 'pm-start-testing-field', 'pm-start-running-field'];
+        fields.forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = visible ? '' : 'none';
+        });
+    }
+
+    window.openProductModal = function(btn, mode, defaultGoodsType) {
         var f = function(id) { return document.getElementById(id); };
         if (mode === 'edit') {
             pm.method = 'PUT';
@@ -348,13 +424,18 @@ function toggleVarian(id) {
             f('pm-deskripsi').value = btn.dataset.description || '';
             f('pm-status').value = btn.dataset.status || 'active';
             f('pm-ad-status').value = btn.dataset.adStatus || 'running';
+            f('pm-start-testing').value = btn.dataset.startTesting || '';
+            f('pm-start-running').value = btn.dataset.startRunning || '';
+            // Show/hide ad fields based on goods type
+            var isConsumable = btn.dataset.goodsType === 'consumable';
+            toggleAdFields(!isConsumable);
         } else {
             pm.method = 'POST';
             pm.url = '{{ route('product.store') }}';
             pmTitle.textContent = '➕ Tambah Produk';
             f('pm-kode').value = '';
             f('pm-nama').value = '';
-            f('pm-goods-type').value = 'core';
+            f('pm-goods-type').value = defaultGoodsType || 'core';
             f('pm-kategori').value = '';
             f('pm-selling').value = '';
             f('pm-hpp').value = '';
@@ -363,10 +444,20 @@ function toggleVarian(id) {
             f('pm-deskripsi').value = '';
             f('pm-status').value = 'active';
             f('pm-ad-status').value = 'testing';
+            f('pm-start-testing').value = '';
+            f('pm-start-running').value = '';
+            // Show/hide ad fields based on default type
+            var isConsumable = (defaultGoodsType || 'core') === 'consumable';
+            toggleAdFields(!isConsumable);
         }
         mProd.classList.add('active');
         setTimeout(function() { f('pm-kode').focus(); }, 150);
     };
+
+    // Toggle ad fields when goods_type changes in modal
+    document.getElementById('pm-goods-type').addEventListener('change', function() {
+        toggleAdFields(this.value !== 'consumable');
+    });
 
     window.closeProductModal = function() { mProd.classList.remove('active'); };
 
@@ -384,8 +475,13 @@ function toggleVarian(id) {
             min_stock: f('pm-minstock').value || '0',
             description: f('pm-deskripsi').value.trim(),
             status: f('pm-status').value,
-            ad_status: f('pm-ad-status').value,
         };
+        // Only send ad fields for non-consumable products
+        if (body.goods_type !== 'consumable') {
+            body.ad_status = f('pm-ad-status').value;
+            body.start_testing = f('pm-start-testing').value || null;
+            body.start_running = f('pm-start-running').value || null;
+        }
         post(pm.url, pm.method, body)
             .then(function(json) {
                 if (json.success) { fetchFiltered(); closeProductModal(); }

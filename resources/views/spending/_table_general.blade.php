@@ -97,7 +97,7 @@
                                 <span style="font-size:.68rem;color:#9ca3af;">
                                     {{ $prodData['product']->code ?? '' }}
                                 </span>
-                                @if(($prodData['product']->ad_status ?? 'running') === 'testing')
+                                @if($prodData['product'] && $prodData['product']->phaseOn($dateKey) === 'testing')
                                 <span style="display:inline-block;font-size:.58rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;">🔬 Testing</span>
                                 @endif
                             </div>

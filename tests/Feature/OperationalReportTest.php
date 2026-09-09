@@ -125,10 +125,9 @@ class OperationalReportTest extends TestCase
         $this->actingAs($this->adminUser())
             ->get(route('dashboard'))
             ->assertOk()
-            ->assertSee('Barang Keluar Hari Ini')
-            ->assertSee('Barang Masuk Hari Ini')
-            ->assertSee('Resi Hari Ini')
-            ->assertSee('Metode Pembayaran');
+            ->assertSee('Order Hari Ini')
+            ->assertSee('Stok Hari Ini')
+            ->assertSee('COD vs Bank Transfer');
     }
 
     public function test_report_lists_sender_with_amounts_and_totals(): void

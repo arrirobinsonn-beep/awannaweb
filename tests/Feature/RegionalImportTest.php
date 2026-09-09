@@ -30,6 +30,8 @@ class RegionalImportTest extends TestCase
             'name' => 'Produk '.$adStatus.' Regional '.$code,
             'status' => 'active',
             'ad_status' => $adStatus,
+            'start_testing' => '2026-01-01',
+            'start_running' => $adStatus === 'running' ? '2026-01-01' : null,
         ]);
     }
 
@@ -243,5 +245,47 @@ class RegionalImportTest extends TestCase
         $this->assertSame(0, $resp->json('skipped_testing'));
         $this->assertSame(2, $resp->json('data.total_lead'));
         $this->assertSame(1, $resp->json('data.total_paid'));
+    }
+
+    /**
+     * Produk sudah running SEKARANG tapi baru running sejak 2 Sep → baris file
+     * yang tanggalnya masih masa testing (1 Sep) tetap dilewati, bukan dihitung
+     * karena status produk saat ini running.
+     */
+    public function test_regional_classifies_by_phase_date_not_current_status(): void
+    {
+        $user = $this->makeUser();
+        $user->assignRole('advertiser');
+
+        $product = Product::create([
+            'code' => 'RG'.strtoupper(substr(uniqid(), -6)),
+            'name' => 'Produk Fase Regional '.uniqid(),
+            'status' => 'active',
+            'ad_status' => 'running',
+            'start_testing' => '2026-08-01',
+            'start_running' => '2026-09-02',
+        ]);
+
+        $csv = "province,product,payment_status,created_at\n"
+            ."JAWA BARAT,A.1 - {$product->name} - WL1,paid,2026-09-01\n"  // masa testing → dilewati
+            ."JAWA BARAT,A.1 - {$product->name} - WL1,paid,2026-09-03\n"; // masa running → dihitung
+
+        try {
+            $resp = $this->actingAs($user)
+                ->postJson(route('regional.preview'), [
+                    'file' => $this->tempFile('regional_fase_'.uniqid().'.csv', $csv),
+                ]);
+
+            $resp->assertOk()->assertJson(['success' => true]);
+            $this->assertSame(2, $resp->json('total_raw_rows'));
+            $this->assertSame(1, $resp->json('skipped_testing'));
+
+            $data = $resp->json('data');
+            $this->assertSame(1, $data['total_lead'], 'Hanya baris masa running yang dihitung');
+            $this->assertArrayHasKey('2026-09-03', $data['by_date']);
+            $this->assertArrayNotHasKey('2026-09-01', $data['by_date']);
+        } finally {
+            $product->delete();
+        }
     }
 }

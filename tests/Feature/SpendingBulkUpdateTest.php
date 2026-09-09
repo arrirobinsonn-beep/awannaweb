@@ -42,6 +42,8 @@ class SpendingBulkUpdateTest extends TestCase
             'name' => 'Produk Test',
             'status' => 'active',
             'ad_status' => 'running',
+            'start_testing' => '2026-01-01',
+            'start_running' => '2026-01-01',
         ]);
     }
 

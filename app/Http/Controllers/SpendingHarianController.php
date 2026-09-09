@@ -66,13 +66,16 @@ class SpendingHarianController extends Controller
             ->get()
             ->keyBy('tgl');
 
-        // Total spending per tanggal — HANYA produk RUNNING
-        // (regional_reports hanya memuat lead/paid produk running;
-        //  spending testing tidak ikut dibandingkan agar selaras)
+        // Total spending per tanggal — HANYA spending yang jatuh di FASE RUNNING
+        // produk (regional_reports hanya memuat lead/paid produk running;
+        //  spending fase testing tidak ikut dibandingkan agar selaras).
+        // Klasifikasi by tanggal: spending_harians.tanggal >= products.start_running.
         $spendingTotals = SpendingHarian::where('user_id', $userId)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
-            ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
+            ->selectRaw('DATE(spending_harians.tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('tgl')
             ->get()
             ->keyBy('tgl');
@@ -176,10 +179,14 @@ class SpendingHarianController extends Controller
             ];
         });
 
-        // ─── Ringkasan periode: dibagi per ad_status (running / testing) ──
-        // Running = CPA Lead/Paid dihitung; Testing = spending saja (tanpa CPA)
-        $runningRows = $rows->filter(fn ($r) => $r->product?->ad_status === Product::AD_STATUS_RUNNING);
-        $testingRows = $rows->filter(fn ($r) => $r->product?->ad_status === Product::AD_STATUS_TESTING);
+        // ─── Ringkasan periode: dibagi per FASE iklan pada tanggal spending ──
+        // (timeline start_testing/start_running, bukan ad_status saat ini —
+        //  spending masa testing TIDAK ikut pindah ke Running saat produk
+        //  di-toggle belakangan). Running = CPA dihitung; Testing = spending saja.
+        $isRunningOn = fn ($r) => $r->product
+            && $r->product->phaseOn($r->tanggal) === Product::AD_STATUS_RUNNING;
+        $runningRows = $rows->filter($isRunningOn);
+        $testingRows = $rows->reject($isRunningOn);
 
         $summary = $this->computeSummary($rows);
         $runningSummary = $this->computeSummary($runningRows);
@@ -326,9 +333,11 @@ class SpendingHarianController extends Controller
             ->groupBy('user_id');
 
         $spendingTotals = SpendingHarian::whereIn('user_id', $advIds)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
-            ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
+            ->selectRaw('user_id, DATE(spending_harians.tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('user_id', 'tgl')
             ->get()
             ->groupBy('user_id');
@@ -377,8 +386,9 @@ class SpendingHarianController extends Controller
         $tabSummaries = $tabRows->isEmpty() ? collect() : $this->summarizeRows($tabRows);
         $summary = $this->computeSummary($tabRows);
 
-        // ─── Sub-tab Running/Testing di dalam tabel: summaries per ad_status ──
-        $isRunningRow = fn ($r) => ($r->product->ad_status ?? 'running') === Product::AD_STATUS_RUNNING;
+        // ─── Sub-tab Running/Testing di dalam tabel: summaries per FASE tanggal ──
+        $isRunningRow = fn ($r) => $r->product
+            && $r->product->phaseOn($r->tanggal) === Product::AD_STATUS_RUNNING;
         $runningRows = $tabRows->filter($isRunningRow)->values();
         $testingRows = $tabRows->reject($isRunningRow)->values();
         $runningSummaries = $runningRows->isEmpty() ? collect() : $this->summarizeRows($runningRows);
@@ -386,12 +396,11 @@ class SpendingHarianController extends Controller
 
         // ─── Data chart: 4 garis per tanggal (Running & Testing) utk tab aktif ──
         $chartDates = $tabSummaries->keys()->sort()->values();
-        $isRunning = fn ($p) => ($p['product']->ad_status ?? 'running') === 'running';
-        $isTesting = fn ($p) => ($p['product']->ad_status ?? 'running') === 'testing';
-        $chartRunLead = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter($isRunning)->sum('lead'));
-        $chartRunPaid = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter($isRunning)->sum('paid'));
-        $chartTestLead = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter($isTesting)->sum('lead'));
-        $chartTestPaid = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter($isTesting)->sum('paid'));
+        $phaseOn = fn ($prod, $d) => $prod ? $prod->phaseOn($d) : Product::AD_STATUS_TESTING;
+        $chartRunLead = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === Product::AD_STATUS_RUNNING)->sum('lead'));
+        $chartRunPaid = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === Product::AD_STATUS_RUNNING)->sum('paid'));
+        $chartTestLead = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === Product::AD_STATUS_TESTING)->sum('lead'));
+        $chartTestPaid = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === Product::AD_STATUS_TESTING)->sum('paid'));
 
         // Tanggal bermasalah utk menandai baris tabel (hanya advertiser yg sedang dibuka)
         $tabDisc = [];
@@ -558,7 +567,7 @@ class SpendingHarianController extends Controller
 
         $whitelists = $whitelists->get(['id', 'nama', 'kode', 'platform']);
 
-        $products = Product::aktif()->get(['id', 'name', 'code']);
+        $products = Product::aktif()->where('goods_type', 'core')->get(['id', 'name', 'code']);
 
         // Dukung deep-link ?tanggal= dari halaman index (tombol "＋" per tanggal)
         $tanggal = $request->query('tanggal', now()->format('Y-m-d'));
@@ -1474,7 +1483,7 @@ class SpendingHarianController extends Controller
 
         $whitelists = $whitelists->get(['id', 'nama', 'kode', 'platform']);
 
-        $products = Product::aktif()->get(['id', 'name', 'code']);
+        $products = Product::aktif()->where('goods_type', 'core')->get(['id', 'name', 'code']);
 
         return view('spending.form', [
             'spending' => $spending,

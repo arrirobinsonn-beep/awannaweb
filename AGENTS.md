@@ -11,6 +11,14 @@ Baca file ini sebelum memulai sesi. Lanjutkan fitur yang belum selesai sesuai pl
 - `filecoba/verify_pipeline.php` tetap memakai DB aktif (.env = `webawanna`) tapi self-cleanup (hapus order CBC-* + balik jurnal).
 - Catatan lama di bagian fitur yang menyebut "Test memakai DB `awannacoba`" tidak berlaku lagi (DB test = `webawanna_test`, DB aplikasi = `webawanna`).
 
+# Catatan 9 September 2026 — Fix regresi merge (suite 238/238 PASS)
+
+- **4 route `.filter` pernah hilang di branch `parhan`** (500 di halaman live): `supplier.filter`, `courier-rule.filter`, `product.filter` (masih ada di `origin/staging`) + `tracking-status-rule.filter` (GET `/tracking-status-rules/{source}/filter` — TIDAK PERNAH terdaftar di branch mana pun walau view & controller method-nya ada). Sudah ditambahkan kembali di `routes/web.php`. Saat merge dari `staging`, jangan buang route `.filter` — view memakainya untuk refresh tabel AJAX tanpa reload.
+- **Controller rules (courier & tracking-status) kini AJAX JSON** (fetch, no-reload) — `store/update/destroy/toggle/move` return `response()->json()`, bukan redirect. Test yang meng-assert redirect/errors adalah TEST BASI; validasi gagal TANPA header JSON tetap redirect + session errors (pola `assertSessionHasErrors` masih berlaku utk kasus itu).
+- **`dashboard/general.blade.php` di-redesign** (commit "perbaikan tampilan admin versi parhan"): kartu operasional = "Order Hari Ini / Stok Hari Ini / COD vs Bank Transfer" (bukan "Barang Keluar/Masuk Hari Ini" lama).
+- **DB test efektif = `webawanna_test`** — `phpunit.xml` masih memuat `<env DB_DATABASE=awannatestlaravel force=true>` (DB lama yang sudah tidak ada) tapi `<server DB_DATABASE=webawanna_test>` MENANG karena Laravel baca `$_SERVER` dulu. Hapus entri `awannatestlaravel` dari phpunit.xml saat bersih-bersih.
+- **Pola test idempotent (penting)**: test yang memakai `sort_order`/angka unik di DB tanpa refresh WAJIB nilai DINAMIS (mis. `max+10`) + cleanup di `try/finally` — kalau test gagal di tengah, sisa data dari run sebelumnya mengganggu run berikutnya (kasus `test_move_down_swaps_sort_order`).
+
 ---
 
 # Performance Optimization Rules
@@ -1187,6 +1195,50 @@ File yang diunggah di halaman **Detail Per Daerah** (`/regional`) adalah file ya
 - Suite: **148 pass** (hanya `ExampleTest` 302 pre-existing).
 
 ---
+
+## W. ✅ Fase Iklan Produk Berbasis Tanggal — `start_testing` & `start_running` (9 September 2026)
+
+### Deskripsi
+Klasifikasi spending iklan ke tab **Testing/Running** tidak lagi memakai `ad_status` produk SAAT INI (yang membuat spending masa testing ikut pindah ke Running saat produk di-toggle belakangan), melainkan **timeline fase produk**: `products.start_testing` (kapan mulai testing) & `products.start_running` (kapan mulai running). Spending dibandingkan per **tanggal spending** terhadap kedua tanggal ini — spending yang dicatat saat produk masih testing TETAP masuk tab Testing walau produk sudah di-toggle Running belakangan.
+
+### Skema
+- `products.start_testing` (date, nullable) — otomatis terisi **tanggal produk dibuat** (bisa diedit manual di form produk).
+- `products.start_running` (date, nullable) — otomatis terisi **saat toggle Running diaktifkan** (bisa diedit manual). NULL = produk masih fase testing.
+- Migrasi `2026_09_09_000000` + index `products_start_running_index` (dipakai query discrepancy). **Backfill seragam**: semua produk existing → `start_testing='2026-08-01'`, `start_running='2026-09-01'` (keputusan user).
+
+### Aturan klasifikasi (`Product::phaseOn($date)`)
+- `start_running` null → **testing** (semua tanggal).
+- `tanggal >= start_running` → **running**; selain itu → **testing**.
+- Perbandingan memakai `Y-m-d` (string, lexicographic) — hari toggle dianggap sudah running.
+
+### Lifecycle SATU ARAH
+- `toggleAdStatus`: testing → running (set `start_running` = hari ini bila masih null); **running → testing DITOLAK** (422, "tidak bisa dikembalikan ke Testing"). Toggle di UI hanya dirender untuk produk testing; produk running tampil badge 🟢 + tanggal "sejak".
+- Ubah status via form edit (select ad_status): kalau jadi running & `start_running` null → otomatis hari ini.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_09_09_000000_add_phase_dates_to_products_table.php` | 2 kolom date + index + backfill seragam |
+| `app/Models/Product.php` | fillable+casts `start_testing`/`start_running`; `phaseOn($date)` |
+| `app/Http/Controllers/ProductController.php` | create → `start_testing=today`; toggle satu arah; form edit terima `start_testing`/`start_running` (nullable date) |
+| `app/Http/Controllers/SpendingHarianController.php` | `indexAdvertiser` & `indexGeneral`: split running/testing pakai `phaseOn($r->tanggal)`; chart 4 garis pakai `phaseOn($prod, $d)` |
+| `resources/views/spending/index-advertiser.blade.php` | chart & tab splits pakai `$phaseOn = fn($prod,$d)` (closure `use ($phaseOn)` di map) |
+| `resources/views/spending/_table_general.blade.php` | badge 🔬 Testing pakai `phaseOn($dateKey)` |
+| `app/Http/Controllers/RegionalController.php` + `SpendingHarianController.php` | 4 titik query discrepancy running-only jadi **date-aware via JOIN**: `join products` + `whereNotNull(start_running)` + `whereColumn(spending_harians.tanggal >= products.start_running)` |
+| `app/Services/RegionalImportService.php` | `pluck('start_running','id')` (bukan `ad_status`); klasifikasi baris by `$tanggal >= $runningStart` |
+| `database/seeders/ProductSeeder.php` | isi `start_*` bila kosong (tidak menimpa admin) |
+| `resources/views/product/_table.blade.php` + `index.blade.php` | badge running tanpa toggle + tanggal "sejak ..."; modal edit 2 input date + data attrs |
+| `tests/Feature/SpendingSummaryTest.php` | +2 test: fase split by tanggal (data-run/data-test), toggle satu arah |
+| `tests/Feature/RegionalImportTest.php` | +1 test: baris masa testing dilewati walau produk sekarang running |
+| `tests/Feature/OrderOnlineTest.php` | helper `makeProduct` (5 file test) set `start_testing='2026-01-01'` + `start_running` sesuai status; **`ensureCatalog()` kini balikkan semua jurnal `order_online` + recalc → stok katalog baseline tiap test** (fix flakiness stok terkuras di DB test tanpa refresh) |
+
+### Penting
+- **Klasifikasi SELALU by tanggal spending**, bukan status sekarang — berlaku di: tab advertiser, sub-tab general, chart 4 garis, badge Testing, query discrepancy, dan import regional. Produk dengan `start_running` null = semua spending Testing.
+- **Query discrepancy join** memakai kolom berkualifikasi (`spending_harians.tanggal`, `products.start_running`) — aman walau products juga punya kolom lain.
+- **`phaseOn` di view** menerima Carbon atau string `Y-m-d`; closure perlu `use ($phaseOn)` di dalam `map()` (closure Blade/anon tidak menangkap variabel luar tanpa `use`).
+- **Toggle UI satu arah**: produk running tidak render checkbox toggle (klik running→testing ditolak controller 422; JS revert + alert).
+- **Test helper** yang membuat produk 'running' WAJIB set `start_running` (mis. `2026-01-01` sebelum tanggal test) — tanpa itu `phaseOn` mengembalikan testing dan test summary running gagal.
+- Suite: **241/241 pass (1261 assertions)**.
 
 # Fitur Belum Selesai / Ide ke Depan
 

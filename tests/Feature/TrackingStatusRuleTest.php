@@ -245,7 +245,7 @@ class TrackingStatusRuleTest extends TestCase
             'sort_order' => 5,
             'is_active' => 1,
         ]);
-        $res->assertRedirect(route('tracking-status-rule.index'));
+        $res->assertOk()->assertJson(['success' => true]);
 
         $rule = TrackingStatusRule::where('raw_status', $raw)->firstOrFail();
         try {
@@ -426,7 +426,7 @@ class TrackingStatusRuleTest extends TestCase
                 'sort_order' => 9,
                 'is_active' => 1,
             ]);
-            $res->assertSessionHasErrors('rule');
+            $res->assertStatus(422)->assertJson(['success' => false]);
             $this->assertSame(1, TrackingStatusRule::where('raw_status', $raw)->count());
         } finally {
             $this->cleanup($rule->id);

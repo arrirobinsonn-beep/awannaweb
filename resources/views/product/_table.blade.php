@@ -1,20 +1,21 @@
-<table class="clay-table" style="min-width:980px;">
+<table class="clay-table" style="min-width:900px;">
     <thead>
         <tr>
             <th>Kode</th>
             <th>Produk</th>
-            <th>Tipe</th>
             <th>Gudang</th>
             <th style="text-align:right;">Stok Total</th>
             <th style="text-align:right;">Min. Stok</th>
             <th style="text-align:right;">HPP</th>
             <th style="text-align:right;">Harga Jual</th>
             <th style="text-align:center;">Status</th>
+            @if($showAdColumn)
             <th style="text-align:center;">Iklan</th>
+            @endif
             <th style="text-align:right;">Aksi</th>
         </tr>
     </thead>
-    <tbody>
+    <tbody id="{{ $tableId }}">
         @forelse($products as $p)
         @php
             $primary = $p->primaryInventory?->first();
@@ -26,7 +27,6 @@
                 <div style="font-weight:600;">{{ $p->name }}</div>
                 <div style="font-size:.72rem;color:#9ca3af;">{{ $p->unit }}{{ $p->category ? ' · '.$p->category : '' }}</div>
             </td>
-            <td><span class="clay-badge clay-badge-{{ $p->goods_type === 'core' ? 'blue' : ($p->goods_type === 'additional' ? 'purple' : 'gray') }}">{{ \App\Models\Product::GOODS_TYPE_LABELS[$p->goods_type] ?? $p->goods_type }}</span></td>
             <td>
                 <div style="font-size:.8rem;font-weight:700;">
                     @if($p->goods_type === 'core')
@@ -60,21 +60,26 @@
                     <span class="clay-toggle-slider"></span>
                 </label>
             </td>
+            @if($showAdColumn)
             <td style="text-align:center;">
                 @if($p->ad_status === 'running')
-                    <label class="clay-toggle" title="Ubah status iklan (Running ↔ Testing)">
-                        <input type="checkbox" checked data-toggle-url="{{ route('product.toggle-ad-status', $p) }}">
-                        <span class="clay-toggle-slider"></span>
-                    </label>
-                    <span style="display:inline-block;font-size:.62rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#d1fae5;color:#065f46;margin-left:4px;">🟢 Running</span>
+                    {{-- Satu arah: running tidak bisa kembali ke testing → tanpa toggle --}}
+                    <span style="display:inline-block;font-size:.62rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#d1fae5;color:#065f46;">🟢 Running</span>
+                    <div style="font-size:.58rem;color:#9ca3af;margin-top:3px;" title="Kapan produk masuk fase running">
+                        sejak {{ $p->start_running?->format('d M Y') ?? '—' }}
+                    </div>
                 @else
-                    <label class="clay-toggle" title="Ubah status iklan (Running ↔ Testing)">
+                    <label class="clay-toggle" title="Aktifkan Running (tidak bisa kembali ke Testing)">
                         <input type="checkbox" data-toggle-url="{{ route('product.toggle-ad-status', $p) }}">
                         <span class="clay-toggle-slider"></span>
                     </label>
                     <span style="display:inline-block;font-size:.62rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;margin-left:4px;">🔬 Testing</span>
+                    <div style="font-size:.58rem;color:#9ca3af;margin-top:3px;" title="Kapan produk mulai fase testing">
+                        sejak {{ $p->start_testing?->format('d M Y') ?? '—' }}
+                    </div>
                 @endif
             </td>
+            @endif
             <td style="text-align:right;">
                 <div style="display:flex;justify-content:flex-end;gap:6px;align-items:center;flex-wrap:wrap;">
                     <button type="button" class="clay-btn clay-btn-sm" style="background:#f3f4f6;color:#374151;"
@@ -89,7 +94,9 @@
                             data-min-stock="{{ $p->min_stock }}" data-description="{{ $p->description }}"
                             data-purchase-price="{{ $p->purchase_price }}" data-selling-price="{{ $p->selling_price }}"
                             data-unit="{{ $p->unit }}" data-status="{{ $p->status }}"
-                            data-ad-status="{{ $p->ad_status }}">✏️</button>
+                            data-ad-status="{{ $p->ad_status }}"
+                            data-start-testing="{{ $p->start_testing?->format('Y-m-d') }}"
+                            data-start-running="{{ $p->start_running?->format('Y-m-d') }}">✏️</button>
                     <button type="button" class="clay-btn clay-btn-sm clay-btn-danger" style="padding:5px 10px;font-size:.72rem;" title="Hapus produk"
                             onclick="deleteProduct('{{ route('product.destroy', $p) }}', '{{ addslashes($p->name) }}')">🗑</button>
                 </div>
@@ -98,7 +105,7 @@
 
         {{-- ── BARIS EXPAND: Varian ─────────────────────── --}}
         <tr id="{{ $rowId }}" style="display:none;">
-            <td colspan="11" style="padding:0;background:#fafafa;border-top:2px dashed rgba(255,107,107,.12);">
+            <td colspan="{{ $showAdColumn ? 10 : 9 }}" style="padding:0;background:#fafafa;border-top:2px dashed rgba(255,107,107,.12);">
                 <div style="display:flex;align-items:center;gap:10px;padding:12px 20px;background:#fff;border-bottom:1px solid rgba(0,0,0,.05);">
                     <span style="background:var(--color-secondary);color:#fff;font-size:.65rem;font-weight:700;padding:2px 8px;border-radius:999px;">🔖 Varian</span>
                     <span style="font-size:.75rem;color:#6b7280;font-weight:600;">{{ $p->variants->count() }} varian</span>
@@ -155,7 +162,7 @@
             </td>
         </tr>
         @empty
-        <tr><td colspan="11" style="text-align:center;padding:48px;color:#9ca3af;">Tidak ada produk ditemukan</td></tr>
+        <tr><td colspan="{{ $showAdColumn ? 10 : 9 }}" style="text-align:center;padding:48px;color:#9ca3af;">{{ $emptyMessage }}</td></tr>
         @endforelse
     </tbody>
 </table>

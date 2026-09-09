@@ -59,11 +59,17 @@ class RegionalImportService
         // exact → contains → levenshtein. Hanya dipakai bila kolom product ada.
         $matcher = null;
         $productIndex = [];
-        $productStatusMap = [];
+        // Peta start_running per produk — klasifikasi status memakai TIMELINE produk
+        // (produk running sejak tanggal berapa), bukan ad_status saat ini, agar
+        // baris yang tanggalnya masih masa testing TETAP dianggap testing.
+        $productRunningMap = [];
         if ($colProduct !== false) {
             $matcher = new ProductNameMatcher();
             $productIndex = $matcher->buildIndex();
-            $productStatusMap = Product::query()->pluck('ad_status', 'id')->all();
+            $productRunningMap = Product::query()
+                ->whereNotNull('start_running')
+                ->pluck('start_running', 'id')
+                ->all();
         }
 
         $masterProvinces = config('regional.master_provinces', []);
@@ -137,7 +143,10 @@ class RegionalImportService
 
                         $prod = $matcher->match($productName, $productIndex);
                         if ($prod) {
-                            $productStatus = $productStatusMap[$prod->id] ?? null;
+                            $runningStart = $productRunningMap[$prod->id] ?? null;
+                            $productStatus = ($runningStart && $tanggal >= $runningStart)
+                                ? Product::AD_STATUS_RUNNING
+                                : Product::AD_STATUS_TESTING;
                         }
                     }
                 }
