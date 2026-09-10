@@ -371,7 +371,7 @@
   {{-- Filter (AJAX + Date Range Picker) ── --}}
   <div style="padding:14px 20px;border-bottom:1px solid rgba(0,0,0,.04);">
     <style>.ord-filter .drp-trigger{min-width:0!important;width:100%;}</style>
-    <div class="ord-filter" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:center;">
+    <div class="ord-filter" style="display:grid;grid-template-columns:repeat(6,1fr) auto;gap:10px;align-items:center;">
       <select id="ord-filter-batch" class="clay-input">
         <option value="">Semua Batch</option>
         @foreach($batches as $b)
@@ -400,6 +400,7 @@
         @endforeach
       </select>
       <x-date-range-picker :dari="request('dari', now()->startOfMonth()->format('Y-m-d'))" :sampai="request('sampai', now()->format('Y-m-d'))" form-id="ord-filter-form" />
+      <button type="button" id="ord-filter-reset" class="clay-btn" style="white-space:nowrap;font-size:.78rem;">↺ Reset</button>
     </div>
   </div>
 
@@ -407,7 +408,6 @@
   <div id="ord-table-wrap">
     @include('order._table', ['orders' => $orders, 'courierList' => $courierList, 'products' => $products, 'isCs' => $isCs, 'selectedBatch' => $selectedBatch])
   </div>
-  <div style="padding:12px 20px;">{{ $orders->links() }}</div>
 </div>
 
 @endsection
@@ -766,6 +766,7 @@
 ══════════════════════════════════════════════════ */
 (function () {
   var CSRF = document.querySelector('meta[name="csrf-token"]').content;
+  var _datesApplied = false;
 
   function fetchOrderTable() {
     var params = new URLSearchParams();
@@ -781,11 +782,13 @@
       if (v) params.set(f[1], v);
     });
 
-    // Date range from DRP hidden inputs
-    var dariInput = document.querySelector('input[name="dari"]');
-    var sampaiInput = document.querySelector('input[name="sampai"]');
-    if (dariInput && dariInput.value) params.set('dari', dariInput.value);
-    if (sampaiInput && sampaiInput.value) params.set('sampai', sampaiInput.value);
+    // Date range: only include if user explicitly applied DRP
+    if (_datesApplied) {
+      var dariInput = document.querySelector('input[name="dari"]');
+      var sampaiInput = document.querySelector('input[name="sampai"]');
+      if (dariInput && dariInput.value) params.set('dari', dariInput.value);
+      if (sampaiInput && sampaiInput.value) params.set('sampai', sampaiInput.value);
+    }
 
     fetch('{{ route("orders.filter") }}?' + params.toString(), {
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -810,6 +813,61 @@
       this._debounce = setTimeout(fetchOrderTable, 400);
     });
   }
+
+  // Reset filter: clear all fields + reload table
+  var resetBtn = document.getElementById('ord-filter-reset');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function() {
+      document.getElementById('ord-filter-batch').value = '';
+      document.getElementById('ord-filter-search').value = '';
+      document.getElementById('ord-filter-courier').value = '';
+      document.getElementById('ord-filter-status').value = '';
+      document.getElementById('ord-filter-product').value = '';
+      _datesApplied = false;
+      var dariInput = document.querySelector('input[name="dari"]');
+      var sampaiInput = document.querySelector('input[name="sampai"]');
+      if (dariInput) dariInput.value = '';
+      if (sampaiInput) sampaiInput.value = '';
+      window.location.href = '{{ route("orders.index") }}';
+    });
+  }
+
+  // Pagination inside AJAX-loaded table: intercept clicks → fetchOrderTable with page
+  document.getElementById('ord-table-wrap').addEventListener('click', function(e) {
+    var link = e.target.closest('.pagination a');
+    if (!link) return;
+    e.preventDefault();
+    var url = new URL(link.href);
+    var page = url.searchParams.get('page') || '1';
+    var params = new URLSearchParams();
+    var fields = [
+      ['ord-filter-batch', 'batch'],
+      ['ord-filter-search', 'search'],
+      ['ord-filter-courier', 'courier'],
+      ['ord-filter-status', 'status'],
+      ['ord-filter-product', 'product_code'],
+    ];
+    fields.forEach(function(f) {
+      var v = document.getElementById(f[0]).value;
+      if (v) params.set(f[1], v);
+    });
+    if (_datesApplied) {
+      var dariInput = document.querySelector('input[name="dari"]');
+      var sampaiInput = document.querySelector('input[name="sampai"]');
+      if (dariInput && dariInput.value) params.set('dari', dariInput.value);
+      if (sampaiInput && sampaiInput.value) params.set('sampai', sampaiInput.value);
+    }
+    params.set('page', page);
+
+    fetch('{{ route("orders.filter") }}?' + params.toString(), {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('ord-table-wrap').innerHTML = data.html;
+    });
+  });
+
   // Override DRP applyAndSubmit — wait for DRP to be defined
   window.addEventListener('load', function() {
     if (!window.DRP) return;
@@ -824,6 +882,7 @@
         if (formNext) formParent.insertBefore(form, formNext);
         else formParent.appendChild(form);
       }
+      _datesApplied = true;
       fetchOrderTable();
     };
   });

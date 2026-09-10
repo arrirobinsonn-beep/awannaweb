@@ -101,11 +101,11 @@
 </div>
 
 {{-- ═══════════════════════════════════════════════════════════
-     ROW 3: Stok In/Out (14 Hari) + COD vs BT
+     ROW 3: Stok In/Out (30 Hari) + COD vs BT
      ═══════════════════════════════════════════════════════════ --}}
 <div class="db-grid-2" data-reveal>
     <div class="clay-card" style="padding:20px;">
-        <div style="font-weight:800;font-size:.95rem;color:#1e1b2e;margin-bottom:4px;">📊 Stok In/Out (14 Hari)</div>
+        <div style="font-weight:800;font-size:.95rem;color:#1e1b2e;margin-bottom:4px;">📊 Stok In/Out (30 Hari)</div>
         <div style="font-size:.72rem;color:#9ca3af;margin-bottom:10px;">Jurnal stok harian</div>
         <div style="height:170px;position:relative;"><canvas id="chartStock"></canvas></div>
     </div>
@@ -398,12 +398,12 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // ── 2) Order per Courier (doughnut) ──
+    // ── 2) Order per Courier (pie) ──
     const courierData = @json($orderPerCourier);
     const courierCtx = document.getElementById('chartCourier');
     if (courierCtx && courierData.length > 0) {
         new Chart(courierCtx, {
-            type: 'doughnut',
+            type: 'pie',
             data: {
                 labels: courierData.map(d => (d.courier || 'N/A').toUpperCase()),
                 datasets: [{
@@ -416,7 +416,6 @@ document.addEventListener('DOMContentLoaded', function() {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '60%',
                 plugins: {
                     legend: { position: 'bottom', labels: { padding: 10, font: { size: 10 } } },
                     tooltip: { callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed + ' order' } }
@@ -461,12 +460,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // ── 4) Stok In/Out (14 Hari) ──
-    const stockData = @json($chartStock14);
+    // ── 4) Stok In/Out (30 Hari) ──
+    const stockData = @json($chartStock30);
     const stockCtx = document.getElementById('chartStock');
     if (stockCtx) {
         new Chart(stockCtx, {
-            type: 'bar',
+            type: 'line',
             data: {
                 labels: stockData.map(d => {
                     const dt = new Date(d.date);
@@ -476,18 +475,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     {
                         label: 'Masuk',
                         data: stockData.map(d => d.masuk),
-                        backgroundColor: 'rgba(78,205,196,0.75)',
-                        borderColor: '#3ab8b0',
-                        borderWidth: 1,
-                        borderRadius: 4,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16,185,129,0.10)',
+                        fill: true,
+                        tension: 0.35,
+                        borderWidth: 2.5,
+                        pointBackgroundColor: '#10b981',
                     },
                     {
                         label: 'Keluar',
                         data: stockData.map(d => d.keluar),
-                        backgroundColor: 'rgba(255,107,107,0.75)',
-                        borderColor: '#e05555',
-                        borderWidth: 1,
-                        borderRadius: 4,
+                        borderColor: '#FF6B6B',
+                        backgroundColor: 'rgba(255,107,107,0.10)',
+                        fill: true,
+                        tension: 0.35,
+                        borderWidth: 2.5,
+                        pointBackgroundColor: '#FF6B6B',
                     }
                 ]
             },

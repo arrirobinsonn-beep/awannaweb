@@ -102,6 +102,7 @@
         </tbody>
     </table>
 </div>
+<div style="padding:12px 20px;">{{ $orders->setPath(route('orders.index'))->withQueryString()->links() }}</div>
 
 {{-- Mobile cards --}}
 <div class="ord-mobile-cards">

@@ -14,18 +14,18 @@ use Illuminate\View\View;
  *
  * Dashboard menampilkan kartu "hari ini" (barang keluar/masuk, resi, metode
  * bayar); kartu tersebut menautkan ke halaman ini untuk detail per PENGIRIM
- * (kolom `order_online_import_batches.sender`) pada rentang tanggal terpilih,
- * plus total keseluruhan: uang masuk (gross revenue) vs HPP (purchase_price × qty).
+ * (kolom `order_online_import_batches.sender`) pada rentang tanggal terpilih.
  *
  * Semua angka dihitung dengan QUERY AGREGAT (GROUP BY / SUM di SQL) — tidak
  * ada query per baris/per pengirim di dalam loop (pola batch AGENTS.md):
  *   - stok hari ini : 1 aggregate `stock_movements` (index `date` + `type`)
- *   - laporan       : 1 aggregate `shipping_orders` JOIN batches JOIN products
- *                     (index `order_online_import_batch_id` + `created_at`)
- * Total keseluruhan dihitung dari hasil GROUP BY (sum kolom di collection).
+ *   - laporan       : 1 aggregate `shipping_orders` JOIN batches
+ *                     (index `order_online_import_batch_id` + `order_at`)
  *
  * Filter tanggal memakai RANGE (`>=`/`<`) bukan `whereDate()` agar index
- * `created_at` tetap terpakai (whereDate → DATE() → index mati → full scan).
+ * `order_at` tetap terpakai (whereDate → DATE() → index mati → full scan).
+ * `order_at` = tanggal ORDER asli dari CSV; `created_at` (waktu import) TIDAK
+ * dipakai di sini agar laporan "hari ini" memakai tanggal transaksi sebenarnya.
  */
 class OperationalReportController extends Controller
 {
@@ -53,8 +53,8 @@ class OperationalReportController extends Controller
             ->first();
 
         $orderPeriode = ShippingOrder::processed()
-            ->where('created_at', '>=', $dariStart)
-            ->where('created_at', '<', $sampaiEnd)
+            ->where('order_at', '>=', $dariStart)
+            ->where('order_at', '<', $sampaiEnd)
             ->selectRaw('COUNT(*) as total,
                 SUM(CASE WHEN awb IS NOT NULL AND awb != \'\' THEN 1 ELSE 0 END) as resi,
                 SUM(CASE WHEN payment_method = \'cod\' THEN 1 ELSE 0 END) as cod,
@@ -64,19 +64,16 @@ class OperationalReportController extends Controller
         // ── Laporan per pengirim (rentang terpilih) — 1 aggregate ──
         $rows = ShippingOrder::processed()
             ->join('order_online_import_batches as b', 'b.id', '=', 'shipping_orders.order_online_import_batch_id')
-            ->leftJoin('products', 'products.id', '=', 'shipping_orders.product_id')
-            ->where('shipping_orders.created_at', '>=', $dari->copy()->startOfDay())
-            ->where('shipping_orders.created_at', '<', $sampaiEnd)
+            ->where('shipping_orders.order_at', '>=', $dari->copy()->startOfDay())
+            ->where('shipping_orders.order_at', '<', $sampaiEnd)
             ->selectRaw('b.id as batch_id,
                 b.sender as sender,
                 COUNT(*) as total_order,
                 SUM(CASE WHEN shipping_orders.awb IS NOT NULL AND shipping_orders.awb != \'\' THEN 1 ELSE 0 END) as resi,
                 SUM(CASE WHEN shipping_orders.payment_method = \'cod\' THEN 1 ELSE 0 END) as cod,
-                SUM(CASE WHEN shipping_orders.payment_method = \'bank_transfer\' THEN 1 ELSE 0 END) as bank_transfer,
-                SUM(COALESCE(shipping_orders.amount, 0)) as uang_masuk,
-                SUM(shipping_orders.quantity * COALESCE(products.purchase_price, 0)) as hpp')
+                SUM(CASE WHEN shipping_orders.payment_method = \'bank_transfer\' THEN 1 ELSE 0 END) as bank_transfer')
             ->groupBy('b.id', 'b.sender')
-            ->orderByDesc('uang_masuk')
+            ->orderByDesc('total_order')
             ->get();
 
         // Total keseluruhan = sum collection hasil GROUP BY (tanpa query tambahan)
@@ -85,8 +82,6 @@ class OperationalReportController extends Controller
             'resi' => $rows->sum('resi'),
             'cod' => $rows->sum('cod'),
             'bank_transfer' => $rows->sum('bank_transfer'),
-            'uang_masuk' => $rows->sum('uang_masuk'),
-            'hpp' => $rows->sum('hpp'),
         ];
 
         return view('laporan.operasional', [
@@ -121,11 +116,11 @@ class OperationalReportController extends Controller
         $sampaiEnd = $sampai->copy()->addDay(); // range eksklusif < besok
         $dariStart = $dari->copy()->startOfDay();
 
-        // ── Detail per produk + varian (1 aggregate; batch + index created_at) ──
+        // ── Detail per produk + varian (1 aggregate; batch + index order_at) ──
         $rows = ShippingOrder::processed()
             ->where('order_online_import_batch_id', $batch->id)
-            ->where('shipping_orders.created_at', '>=', $dariStart)
-            ->where('shipping_orders.created_at', '<', $sampaiEnd)
+            ->where('shipping_orders.order_at', '>=', $dariStart)
+            ->where('shipping_orders.order_at', '<', $sampaiEnd)
             ->leftJoin('products', 'products.id', '=', 'shipping_orders.product_id')
             ->leftJoin('product_variants', 'product_variants.id', '=', 'shipping_orders.product_variant_id')
             ->selectRaw("
@@ -136,8 +131,6 @@ class OperationalReportController extends Controller
                 shipping_orders.quantity as qty_per_order,
                 COUNT(*) as total_order,
                 SUM(shipping_orders.quantity) as qty,
-                SUM(shipping_orders.amount) as uang_masuk,
-                SUM(shipping_orders.quantity * COALESCE(products.purchase_price, 0)) as hpp,
                 COALESCE(products.name, shipping_orders.product_name) as nama_master,
                 COALESCE(products.code, shipping_orders.product_code) as kode_master,
                 COALESCE(product_variants.power, 0) as power,
@@ -159,17 +152,15 @@ class OperationalReportController extends Controller
             ->orderByDesc('qty')
             ->get();
 
-        // Ringkasan batch pada periode ini (total_order/qty/uang/HPP dari
+        // Ringkasan batch pada periode ini (total_order/qty dari
         // collection; resi lewat 1 aggregate kecil)
         $summary = (object) [
             'total_order' => $rows->sum('total_order'),
             'qty' => $rows->sum('qty'),
-            'uang_masuk' => $rows->sum('uang_masuk'),
-            'hpp' => $rows->sum('hpp'),
             'resi' => ShippingOrder::processed()
                 ->where('order_online_import_batch_id', $batch->id)
-                ->where('created_at', '>=', $dariStart)
-                ->where('created_at', '<', $sampaiEnd)
+                ->where('order_at', '>=', $dariStart)
+                ->where('order_at', '<', $sampaiEnd)
                 ->whereNotNull('awb')
                 ->where('awb', '!=', '')
                 ->count(),

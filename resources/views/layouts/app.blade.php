@@ -348,7 +348,7 @@
             </a>
 
             {{-- ═══ Iklan ═══ --}}
-            @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs','keuangan']))
+            @if($u->hasRole(['owner','super_admin','mentor','advertiser','keuangan']))
             <div class="nav-group" data-group="iklan">
                 <button type="button" class="nav-group-header sidebar-label" data-tip="Iklan">
                     <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;"><x-icon name="megaphone" class="icon-sm" /> Iklan</span>
@@ -360,13 +360,13 @@
                         <span class="nav-icon"><x-icon name="check-badge" /></span><span class="sidebar-label">Whitelist</span>
                     </a>
                     @endif
-                    @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs','keuangan']))
+                    @if($u->hasRole(['owner','super_admin','mentor','advertiser','keuangan']))
                     <a href="{{ route('spending.index') }}" class="nav-item {{ request()->routeIs('spending.*') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="currency-dollar" /></span><span class="sidebar-label">Spending Harian</span>
                         <span id="spending-alarm-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">!</span>
                     </a>
                     @endif
-                    @if($u->hasRole(['owner','super_admin','mentor','advertiser','cs']))
+                    @if($u->hasRole(['owner','super_admin','mentor','advertiser']))
                     <a href="{{ route('regional.index') }}" class="nav-item {{ request()->routeIs('regional.*') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="map-pin" /></span><span class="sidebar-label">Detail Per Daerah</span>
                         <span id="regional-alarm-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">!</span>
@@ -374,25 +374,20 @@
                     @endif
                     @if($u->hasRole(['owner','super_admin','admin','advertiser']))
                     <a href="{{ route('topup.index') }}" class="nav-item {{ request()->routeIs('topup.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="banknotes" /></span><span class="sidebar-label">Top Up</span>
+                        <span class="nav-icon"><x-icon name="plus" /></span><span class="sidebar-label">Top Up</span>
                     </a>
                     @endif
                     @if($u->hasRole(['super_admin','keuangan']))
                     <a href="{{ route('approval.index') }}" class="nav-item {{ request()->routeIs('approval.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="document-text" /></span><span class="sidebar-label">Pengajuan</span>
+                        <span class="nav-icon"><x-icon name="check-circle" /></span><span class="sidebar-label">Pengajuan</span>
                     </a>
                     @endif
-                    @if($u->hasRole(['advertiser','cs']))
+                    @if($u->hasRole('advertiser'))
                     <a href="{{ route('team.index') }}" class="nav-item {{ request()->routeIs('team.index') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="users" /></span><span class="sidebar-label">Tim</span>
                     </a>
                     <a href="{{ route('team.performance') }}" class="nav-item {{ request()->routeIs('team.performance') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="chart-bar" /></span><span class="sidebar-label">Performa Tim</span>
-                    </a>
-                    @endif
-                    @if($u->hasRole('cs'))
-                    <a href="{{ route('team.phone-list') }}" class="nav-item {{ request()->routeIs('team.phone-list') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="phone" /></span><span class="sidebar-label">Nomor CS</span>
+                        <span class="nav-icon"><x-icon name="eye" /></span><span class="sidebar-label">Performa Tim</span>
                     </a>
                     @endif
                 </div>
@@ -411,22 +406,22 @@
                         <span class="nav-icon"><x-icon name="building-office-2" /></span><span class="sidebar-label">Supplier</span>
                     </a>
                     <a href="{{ route('inventory.master') }}" class="nav-item {{ request()->routeIs('inventory.master*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="building-storefront" /></span><span class="sidebar-label">Master Inventory</span>
+                        <span class="nav-icon"><x-icon name="home" /></span><span class="sidebar-label">Master Inventory</span>
                     </a>
                     <a href="{{ route('product.index') }}" class="nav-item {{ request()->routeIs('product.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="cube" /></span><span class="sidebar-label">Produk</span>
+                        <span class="nav-icon"><x-icon name="photo" /></span><span class="sidebar-label">Produk</span>
                     </a>
                     <a href="{{ route('courier-rule.index') }}" class="nav-item {{ request()->routeIs('courier-rule.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="truck" /></span><span class="sidebar-label">Aturan Courier</span>
+                        <span class="nav-icon"><x-icon name="arrow-path" /></span><span class="sidebar-label">Aturan Courier</span>
                     </a>
                     <a href="{{ route('warehouse-rule.index') }}" class="nav-item {{ request()->routeIs('warehouse-rule.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="building-storefront" /></span><span class="sidebar-label">Aturan Gudang</span>
+                        <span class="nav-icon"><x-icon name="bookmark" /></span><span class="sidebar-label">Aturan Gudang</span>
                     </a>
                     <a href="{{ route('tracking-status-rule.index') }}" class="nav-item {{ request()->routeIs('tracking-status-rule.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="arrow-path" /></span><span class="sidebar-label">Aturan Status</span>
+                        <span class="nav-icon"><x-icon name="information-circle" /></span><span class="sidebar-label">Aturan Status</span>
                     </a>
                     <a href="{{ route('export-mapping.index') }}" class="nav-item {{ request()->routeIs('export-mapping.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="document-text" /></span><span class="sidebar-label">Aturan Export</span>
+                        <span class="nav-icon"><x-icon name="arrow-long-right" /></span><span class="sidebar-label">Aturan Export</span>
                     </a>
                 </div>
             </div>
@@ -447,13 +442,13 @@
                         <span class="nav-icon"><x-icon name="arrow-down-tray" /></span><span class="sidebar-label">Barang Masuk</span>
                     </a>
                     <a href="{{ route('stock-movement.index') }}" class="nav-item {{ request()->routeIs('stock-movement.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="chart-bar" /></span><span class="sidebar-label">Jurnal Stok</span>
+                        <span class="nav-icon"><x-icon name="funnel" /></span><span class="sidebar-label">Jurnal Stok</span>
                     </a>
                     <a href="{{ route('orders.index') }}" class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="truck" /></span><span class="sidebar-label">Pengiriman</span>
                     </a>
                     <a href="{{ route('order-batch.index') }}" class="nav-item {{ request()->routeIs('order-batch.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="document-text" /></span><span class="sidebar-label">Riwayat Batch</span>
+                        <span class="nav-icon"><x-icon name="calendar" /></span><span class="sidebar-label">Riwayat Batch</span>
                     </a>
                     <a href="{{ route('operational-report.index') }}" class="nav-item {{ request()->routeIs('operational-report.*') ? 'active' : '' }}" data-page-link>
                         <span class="nav-icon"><x-icon name="document-text" /></span><span class="sidebar-label">Laporan Operasional</span>
@@ -490,38 +485,61 @@
             </div>
             @endif
 
-            {{-- ═══ Bukti Transfer (CS) ═══ --}}
-            @if($u->hasRole('cs'))
-            <div class="nav-group" data-group="cs-bukti">
-                <button type="button" class="nav-group-header sidebar-label" data-tip="Bukti Transfer">
-                    <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;"><x-icon name="receipt-refund" class="icon-sm" /> Bukti Transfer</span>
-                    <span class="nav-chev">▾</span>
-                </button>
-                <div class="nav-group-body">
-                    <a href="{{ route('finance.bank-transfers.index') }}" class="nav-item {{ request()->routeIs('finance.bank-transfers.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="receipt-refund" /></span><span class="sidebar-label">Upload & Riwayat</span>
-                        <span class="bt-pending-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">0</span>
-                    </a>
-                </div>
-            </div>
+            {{-- ── Bonus (standalone) ─────────────────────────────── --}}
+            @if($u->hasRole(['owner','super_admin','keuangan']))
+            <a href="{{ route('finance.bonus.index') }}"
+               class="nav-item {{ request()->routeIs('finance.bonus.*') ? 'active' : '' }}"
+               data-page-link data-tip="Rekap bonus penjualan per periode">
+                <span class="nav-icon"><x-icon name="bell" /></span>
+                <span class="sidebar-label">Bonus</span>
+            </a>
+            <a href="{{ route('finance.bonus-allocation.index') }}"
+               class="nav-item {{ request()->routeIs('finance.bonus-allocation.*') ? 'active' : '' }}"
+               data-page-link data-tip="Alokasi bonus per tim advertiser">
+                <span class="nav-icon"><x-icon name="pencil" /></span>
+                <span class="sidebar-label">Alokasi Bonus</span>
+            </a>
             @endif
+
+            {{-- ═══ CS Links ═══ --}}
+            @if($u->hasRole('cs'))
+            <a href="{{ route('orders.index') }}"
+               class="nav-item {{ request()->routeIs('orders.*') ? 'active' : '' }}"
+               data-page-link data-tip="Data mentah order online & pengiriman">
+                <span class="nav-icon"><x-icon name="truck" /></span>
+                <span class="sidebar-label">Pengiriman</span>
+            </a>
+            <a href="{{ route('finance.bank-transfers.index') }}"
+               class="nav-item {{ request()->routeIs('finance.bank-transfers.*') ? 'active' : '' }}"
+               data-page-link data-tip="Upload bukti transfer pembayaran">
+                <span class="nav-icon"><x-icon name="receipt-refund" /></span>
+                <span class="sidebar-label">Bukti Transfer</span>
+                <span class="bt-pending-badge" style="display:none;margin-left:auto;background:#ef4444;color:#fff;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:6px;line-height:1.5;">0</span>
+            </a>
+            @endif
+
+            {{-- ── Manajemen ────────────────────────────── --}}
+            @if($u->hasRole(['owner','super_admin','keuangan']))
+            <div class="sidebar-label nav-divider" style="padding:14px 10px 4px;">
+                <span style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;">Manajemen</span>
+            </div>
 
             {{-- ═══ Manajemen ═══ --}}
             @if($u->hasRole(['owner','super_admin','keuangan']))
             <div class="nav-group" data-group="manajemen">
                 <button type="button" class="nav-group-header sidebar-label" data-tip="Manajemen">
-                    <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;"><x-icon name="cog-6-tooth" class="icon-sm" /> Manajemen</span>
+                    <span class="nav-group-title" style="font-size:.65rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;"><x-icon name="bars-3" class="icon-sm" /> Manajemen</span>
                     <span class="nav-chev">▾</span>
                 </button>
                 <div class="nav-group-body">
                     @if($u->hasRole(['owner','super_admin']))
                     <a href="{{ route('user.index') }}" class="nav-item {{ request()->routeIs('user.*') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="users" /></span><span class="sidebar-label">Users & Role</span>
+                        <span class="nav-icon"><x-icon name="cog-6-tooth" /></span><span class="sidebar-label">Users & Role</span>
                     </a>
                     @endif
                     @if($u->hasRole(['owner','super_admin','admin']))
                     <a href="{{ route('team.admin-index') }}" class="nav-item {{ request()->routeIs('team.admin-index') ? 'active' : '' }}" data-page-link>
-                        <span class="nav-icon"><x-icon name="map-pin" /></span><span class="sidebar-label">Mapping Tim CS</span>
+                        <span class="nav-icon"><x-icon name="phone" /></span><span class="sidebar-label">Mapping Tim CS</span>
                     </a>
                     @endif
                     <a href="{{ route('mobile-device.index') }}" class="nav-item {{ request()->routeIs('mobile-device.*') ? 'active' : '' }}" data-page-link>
@@ -529,6 +547,7 @@
                     </a>
                 </div>
             </div>
+            @endif
             @endif
 
         </nav>

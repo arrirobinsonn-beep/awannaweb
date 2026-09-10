@@ -105,7 +105,7 @@
         <div style="height:160px;position:relative;"><canvas id="chartPayment"></canvas></div>
     </div>
     <div class="clay-card" style="padding:18px;">
-        <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;margin-bottom:4px;">📊 Stok In/Out (14 Hari)</div>
+        <div style="font-weight:800;font-size:.9rem;color:#1e1b2e;margin-bottom:4px;">📊 Stok In/Out (30 Hari)</div>
         <div style="font-size:.7rem;color:#9ca3af;margin-bottom:8px;">Jurnal stok harian</div>
         <div style="height:160px;position:relative;"><canvas id="chartStock"></canvas></div>
     </div>
@@ -408,8 +408,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const cData = @json($orderPerCourier);
     const cCtx = document.getElementById('chartCourier');
     if (cCtx && cData.length) new Chart(cCtx, {
-        type:'doughnut', data:{ labels:cData.map(d=>(d.courier||'N/A').toUpperCase()), datasets:[{ data:cData.map(d=>d.jumlah), backgroundColor:colors.slice(0,cData.length), borderWidth:2, borderColor:'#fff' }] },
-        options:{ responsive:true, maintainAspectRatio:false, cutout:'60%', plugins:{ legend:{position:'bottom',labels:{padding:8,font:{size:9}}}, tooltip:{callbacks:{label:c=>c.label+': '+c.parsed+' order'}} } }
+        type:'pie', data:{ labels:cData.map(d=>(d.courier||'N/A').toUpperCase()), datasets:[{ data:cData.map(d=>d.jumlah), backgroundColor:colors.slice(0,cData.length), borderWidth:2, borderColor:'#fff' }] },
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{position:'bottom',labels:{padding:8,font:{size:9}}}, tooltip:{callbacks:{label:c=>c.label+': '+c.parsed+' order'}} } }
     });
 
     // ── COD vs BT ──
@@ -426,14 +426,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ── Stok In/Out ──
-    const stData = @json($chartStock14);
+    const stData = @json($chartStock30);
     const stCtx = document.getElementById('chartStock');
     if (stCtx) new Chart(stCtx, {
-        type:'bar', data:{ labels:makeLabels(stData), datasets:[
-            { label:'Masuk', data:stData.map(d=>d.masuk), backgroundColor:'rgba(78,205,196,0.75)', borderColor:'#3ab8b0', borderWidth:1, borderRadius:3 },
-            { label:'Keluar', data:stData.map(d=>d.keluar), backgroundColor:'rgba(255,107,107,0.75)', borderColor:'#e05555', borderWidth:1, borderRadius:3 }
+        type:'line', data:{ labels:makeLabels(stData), datasets:[
+            { label:'Masuk', data:stData.map(d=>d.masuk), borderColor:'#10b981', backgroundColor:'rgba(16,185,129,0.10)', fill:true, tension:0.35, borderWidth:2.5, pointBackgroundColor:'#10b981' },
+            { label:'Keluar', data:stData.map(d=>d.keluar), borderColor:'#FF6B6B', backgroundColor:'rgba(255,107,107,0.10)', fill:true, tension:0.35, borderWidth:2.5, pointBackgroundColor:'#FF6B6B' }
         ] },
-        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{position:'bottom',labels:{padding:8,font:{size:9}}} }, scales:{ x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:7}}, y:{grid:{color:'rgba(0,0,0,0.04)'},beginAtZero:true} } }
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{position:'bottom',labels:{padding:8,font:{size:9}}} }, scales:{ x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:10}}, y:{grid:{color:'rgba(0,0,0,0.04)'},beginAtZero:true} } }
     });
 });
 </script>

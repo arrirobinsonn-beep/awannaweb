@@ -15,6 +15,7 @@ use App\Services\OrderTemplateExportService;
 use App\Services\StockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -37,7 +38,11 @@ class OrderOnlineController extends Controller
         // Query orders — filter by batch if selected, otherwise show all
         $ordersQuery = $this->buildOrderQuery($request, $selectedBatch);
 
-        $orders = $ordersQuery->paginate(25)->withQueryString();
+        // NOTE: `paginate()` MUTASI builder asal (set LIMIT/OFFSET 25). Paginate
+        // lewat CLONE agar $ordersQuery tetap murni — kalau tidak, clone untuk
+        // summary/chart di bawah mewarisi LIMIT 25 dan query GROUP BY terpotong
+        // (chart hanya menampilkan sebagian tanggal, total summary salah).
+        $orders = $ordersQuery->clone()->paginate(25)->withQueryString();
 
         // ── Summary cards: aggregate counts per courier & status (follows filters) ──
         $summaryQuery = clone $ordersQuery;
@@ -57,9 +62,10 @@ class OrderOnlineController extends Controller
         $summaryTotal = $summaryRows->sum('cnt');
 
         // ── Chart Data ──
+        // Grup per tanggal ORDER (`order_at` dari CSV), bukan waktu import (`created_at`).
         $chartQuery = clone $ordersQuery;
         $chartQuery->reorder();
-        $chartQuery->selectRaw("DATE(created_at) as date, status, COUNT(*) as cnt");
+        $chartQuery->selectRaw("DATE(order_at) as date, status, COUNT(*) as cnt");
         $chartRows = $chartQuery->groupBy('date', 'status')->get();
 
         $chartData = collect();
@@ -129,8 +135,13 @@ class OrderOnlineController extends Controller
         return view('order.index', compact('batches', 'selectedBatch', 'orders', 'courierList', 'courierCounts', 'products', 'exportTemplates', 'productOptions', 'isCs', 'summaryByCourier', 'summaryByStatus', 'summaryByAggregator', 'summaryTotal', 'chartData'));
     }
 
-    public function filter(Request $request): JsonResponse
+    public function filter(Request $request)
     {
+        // Non-AJAX (direct URL access / browser navigation) → redirect ke halaman utama
+        if (! $request->expectsJson()) {
+            return redirect()->route('orders.index', $request->query());
+        }
+
         $batchId = $request->integer('batch');
         $selectedBatch = $batchId ? OrderOnlineImportBatch::find($batchId) : null;
 
@@ -156,8 +167,8 @@ class OrderOnlineController extends Controller
     {
         return ShippingOrder::query()
             ->when($selectedBatch, fn ($q) => $q->where('order_online_import_batch_id', $selectedBatch->id))
-            ->when($request->filled('dari'), fn ($q) => $q->where('created_at', '>=', $request->dari))
-            ->when($request->filled('sampai'), fn ($q) => $q->where('created_at', '<=', $request->sampai.' 23:59:59'))
+            ->when($request->filled('dari'), fn ($q) => $q->where('order_at', '>=', $request->dari))
+            ->when($request->filled('sampai'), fn ($q) => $q->where('order_at', '<=', $request->sampai.' 23:59:59'))
             ->when($request->filled('search'), fn ($q) => $q->where(function ($qq) use ($request) {
                 $qq->where('order_id', 'like', '%'.$request->search.'%')
                     ->orWhere('customer_name', 'like', '%'.$request->search.'%')
@@ -191,11 +202,11 @@ class OrderOnlineController extends Controller
 
     public function preview(Request $request): JsonResponse
     {
-        $request->validate([
-            'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
-        ]);
-
         try {
+            $request->validate([
+                'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
+            ]);
+
             $result = $this->import->preview($request->file('file')->getPathname());
 
             return response()->json([
@@ -205,7 +216,17 @@ class OrderOnlineController extends Controller
                 'errors' => $result['skips'],
                 'unknown_cs' => $result['unknown_cs'],
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('OrderOnline preview validation failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'errors' => $e->errors(),
+            ]);
+            throw $e;
         } catch (\Throwable $e) {
+            Log::error('OrderOnline preview failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'exception' => $e,
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal membaca file: '.$e->getMessage(),
@@ -217,12 +238,12 @@ class OrderOnlineController extends Controller
     {
         abort_if(auth()->user()->hasRole('cs'), 403, 'CS tidak bisa mengimport data.');
 
-        $request->validate([
-            'sender' => ['required', 'string', 'max:191'],
-            'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
-        ]);
-
         try {
+            $request->validate([
+                'sender' => ['required', 'string', 'max:191'],
+                'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
+            ]);
+
             $path = $request->file('file')->store('order-online');
             $result = $this->import->import(
                 Storage::path($path),
@@ -254,7 +275,19 @@ class OrderOnlineController extends Controller
                 'inserted' => $result['inserted'],
                 'updated' => $result['updated'],
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('OrderOnline import validation failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'sender' => $request->input('sender'),
+                'errors' => $e->errors(),
+            ]);
+            throw $e;
         } catch (\Throwable $e) {
+            Log::error('OrderOnline import failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'sender' => $request->input('sender'),
+                'exception' => $e,
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal import: '.$e->getMessage(),
@@ -353,6 +386,11 @@ class OrderOnlineController extends Controller
                 'stock_returned' => $result['stock_returned'],
             ]);
         } catch (\Throwable $e) {
+            Log::error('OrderOnline tracking import failed: '.$e->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'courier' => $request->input('courier'),
+                'exception' => $e,
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal import tracking: '.$e->getMessage(),
