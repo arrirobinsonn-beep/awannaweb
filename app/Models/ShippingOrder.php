@@ -38,6 +38,7 @@ class ShippingOrder extends Model
         'amount',
         'is_cod',
         'shipping_cost',
+        'warehouse',
         'aggregator_status',
         'last_synced_at',
         'delivered_at',

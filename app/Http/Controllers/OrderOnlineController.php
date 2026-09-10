@@ -261,7 +261,6 @@ class OrderOnlineController extends Controller
 
         try {
             $request->validate([
-                'sender' => ['required', 'string', 'max:191'],
                 'file' => ['required', 'file', 'mimetypes:text/csv,text/plain,application/csv', 'max:10240'],
             ]);
 

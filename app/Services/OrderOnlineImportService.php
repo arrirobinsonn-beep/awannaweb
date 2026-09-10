@@ -190,6 +190,7 @@ class OrderOnlineImportService
             'amount' => $amount,
             'is_cod' => $isCod,
             'shipping_cost' => $shippingCost,
+            'warehouse' => $this->text($row, $colMap, 'warehouse'),
             'raw_payload' => $this->buildRawPayload($row, $colMap),
         ];
     }
@@ -229,7 +230,7 @@ class OrderOnlineImportService
      *
      * @return array{inserted:int, updated:int, skipped:int, duplicates:int, unknown_cs:array, deleted:int, double_real:int}
      */
-    public function import(string $filePath, string $sender = '', ?string $originalFilename = null): array
+    public function import(string $filePath, ?string $sender = null, ?string $originalFilename = null): array
     {
         $parsed = $this->parse($filePath);
         $rows = $parsed['data'];
@@ -748,6 +749,7 @@ class OrderOnlineImportService
     protected function mapHeaders(array $headers): array
     {
         $keys = [
+            'warehouse',
             'order_id', 'product', 'name', 'email', 'phone', 'address', 'province', 'city',
             'subdistrict', 'zip', 'status', 'payment_status', 'payment_method', 'payment_info',
             'product_price', 'cogs', 'discount', 'quantity', 'bump', 'bump_price', 'notes',

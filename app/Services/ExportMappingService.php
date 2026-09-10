@@ -66,10 +66,12 @@ class ExportMappingService
         'handled_by' => 'Dihandle CS',
         'status' => 'Status Order',
         'meta_account' => 'Meta Account',
+        'warehouse' => 'Warehouse (mentah dari CSV)',
     ];
 
     /** Nilai khusus (dihitung saat export) yang boleh dipakai sebagai sumber. */
     public const COMPUTED = [
+        'row_number' => 'No. Urut (1, 2, 3, ...)',
         'warehouse' => 'Kode Warehouse (KSP→GTM, SH→Aurora, lain→sender)',
         'product_name_display' => 'Nama Produk +power (kacamata)',
         'phone_spx' => 'Telp mulai "8" (format SPX)',

@@ -142,11 +142,25 @@ class OrderTemplateExportService
 
         $exportable = $this->reserveStock($orders);
 
-        $groups = $exportable->groupBy(fn ($o) => $this->warehouseFor($o->product_code, $batch->sender));
+        // FLIK & custom templates: 1 file langsung (tanpa split warehouse)
+        // SiCepat & SPX: split per warehouse dari kolom CSV
+        $needsWarehouseSplit = in_array($template, ['sicepat', 'spx'], true);
+
+        if (! $needsWarehouseSplit) {
+            $sender = $batch->sender;
+            return $this->streamXlsx(
+                $this->buildSpreadsheet($batch, $template, $exportable, $sender),
+                $this->filename($template, $courier, null, $batch->id),
+            );
+        }
+
+        // Split per warehouse (kolom warehouse dari CSV)
+        $groups = $exportable->groupBy(fn ($o) => $o->warehouse ?: 'LAINNYA');
 
         if ($groups->count() <= 1) {
+            $sender = $batch->sender;
             return $this->streamXlsx(
-                $this->buildSpreadsheet($batch, $template, $groups->first() ?? collect(), $batch->sender),
+                $this->buildSpreadsheet($batch, $template, $groups->first() ?? collect(), $sender),
                 $this->filename($template, $courier, $groups->keys()->first(), $batch->id),
             );
         }
@@ -237,7 +251,7 @@ class OrderTemplateExportService
         foreach ($groups as $warehouse => $group) {
             $xlsxPath = $tmpDir.'/'.uniqid('row_', true).'.xlsx';
             (new Xlsx($this->buildSpreadsheet($batch, $template, $group, $batch->sender)))->save($xlsxPath);
-            $zip->addFromString($this->filename($template, $courier, $warehouse, $batch->id), file_get_contents($xlsxPath));
+            $zip->addFromString($this->filename($template, $courier, $warehouse ?? 'ALL', $batch->id), file_get_contents($xlsxPath));
             @unlink($xlsxPath);
         }
 
@@ -286,10 +300,12 @@ class OrderTemplateExportService
 
         $rows = [$mapping->map(fn ($m) => $m->header)->all()];
 
+        $rowNum = 0;
         foreach ($orders as $o) {
+            $rowNum++;
             $row = [];
             foreach ($mapping as $m) {
-                $row[] = $this->resolveCell($m, $o, $sender);
+                $row[] = $this->resolveCell($m, $o, $sender, $rowNum);
             }
             $rows[] = $row;
         }
@@ -300,11 +316,11 @@ class OrderTemplateExportService
     /**
      * Isi satu sel dari aturan mapping (sumber: kolom / nilai khusus / teks tetap / kosong).
      */
-    protected function resolveCell(ExportTemplateMapping $m, ShippingOrder $o, ?string $sender)
+    protected function resolveCell(ExportTemplateMapping $m, ShippingOrder $o, ?string $sender, int $rowNum = 0)
     {
         return match ($m->source_type) {
             'column' => $this->columnValue($o, $m->source_value),
-            'computed' => $this->computedValue((string) $m->source_value, $o, $sender),
+            'computed' => $this->computedValue((string) $m->source_value, $o, $sender, $rowNum),
             'static' => $m->source_value,
             default => '',
         };
@@ -332,9 +348,10 @@ class OrderTemplateExportService
      * Nilai khusus (computed) — transform yang tidak bisa dinyatakan sebagai
      * kolom langsung. Key harus ada di ExportMappingService::COMPUTED.
      */
-    protected function computedValue(string $key, ShippingOrder $o, ?string $sender)
+    protected function computedValue(string $key, ShippingOrder $o, ?string $sender, int $rowNum = 0)
     {
         return match ($key) {
+            'row_number' => $rowNum,
             'warehouse' => $this->warehouseFor($o->product_code, $sender),
             'product_name_display' => $this->productDisplayName($o),
             'phone_spx' => $this->phoneSpx($o->phone_normalized),

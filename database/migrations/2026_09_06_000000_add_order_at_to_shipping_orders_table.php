@@ -25,10 +25,12 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('shipping_orders', function (Blueprint $table) {
-            $table->dateTime('order_at')->nullable()->after('delivered_at');
-            $table->index('order_at', 'shipping_orders_order_at_index');
-        });
+        if (! Schema::hasColumn('shipping_orders', 'order_at')) {
+            Schema::table('shipping_orders', function (Blueprint $table) {
+                $table->dateTime('order_at')->nullable()->after('delivered_at');
+                $table->index('order_at', 'shipping_orders_order_at_index');
+            });
+        }
 
         DB::table('shipping_orders')
             ->select(['id', 'raw_payload', 'created_at'])

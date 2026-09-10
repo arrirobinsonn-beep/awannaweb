@@ -94,10 +94,7 @@
     </div>
 
     <div style="margin-bottom:12px;">
-      <label for="csv-sender" style="display:block;font-size:.78rem;font-weight:700;color:#374151;margin-bottom:4px;">Nama Pengirim <span style="color:#b91c1c;">*</span></label>
-      <input type="text" id="csv-sender" required placeholder="contoh: eresgestore"
-             style="width:100%;padding:8px 10px;font-size:.82rem;border:1px solid #d1d5db;border-radius:8px;box-sizing:border-box;">
-      <div style="font-size:.68rem;color:#9ca3af;margin-top:3px;">Dipakai sebagai "Kode Warehouse" pada export FLIK.</div>
+      <div style="font-size:.75rem;color:#9ca3af;">Pastikan kolom pertama CSV adalah <b>warehouse</b> (kode gudang pengirim). Courier diisi otomatis dari aturan, lalu bisa diekspor ke template Excel.</div>
     </div>
 
     <div class="clay-dropzone" id="csv-dropzone">
@@ -534,7 +531,6 @@
   const csvIcon     = document.getElementById('csv-icon');
   const csvHint     = document.getElementById('csv-hint');
   const csvFilename = document.getElementById('csv-filename');
-  const senderInput = document.getElementById('csv-sender');
   const resultBox   = document.getElementById('import-result');
   if (!dropzone) return;
 
@@ -592,10 +588,8 @@
 
   document.getElementById('btn-preview').addEventListener('click', function () {
     const f = getFile(); if (!f) return;
-    const sender = senderInput.value.trim();
-    if (!sender) { alert('Isi Nama Pengirim terlebih dahulu.'); senderInput.focus(); return; }
     showResult('Memproses file...', true);
-    const fd = new FormData(); fd.append('file', f); fd.append('sender', sender);
+    const fd = new FormData(); fd.append('file', f);
     fetch('{{ route("orders.preview") }}', {
       method: 'POST',
       headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
@@ -633,10 +627,8 @@
 
   document.getElementById('btn-import').addEventListener('click', function () {
     const f = getFile(); if (!f) return;
-    const sender = senderInput.value.trim();
-    if (!sender) { alert('Isi Nama Pengirim terlebih dahulu.'); senderInput.focus(); return; }
     showResult('Mengimport...', true);
-    const fd = new FormData(); fd.append('file', f); fd.append('sender', sender);
+    const fd = new FormData(); fd.append('file', f);
     fetch('{{ route("orders.import") }}', {
       method: 'POST',
       headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
@@ -646,7 +638,6 @@
     .then(function (d) {
       if (!d.success) { showResult(d.message || 'Gagal import.', false); return; }
       showResult(d.message, true);
-      senderInput.value = '';
       setTimeout(function () { window.location.reload(); }, 900);
     })
     .catch(function () { showResult('Gagal import.', false); });

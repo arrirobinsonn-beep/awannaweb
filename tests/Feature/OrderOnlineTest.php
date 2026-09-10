@@ -1113,23 +1113,18 @@ class OrderOnlineTest extends TestCase
         $svc = new OrderTemplateExportService;
         $response = $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
 
-        $this->assertSame('application/zip', $response->headers->get('Content-Type'));
+        // FLIK = 1 file (tanpa split warehouse)
+        $this->assertSame('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $response->headers->get('Content-Type'));
 
-        $files = $this->readZipFiles($response);
-        $this->assertCount(3, $files);
+        $rows = $this->readXlsxRows($response);
+        // Row 0 = header, row 1.. = data
+        $dataRows = array_slice($rows, 1);
+        $this->assertCount(3, $dataRows);
 
-        $aurora = collect($files)->first(fn ($rows) => ($rows[1][0] ?? null) === 'Aurora');
-        $this->assertNotNull($aurora);
-        $this->assertSame('KSP Customer', $aurora[1][1]);
-
-        $gtm = collect($files)->first(fn ($rows) => ($rows[1][0] ?? null) === 'GTM');
-        $this->assertNotNull($gtm);
-        $this->assertSame('SH Customer', $gtm[1][1]);
-
-        // KMP (gudang utama Gudang Pusat) → file Gudang Pusat
-        $pusat = collect($files)->first(fn ($rows) => ($rows[1][0] ?? null) === 'Gudang Pusat');
-        $this->assertNotNull($pusat);
-        $this->assertSame('KMP Customer', $pusat[1][1]);
+        $warehouses = array_column($dataRows, 0);
+        $this->assertContains('Aurora', $warehouses);  // KSP
+        $this->assertContains('GTM', $warehouses);      // SH
+        $this->assertContains('Gudang Pusat', $warehouses); // KMP
     }
 
     public function test_spx_export_phone_starts_with_8_and_uppercase_region(): void
@@ -1173,13 +1168,14 @@ class OrderOnlineTest extends TestCase
 
         $product = $this->makeProduct(100);
         $this->app->make(StockService::class)->recordIn($this->variant($product)->id, now()->format('Y-m-d'), 100, 10000, 'adjustment');
-        $this->createOrder($batch->id, 'SPX-1', 'SPX Customer', 'spx', 'tembakan', $product->id, $product->code, 1);
+        $this->createOrder($batch->id, 'SPX-1', 'SPX Customer', 'spx', 'tembakan', $product->id, $product->code, 1, 'JAWA BARAT', 'Bandung', 'Coblong');
 
         $svc = new OrderTemplateExportService;
         $response = $svc->download($batch, OrderTemplateExportService::TEMPLATE_SPX);
 
+        // Filename now uses warehouse column (not sender). Order tanpa warehouse = LAINNYA
         $this->assertStringContainsString(
-            date('Ymd').'_spx_eresgestore_'.$batch->id.'.xlsx',
+            date('Ymd').'_spx_LAINNYA_'.$batch->id.'.xlsx',
             $this->filenameFromDisposition($response)
         );
     }
