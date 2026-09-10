@@ -94,7 +94,7 @@ class OrderOnlineController extends Controller
             ->get();
 
         // Courier dinamis dari export_templates + undeliverable (special case)
-        $exportTemplates = ExportTemplate::where('is_active', true)->get();
+        $exportTemplates = ExportTemplate::where('is_active', true)->orderBy('id')->get();
         $allCouriers = $exportTemplates->flatMap(fn ($t) => $t->couriers ?? [])->unique()->values()->sort()->values();
         $allCouriers->push('undeliverable');
         $courierList = $allCouriers;
@@ -115,8 +115,6 @@ class OrderOnlineController extends Controller
                 }
             });
         $productOptions = $productOptions->sortKeys();
-
-        $exportTemplates = \App\Models\ExportTemplate::query()->where('is_active', true)->orderBy('id')->get();
 
         // Courier counts untuk dropdown export (per batch terpilih)
         $courierCounts = collect();
@@ -150,15 +148,38 @@ class OrderOnlineController extends Controller
 
         $courierList = $this->getCourierList();
         $products = Product::query()->orderBy('code')->with('variants')->get(['id', 'code', 'name']);
+        $isCs = auth()->user()->hasRole('cs');
+
+        // Export header: render saat batch dipilih
+        $exportHeaderHtml = '';
+        if ($selectedBatch) {
+            $courierCounts = ShippingOrder::where('order_online_import_batch_id', $selectedBatch->id)
+                ->whereIn('status', ShippingOrder::EXPORTABLE_STATUSES)
+                ->whereNotNull('courier')
+                ->where(fn ($q) => $q->whereNull('awb')->orWhere('awb', ''))
+                ->selectRaw('courier, COUNT(*) as total')
+                ->groupBy('courier')
+                ->pluck('total', 'courier');
+
+            $exportTemplates = ExportTemplate::where('is_active', true)->orderBy('id')->get();
+
+            $exportHeaderHtml = view('order._export_header', [
+                'selectedBatch' => $selectedBatch,
+                'exportTemplates' => $exportTemplates,
+                'courierCounts' => $courierCounts,
+                'isCs' => $isCs,
+            ])->render();
+        }
 
         return response()->json([
             'html' => view('order._table', [
                 'orders' => $orders,
                 'courierList' => $courierList,
                 'products' => $products,
-                'isCs' => auth()->user()->hasRole('cs'),
+                'isCs' => $isCs,
                 'selectedBatch' => $selectedBatch,
             ])->render(),
+            'exportHeader' => $exportHeaderHtml,
             'total' => $orders->total(),
         ]);
     }
