@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RegionalCsStat extends Model
 {
+    // Status produk dari baris file regional (dimensi pemisah 2 tabel performa team)
+    public const STATUS_RUNNING = 'running';
+    public const STATUS_TESTING = 'testing';
+
     protected $fillable = [
         'tanggal',
         'user_id',
@@ -14,6 +18,7 @@ class RegionalCsStat extends Model
         'cs_user_id',
         'lead',
         'paid',
+        'product_status',
     ];
 
     protected $casts = [

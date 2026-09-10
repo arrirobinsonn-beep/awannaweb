@@ -385,24 +385,35 @@
             </div>
             @endif
 
-            @if(count($missingSpendingDates) > 0)
+            @php
+                $mSpendR = collect($missingSpendingDates)->map(fn() => 'spending');
+                $mRegR = collect($missingRegionalDates ?? [])->map(fn() => 'regional');
+                $allMissingR = $mSpendR->merge($mRegR)->sortKeys()->all();
+                $totalMissingR = count($allMissingR);
+            @endphp
+            @if($totalMissingR > 0)
             @if(count($discrepancies) > 0)
             <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
             @endif
             <strong>Data Belum Ditambahkan</strong>
-            @if(count($missingSpendingDates) > 5)
+            @if($totalMissingR > 5)
             <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
-                ⬇ Menampilkan 5 dari {{ count($missingSpendingDates) }} tanggal — scroll untuk melihat sisanya
+                ⬇ Menampilkan 5 dari {{ $totalMissingR }} tanggal — scroll untuk melihat sisanya
             </div>
             @endif
             <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
-                @foreach(array_keys($missingSpendingDates) as $tgl)
+                @foreach(array_keys($allMissingR) as $tgl)
                 @php
                     $tglLbl = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+                    $src = $allMissingR[$tgl];
                 @endphp
                 <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
                     📅 {{ $tglLbl }} —
+                    @if($src === 'spending')
                     Belum mengisi data spending iklan tanggal {{ $tglLbl }}
+                    @else
+                    Data regional belum diisi untuk tanggal {{ $tglLbl }}
+                    @endif
                 </div>
                 @endforeach
             </div>
@@ -1029,7 +1040,8 @@
                                 tanggal: csItem.tanggal,
                                 cs_panggilan: csItem.cs_panggilan,
                                 lead: csItem.lead,
-                                paid: csItem.paid
+                                paid: csItem.paid,
+                                product_status: csItem.product_status || 'running'
                             });
                         });
                     });
@@ -1348,7 +1360,8 @@
                 tanggal: cs.tanggal,
                 cs_panggilan: cs.cs_panggilan,
                 lead: cs.lead,
-                paid: cs.paid
+                paid: cs.paid,
+                product_status: cs.product_status || 'running'
             });
         });
 

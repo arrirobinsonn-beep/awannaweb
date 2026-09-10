@@ -21,34 +21,74 @@ class ProductController extends Controller
 {
     public function index(Request $request): View
     {
-        $products = $this->getFilteredProducts($request, 15);
+        $consumableProducts = $this->getFilteredProducts($request, 'consumable', 15);
+        $coreProducts = $this->getFilteredProducts($request, 'core', 15);
 
-        return view('product.index', compact('products'));
+        return view('product.index', compact('consumableProducts', 'coreProducts'))
+            ->with('search', $request->input('search', ''))
+            ->with('goodsType', $request->input('goods_type', ''))
+            ->with('status', $request->input('status', ''))
+            ->with('adStatus', $request->input('ad_status', ''));
     }
 
     public function filter(Request $request)
     {
-        $products = $this->getFilteredProducts($request, 15);
+        $goodsTypeFilter = $request->input('goods_type', '');
+
+        $consumableHtml = '';
+        $coreHtml = '';
+        $consumableTotal = 0;
+        $coreTotal = 0;
+        $consumablePagination = '';
+        $corePagination = '';
+
+        if ($goodsTypeFilter === '' || $goodsTypeFilter === 'consumable') {
+            $consumableProducts = $this->getFilteredProducts($request, 'consumable', 15);
+            $consumableHtml = view('product._table', [
+                'products' => $consumableProducts,
+                'showAdColumn' => false,
+                'tableId' => 'consumable-tbody',
+                'emptyMessage' => 'Tidak ada produk pasti ditemukan',
+            ])->render();
+            $consumableTotal = $consumableProducts->total();
+            $consumablePagination = $consumableProducts->links()->render();
+        }
+
+        if ($goodsTypeFilter === '' || $goodsTypeFilter !== 'consumable') {
+            $coreProducts = $this->getFilteredProducts($request, 'core', 15);
+            $coreHtml = view('product._table', [
+                'products' => $coreProducts,
+                'showAdColumn' => true,
+                'tableId' => 'core-tbody',
+                'emptyMessage' => 'Tidak ada produk inti ditemukan',
+            ])->render();
+            $coreTotal = $coreProducts->total();
+            $corePagination = $coreProducts->links()->render();
+        }
 
         return response()->json([
-            'html' => view('product._table', compact('products'))->render(),
-            'pagination' => $products->links()->render(),
-            'total' => $products->total(),
+            'consumable_html' => $consumableHtml,
+            'core_html' => $coreHtml,
+            'consumable_total' => $consumableTotal,
+            'core_total' => $coreTotal,
+            'consumable_pagination' => $consumablePagination,
+            'core_pagination' => $corePagination,
         ]);
     }
 
-    private function getFilteredProducts(Request $request, int $perPage)
+    private function getFilteredProducts(Request $request, string $goodsType, int $perPage = 15)
     {
-        $query = Product::with(['variants', 'inventories', 'primaryInventory'])->latest('id');
+        $query = Product::with(['variants', 'inventories', 'primaryInventory'])
+            ->where('goods_type', $goodsType)
+            ->latest('id');
 
         $query->when($request->filled('search'), fn (Builder $q) => $q->where(function (Builder $w) use ($request) {
             $w->where('name', 'like', '%'.$request->search.'%')
                 ->orWhere('code', 'like', '%'.$request->search.'%')
                 ->orWhere('category', 'like', '%'.$request->search.'%');
         }))
-            ->when($request->filled('goods_type'), fn (Builder $q) => $q->where('goods_type', $request->goods_type))
             ->when($request->filled('status'), fn (Builder $q) => $q->where('status', $request->status))
-            ->when($request->filled('ad_status'), fn (Builder $q) => $q->where('ad_status', $request->ad_status));
+            ->when($request->filled('ad_status') && $goodsType !== 'consumable', fn (Builder $q) => $q->where('ad_status', $request->ad_status));
 
         return $query->paginate($perPage)->withQueryString();
     }
@@ -106,13 +146,22 @@ class ProductController extends Controller
 
     public function toggleAdStatus(Product $product): JsonResponse
     {
-        $newStatus = $product->ad_status === Product::AD_STATUS_TESTING
-            ? Product::AD_STATUS_RUNNING
-            : Product::AD_STATUS_TESTING;
+        // Lifecycle SATU ARAH: testing → running (tidak bisa balik ke testing).
+        // Saat running, start_running otomatis terisi (hari ini / tanggal yang
+        // sudah di-set manual admin) → spending sebelum tanggal itu tetap Testing.
+        if ($product->isRunning()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Produk yang sudah Running tidak bisa dikembalikan ke Testing.',
+            ], 422);
+        }
 
-        $product->update(['ad_status' => $newStatus]);
+        $product->update([
+            'ad_status' => Product::AD_STATUS_RUNNING,
+            'start_running' => $product->start_running?->toDateString() ?? now()->toDateString(),
+        ]);
 
-        return response()->json(['success' => true, 'ad_status' => $newStatus]);
+        return response()->json(['success' => true, 'ad_status' => Product::AD_STATUS_RUNNING]);
     }
 
     // ─── Varian Produk ─────────────────────────────────────────────────────
@@ -183,9 +232,18 @@ class ProductController extends Controller
             'unit' => ['required', 'string', 'max:30'],
             'status' => ['required', 'in:active,inactive'],
             'ad_status' => ['nullable', 'in:'.implode(',', Product::AD_STATUSES)],
+            'start_testing' => ['nullable', 'date'],
+            'start_running' => ['nullable', 'date'],
         ]);
 
         $data['min_stock'] = (int) ($data['min_stock'] ?? 0);
+
+        // ── Barang Pasti (consumable) tidak punya status iklan ──
+        if ($data['goods_type'] === 'consumable') {
+            unset($data['ad_status'], $data['start_testing'], $data['start_running']);
+
+            return $data;
+        }
 
         // Default ad_status: testing (produk baru belum melalui fase testing)
         if (! $product) {
@@ -193,6 +251,19 @@ class ProductController extends Controller
         } else {
             // Saat edit: ad_status diambil dari input (bisa diubah admin)
             $data['ad_status'] = $data['ad_status'] ?? $product->ad_status;
+        }
+
+        // ── Fase iklan berbasis tanggal ──────────────────────────
+        // start_testing: otomatis tanggal hari ini saat produk dibuat
+        // (bisa diedit manual di form). start_running: diisi saat toggle /
+        // pilih running; kalau tidak dikirim, pertahankan nilai existing.
+        $data['start_testing'] = $data['start_testing']
+            ?? $product?->start_testing?->toDateString()
+            ?? now()->toDateString();
+        $data['start_running'] = $data['start_running']
+            ?? $product?->start_running?->toDateString();
+        if ($data['ad_status'] === Product::AD_STATUS_RUNNING && empty($data['start_running'])) {
+            $data['start_running'] = now()->toDateString();
         }
 
         return $data;

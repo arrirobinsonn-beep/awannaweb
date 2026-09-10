@@ -126,6 +126,18 @@ class ProductSeeder extends Seeder
                 'stok' => 1000,
             ],
             [
+                'code' => 'CTA',
+                'name' => 'Celengan target ATM',
+                'category' => 'Aksesoris',
+                'goods_type' => 'core',
+                'description' => 'Celengan target ATM untuk menyimpan uang secara aman.',
+                'purchase_price' => 25000,
+                'selling_price' => 119000,
+                'unit' => 'Pcs',
+                'status' => 'active',
+                'stok' => 1000,
+            ],
+            [
                 'code' => 'BOX',
                 'name' => 'Box Kacamata',
                 'category' => 'Aksesoris',
@@ -203,9 +215,22 @@ class ProductSeeder extends Seeder
                 $p->update(['goods_type' => $product['goods_type'] ?? 'core']);
             }
 
-            // Produk existing dianggap sudah running (sudah melalui fase testing)
+            // Produk existing dianggap sudah running (sudah melalui fase testing).
+            // Fase tanggal (start_testing/start_running) diisi bila masih kosong
+            // (fresh DB / produk lama) — tidak menimpa yang sudah di-set admin.
+            $updates = [];
             if ((string) $p->ad_status !== Product::AD_STATUS_RUNNING) {
-                $p->update(['ad_status' => Product::AD_STATUS_RUNNING]);
+                $updates['ad_status'] = Product::AD_STATUS_RUNNING;
+            }
+            if ($p->start_testing === null) {
+                $updates['start_testing'] = $p->created_at?->toDateString() ?? now()->toDateString();
+            }
+            $toRunning = ($updates['ad_status'] ?? $p->ad_status) === Product::AD_STATUS_RUNNING;
+            if ($toRunning && $p->start_running === null) {
+                $updates['start_running'] = $p->created_at?->toDateString() ?? now()->toDateString();
+            }
+            if (! empty($updates)) {
+                $p->update($updates);
             }
 
             // Keanggotaan gudang (many-to-many): Barang Pasti → semua gudang;

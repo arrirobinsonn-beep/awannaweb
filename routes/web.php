@@ -94,6 +94,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/tracking-status-rules/upload', [TrackingStatusRuleController::class, 'upload'])->name('tracking-status-rule.upload');
         Route::post('/tracking-status-rules/{source}/mapping', [TrackingStatusRuleController::class, 'saveMapping'])->name('tracking-status-rule.mapping');
         Route::post('/tracking-status-rules/{source}/config', [TrackingStatusRuleController::class, 'saveConfig'])->name('tracking-status-rule.config');
+        Route::get('/tracking-status-rules/{source}/filter', [TrackingStatusRuleController::class, 'filter'])->name('tracking-status-rule.filter');
         Route::post('/tracking-status-rules', [TrackingStatusRuleController::class, 'store'])->name('tracking-status-rule.store');
         Route::put('/tracking-status-rules/{trackingStatusRule}', [TrackingStatusRuleController::class, 'update'])->name('tracking-status-rule.update');
         Route::patch('/tracking-status-rules/{trackingStatusRule}/toggle', [TrackingStatusRuleController::class, 'toggle'])->name('tracking-status-rule.toggle');
@@ -121,6 +122,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/spending/bulk-delete', [SpendingHarianController::class, 'bulkDestroy'])->name('spending.bulk-destroy');
         Route::post('/spending/bulk-update', [SpendingHarianController::class, 'bulkUpdate'])->name('spending.bulk-update');
         Route::post('/spending/parse-upload', [SpendingHarianController::class, 'parseUpload'])->name('spending.parse-upload');
+        Route::post('/spending/check-existing', [SpendingHarianController::class, 'checkExistingDates'])->name('spending.check-existing');
 
 
         // Top Up

@@ -133,12 +133,15 @@ class RegionalController extends Controller
         }
 
         // ─── Alarm: bandingkan dengan Spending Harian ────────
-        // Regional hanya memuat produk RUNNING → spending pembanding juga running saja
+        // Regional hanya memuat produk RUNNING → spending pembanding juga hanya
+        // spending yang jatuh di fase running (tanggal >= products.start_running)
         $spendingTotals = SpendingHarian::where('user_id', $targetUserId)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
-            ->selectRaw('tanggal, COALESCE(SUM(`lead`), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
-            ->groupBy('tanggal')
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
+            ->selectRaw('spending_harians.tanggal, COALESCE(SUM(`lead`), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
+            ->groupBy('spending_harians.tanggal')
             ->get()
             ->keyBy('tanggal')
             ->mapWithKeys(fn ($item, $key) => [substr((string) $key, 0, 10) => $item]);
@@ -146,6 +149,7 @@ class RegionalController extends Controller
         $hasDiscrepancy = false;
         $discrepancies = [];
         $missingSpendingDates = [];
+        $missingRegionalDates = [];
 
         foreach ($allDates as $date) {
             $regLead = $totalPerTanggal[$date]['lead'];
@@ -153,13 +157,22 @@ class RegionalController extends Controller
             $spLead = (int) ($spendingTotals[$date]->total_lead ?? 0);
             $spPaid = (int) ($spendingTotals[$date]->total_paid ?? 0);
 
-            // Spending belum diisi sama sekali → "Data belum ditambahkan"
-            if (($regLead > 0 || $regPaid > 0) && $spLead === 0 && $spPaid === 0) {
+            $hasReg = $regLead > 0 || $regPaid > 0;
+            $hasSp = $spLead > 0 || $spPaid > 0;
+
+            // Hanya regional ada → spending belum diisi
+            if ($hasReg && !$hasSp) {
                 $hasDiscrepancy = true;
                 $missingSpendingDates[$date] = true;
                 continue;
             }
-
+            // Hanya spending ada → regional belum diisi
+            if ($hasSp && !$hasReg) {
+                $hasDiscrepancy = true;
+                $missingRegionalDates[$date] = true;
+                continue;
+            }
+            // Keduanya ada tapi angka beda
             if ($regLead !== $spLead || $regPaid !== $spPaid) {
                 $hasDiscrepancy = true;
                 $discrepancies[$date] = [
@@ -208,7 +221,7 @@ class RegionalController extends Controller
             'totalSpending',
             'hasDiscrepancy',
             'discrepancies',
-            'missingSpendingDates',
+            'missingSpendingDates', 'missingRegionalDates',
             'dari',
             'sampai',
             'advertisers',
@@ -281,6 +294,7 @@ class RegionalController extends Controller
             'cs_stats.*.cs_panggilan' => ['required_with:cs_stats', 'string', 'max:100'],
             'cs_stats.*.lead' => ['required_with:cs_stats', 'integer', 'min:0'],
             'cs_stats.*.paid' => ['required_with:cs_stats', 'integer', 'min:0'],
+            'cs_stats.*.product_status' => ['nullable', 'string', 'in:running,testing'],
 
             // Phone → CS mapping dari file yang sama (opsional)
             'phone_contacts' => ['nullable', 'array'],
@@ -355,7 +369,7 @@ class RegionalController extends Controller
                     $existingCsMap = RegionalCsStat::where('user_id', $targetUserId)
                         ->whereIn('tanggal', $csDates)
                         ->get()
-                        ->keyBy(fn ($s) => $s->tanggal->format('Y-m-d').'|'.$s->cs_panggilan);
+                        ->keyBy(fn ($s) => $s->tanggal->format('Y-m-d').'|'.$s->cs_panggilan.'|'.$s->product_status);
 
                     foreach ($csStats as $stat) {
                         $csPanggilan = trim($stat['cs_panggilan']);
@@ -364,6 +378,7 @@ class RegionalController extends Controller
                         }
 
                         $csUser = $csUsers[$csPanggilan] ?? null;
+                        $status = $stat['product_status'] ?? RegionalCsStat::STATUS_RUNNING;
 
                         $data = [
                             'tanggal' => $stat['tanggal'],
@@ -372,9 +387,10 @@ class RegionalController extends Controller
                             'cs_user_id' => $csUser?->id,
                             'lead' => (int) $stat['lead'],
                             'paid' => (int) $stat['paid'],
+                            'product_status' => $status,
                         ];
 
-                        $existing = $existingCsMap[date('Y-m-d', strtotime($stat['tanggal'])).'|'.$csPanggilan] ?? null;
+                        $existing = $existingCsMap[date('Y-m-d', strtotime($stat['tanggal'])).'|'.$csPanggilan.'|'.$status] ?? null;
 
                         if ($existing) {
                             $existing->update($data);
@@ -585,15 +601,20 @@ class RegionalController extends Controller
             ->whereBetween('tanggal', [$dari, $sampai])
             ->sum('paid');
 
-        // Regional hanya memuat produk RUNNING → spending pembanding juga running saja
+        // Regional hanya memuat produk RUNNING → spending pembanding juga hanya
+        // spending yang jatuh di fase running (tanggal >= products.start_running)
         $spendingLead = (int) SpendingHarian::where('user_id', $user->id)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
             ->sum('lead');
 
         $spendingPaid = (int) SpendingHarian::where('user_id', $user->id)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
             ->sum('paid');
 
         return response()->json([

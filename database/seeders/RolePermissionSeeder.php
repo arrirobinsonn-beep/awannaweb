@@ -31,18 +31,23 @@ class RolePermissionSeeder extends Seeder
         }
 
         // ─── Roles & permission mapping ───────────────────────────
-        $roleMap = [
-            // owner = super admin level tertinggi, bisa semua + buat akun
-            'owner' => Permission::all()->pluck('name')->toArray(),
+        // Pengelolaan whitelist (buat/ubah/hapus) HANYA untuk role advertiser.
+        // Admin/superadmin/owner cukup whitelist.view (melihat & memilah per pemilik).
+        $whitelistMgmt = ['whitelist.create', 'whitelist.edit', 'whitelist.delete'];
+        $allPermissions = Permission::all()->pluck('name')->toArray();
 
-            // super_admin = semua akses operasional
-            'super_admin' => Permission::all()->pluck('name')->toArray(),
+        $roleMap = [
+            // owner = super admin level tertinggi, bisa semua + buat akun (kecuali kelola whitelist)
+            'owner' => array_values(array_diff($allPermissions, $whitelistMgmt)),
+
+            // super_admin = semua akses operasional (kecuali kelola whitelist)
+            'super_admin' => array_values(array_diff($allPermissions, $whitelistMgmt)),
 
             'admin' => [
                 'dashboard.view',
                 'supplier.view', 'supplier.create', 'supplier.edit',
                 'produk.view',   'produk.create',   'produk.edit',
-                'whitelist.view', 'whitelist.create', 'whitelist.edit',
+                'whitelist.view',
                 'spending.view', 'spending.approve',
                 'user.view',     'user.create',     'user.edit',
                 'laporan.view',  'laporan.export',

@@ -1441,6 +1441,18 @@ class OrderOnlineTest extends TestCase
     private function ensureCatalog(): void
     {
         $this->seed(ProductSeeder::class);
+
+        // Reset stok katalog ke baseline tiap test mulai (DB test tanpa refresh):
+        // semua jurnal order_online dari run test sebelumnya dibalik + stok dihitung
+        // ulang, agar test packaging/export idempotent walau suite dijalankan berulang
+        // (tanpa ini, stok varian default bisa terkuras sampai 0 oleh run-run lama).
+        $stock = app(StockService::class);
+        $orderOnlineRefIds = StockMovement::where('reference', 'order_online')
+            ->distinct()
+            ->pluck('reference_id');
+        if ($orderOnlineRefIds->isNotEmpty()) {
+            $stock->reverseReferences('order_online', $orderOnlineRefIds->all());
+        }
     }
 
     private function newBatch(): OrderOnlineImportBatch
@@ -2340,7 +2352,13 @@ class OrderOnlineTest extends TestCase
         $user = $this->adminUser();
         $code = 'MP-'.strtoupper(substr(uniqid(), -5));
 
-        $this->actingAs($user)->get(route('product.index'))->assertOk()->assertSee('Produk');
+        // Halaman produk: layout WAJIB memuat clay.css (tanpa itu modal tambah/edit
+        // tampil polos di bawah tabel — regresi manifest build Vite) + markup modal ada.
+        $this->actingAs($user)->get(route('product.index'))->assertOk()
+            ->assertSee('Produk')
+            ->assertSee('css/clay.css')
+            ->assertSee('id="modal-product"', false)
+            ->assertSee('id="modal-variant"', false);
 
         // Buat produk di halaman master → varian default otomatis, BELUM terdaftar gudang mana pun
         $this->actingAs($user)

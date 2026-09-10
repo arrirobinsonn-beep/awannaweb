@@ -11,6 +11,14 @@ Baca file ini sebelum memulai sesi. Lanjutkan fitur yang belum selesai sesuai pl
 - `filecoba/verify_pipeline.php` tetap memakai DB aktif (.env = `webawanna`) tapi self-cleanup (hapus order CBC-* + balik jurnal).
 - Catatan lama di bagian fitur yang menyebut "Test memakai DB `awannacoba`" tidak berlaku lagi (DB test = `webawanna_test`, DB aplikasi = `webawanna`).
 
+# Catatan 9 September 2026 — Fix regresi merge (suite 238/238 PASS)
+
+- **4 route `.filter` pernah hilang di branch `parhan`** (500 di halaman live): `supplier.filter`, `courier-rule.filter`, `product.filter` (masih ada di `origin/staging`) + `tracking-status-rule.filter` (GET `/tracking-status-rules/{source}/filter` — TIDAK PERNAH terdaftar di branch mana pun walau view & controller method-nya ada). Sudah ditambahkan kembali di `routes/web.php`. Saat merge dari `staging`, jangan buang route `.filter` — view memakainya untuk refresh tabel AJAX tanpa reload.
+- **Controller rules (courier & tracking-status) kini AJAX JSON** (fetch, no-reload) — `store/update/destroy/toggle/move` return `response()->json()`, bukan redirect. Test yang meng-assert redirect/errors adalah TEST BASI; validasi gagal TANPA header JSON tetap redirect + session errors (pola `assertSessionHasErrors` masih berlaku utk kasus itu).
+- **`dashboard/general.blade.php` di-redesign** (commit "perbaikan tampilan admin versi parhan"): kartu operasional = "Order Hari Ini / Stok Hari Ini / COD vs Bank Transfer" (bukan "Barang Keluar/Masuk Hari Ini" lama).
+- **DB test efektif = `webawanna_test`** — `phpunit.xml` masih memuat `<env DB_DATABASE=awannatestlaravel force=true>` (DB lama yang sudah tidak ada) tapi `<server DB_DATABASE=webawanna_test>` MENANG karena Laravel baca `$_SERVER` dulu. Hapus entri `awannatestlaravel` dari phpunit.xml saat bersih-bersih.
+- **Pola test idempotent (penting)**: test yang memakai `sort_order`/angka unik di DB tanpa refresh WAJIB nilai DINAMIS (mis. `max+10`) + cleanup di `try/finally` — kalau test gagal di tengah, sisa data dari run sebelumnya mengganggu run berikutnya (kasus `test_move_down_swaps_sort_order`).
+
 ---
 
 # Performance Optimization Rules
@@ -530,6 +538,14 @@ Error `SQLSTATE[42S22]: Unknown column 'kode_produk'` saat upload file Meta Ads 
 - `UploadedFile::fake()->createWithContent()` memanggil `basename()` pada nama file → **jangan pakai nama file ber-slash** (mis. `s/d`) karena terpotong; kode whitelist test memakai format numerik tanpa dash (`20xxxxxx`) agar cocok dengan `preg_split('/\s*-\s*/')` 3-area di `parseRegionalFile` (kode ber-dash seperti `WL-xxx` ikut terbelah).
 - File nyata test di-sniff finfo → `text/plain` dan gagal validasi `mimes` → wajib `createWithContent()` (mime dari ekstensi nama).
 
+### Follow-up (10 September): `store()` mengembalikan jumlah tersimpan vs dilewati (JSON)
+
+- **Laporan user**: "data berhasil di-parsing tapi gagal ditambahkan ke database". Investigasi: parsing & penyimpanan SEBENARNYA sukses — data masuk DB (254 baris, 30 tanggal, 4 user; uji coba user sendiri tersimpan 3 baris). Yang membuat bingung: **`store()` diam-diam melewati combo `(user_id, tanggal, product_id)` yang SUDAH ADA di DB** (251 baris dummy dari `SpendingHarianSeeder` yang dipanggil `DatabaseSeeder` saat `db:seed` di dev), sementara JS menampilkan "✅ N data berhasil disimpan" dengan N = jumlah yang DIKIRIM (bukan yang benar-benar tersimpan) → user mengira gagal.
+- **Fix**: `store()` kini return `JsonResponse` `{success, imported, skipped}` — `imported` = benar-benar di-insert, `skipped` = combo sudah ada (dilewati). JS `storeSpending` menampilkan pesan terpisah: "✅ N data berhasil disimpan" + "⚠️ M dilewati (sudah ada)" bila `skipped > 0` (bukan lagi jumlah dikirim). Tipe return diganti `RedirectResponse` → `JsonResponse` (signature lama menolak return type).
+- **Test**: `SpendingUploadTest` +`test_store_returns_json_with_imported_and_skipped_counts` — store 1 baris baru (imported=1) lalu store baris sama lagi (skipped=1).
+- **Catatan**: error `ApprovalController not found` di log (23:13 UTC = 06:13 WIB, saat sesi user) adalah artefak autoloader ter-optimize — `composer install` yang sudah dijalankan memperbaikinya (`class_exists` kini true).
+- Suite: **245/245 pass (1306 assertions)**.
+
 ---
 
 ## J. ✅ Ringkasan Periode — 4 Kartu Summary di Halaman Spending Advertiser (11 Agustus 2026)
@@ -598,6 +614,25 @@ Semua elemen halaman spending advertiser (`index-advertiser`) kini fleksibel di 
 
 ### Deskripsi
 Tabel performa team (`team/performance.blade.php`, sisi advertiser & CS) dibatasi tingginya agar hanya menampilkan **±7 baris data CS**, sisanya bisa di-scroll vertikal di dalam container (pola sama dengan batas 5 baris tabel spending).
+
+## W. ✅ Batas Tinggi Tabel Utama Sisi Superadmin — Maks 5 Baris + Scroll (7 September 2026)
+
+### Deskripsi
+Tabel utama halaman **Spending sisi admin/CS** (`spending/index-general.blade.php`) dan **Whitelist** (`whitelist/_table.blade.php` via `whitelist/index.blade.php`) kini dibatasi tingginya: **maksimal 5 baris data** tampil, sisanya di-scroll vertikal di dalam wrapper (`overflow-y:auto`, scrollbar tipis). ≤5 baris → tinggi alami tanpa scroll. Pola sama dengan sisi advertiser (`index-advertiser`, sudah ada sejak sebelumnya) & tabel team (±7 baris).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `resources/views/spending/index-general.blade.php` | wrapper tabel diberi `table-scroll-limit` + id `spending-general-scroll`; CSS `.table-scroll-limit` (overflow-y + scrollbar) & `.table-scroll-maxrows` (fallback max-height 5×56px+56px) + sticky header (`table.clay-table thead th` — spesifisitas menang atas media query layout); JS ukur `maxHeight = header + 5 baris terlihat` (baris expand `display:none` dikecualikan), pass-2 requestAnimationFrame + re-measure saat resize; CSS mobile ≤640px sel lebih ramping |
+| `resources/views/whitelist/index.blade.php` | CSS + JS identik (selector `.table-scroll-maxrows`, tabel ada di partial `whitelist/_table.blade.php` yang SUDAH ber-class `table-scroll-limit table-scroll-maxrows`); baris detail (expand) awal `display:none` inline → tidak ikut dihitung; header sticky utk scroll horizontal & vertikal |
+
+### Penting
+- JS mengukur TINGGI BARIS nyata (bukan asumsi 56px) — baris tanggal spending punya sub-label 2 baris sehingga lebih tinggi dari baris whitelist.
+- `table-scroll-maxrows` (max-height CSS statis) hanyalah fallback anti-flash; JS override dengan inline `max-height` presisi. Tanpa JS (atau ≤5 baris) fallback tetap masuk akal.
+- Sticky header butuh background solid (`#fafafa` dari `clay-table thead th`) agar baris yang lewat tidak tembus; border-collapse `separate` (default clay-table) — sticky aman.
+- `requestAnimationFrame` pass-2 penting: setelah scrollbar vertikal muncul, lebar konten menyusut → baris bisa wrap ulang (reflow) → ukur sekali lagi agar tepat 5 baris.
+- Test: `SpendingGeneralTest` (2) + `WhitelistPageTest` (5) tetap hijau (7 pass, 72 assertions).
+
 ## M. ✅ Halaman Admin Kelola Aturan Courier (Dinamis dari DB) (12 Agustus 2026)
 
 ### Deskripsi
@@ -1025,6 +1060,7 @@ Dashboard admin (general) kini menampilkan 4 kartu operasional **hari ini** yang
 ### Penting
 - **Kartu di halaman laporan MENGIKUTI periode terpilih** (`dari`/`sampai`), bukan hardcoded hari ini — saat user ganti range, kartu barang keluar/masuk/resi ikut menyesuaikan; label otomatis jadi "Hari Ini" (default) atau "Periode Terpilih" (range lain). Dashboard tetap menampilkan kartu "hari ini".
 - **Fix 14 Agustus — kartu tampil 0 terus padahal query benar**: kartu stat memakai `data-counter` (JS animasi angka dari 0), tapi di lingkungan tanpa build Vite (`public/build/manifest.json` tidak ada) `@vite` tidak me-render `app.js`/`animations.js` → angka visible tetap `0` apa pun hasil query. Solusi: **teks awal kartu diisi nilai asli** (`data-counter="{{ $nilai }}">{{ $nilai }}`): tanpa JS langsung tampil benar, dengan JS animasi counter tetap berjalan (override textContent). Diterapkan ke semua kartu `data-counter` di `dashboard/general`, `dashboard/keuangan`, `laporan/operasional`, `regional/index`, `team/performance`.
+- **Fix 10 September — modal/form tampil polos di bawah tabel (clay.css tidak dimuat)**: layout memuat `clay.css` HANYA di cabang `@else` (tanpa `public/build/manifest.json`). Saat `manifest.json` ada (hasil `npm run build`), branch `@vite` dipakai → `clay.css` TIDAK dimuat, padahal `resources/css/app.css` (yang di-build) TIDAK memuat gaya `.clay-modal`/`.clay-dropzone`/`.clay-toggle` dll → `.clay-modal { display:none }` hilang → markup modal (di bawah tabel) tampil polos sebagai konten + tombol tidak membuka overlay. **Fix**: `clay.css` dipindah KELUAR dari if/else — selalu dimuat di kedua mode (app.blade.php + guest.blade.php). Regression guard: `test_product_master_page_create_update_toggle_destroy` kini assert `css/clay.css` + `id=modal-product`/`modal-variant` di halaman produk.
 - `stock_movements.date` bertipe datetime → range stok memakai eksklusif `< besok` (sama seperti created_at) agar movement di hari `sampai` tidak terlewat.
 - `payment_method` disimpan **lowercase** (`cod`/`bank_transfer`) — CASE SUM memakai literal lowercase.
 - Kolom "Resi" menampilkan `N ber-resi / total order` (rese = ber-awb).
@@ -1168,6 +1204,80 @@ File yang diunggah di halaman **Detail Per Daerah** (`/regional`) adalah file ya
 - Suite: **148 pass** (hanya `ExampleTest` 302 pre-existing).
 
 ---
+
+## W. ✅ Fase Iklan Produk Berbasis Tanggal — `start_testing` & `start_running` (9 September 2026)
+
+### Deskripsi
+Klasifikasi spending iklan ke tab **Testing/Running** tidak lagi memakai `ad_status` produk SAAT INI (yang membuat spending masa testing ikut pindah ke Running saat produk di-toggle belakangan), melainkan **timeline fase produk**: `products.start_testing` (kapan mulai testing) & `products.start_running` (kapan mulai running). Spending dibandingkan per **tanggal spending** terhadap kedua tanggal ini — spending yang dicatat saat produk masih testing TETAP masuk tab Testing walau produk sudah di-toggle Running belakangan.
+
+### Skema
+- `products.start_testing` (date, nullable) — otomatis terisi **tanggal produk dibuat** (bisa diedit manual di form produk).
+- `products.start_running` (date, nullable) — otomatis terisi **saat toggle Running diaktifkan** (bisa diedit manual). NULL = produk masih fase testing.
+- Migrasi `2026_09_09_000000` + index `products_start_running_index` (dipakai query discrepancy). **Backfill seragam**: semua produk existing → `start_testing='2026-08-01'`, `start_running='2026-09-01'` (keputusan user).
+
+### Aturan klasifikasi (`Product::phaseOn($date)`)
+- `start_running` null → **testing** (semua tanggal).
+- `tanggal >= start_running` → **running**; selain itu → **testing**.
+- Perbandingan memakai `Y-m-d` (string, lexicographic) — hari toggle dianggap sudah running.
+
+### Lifecycle SATU ARAH
+- `toggleAdStatus`: testing → running (set `start_running` = hari ini bila masih null); **running → testing DITOLAK** (422, "tidak bisa dikembalikan ke Testing"). Toggle di UI hanya dirender untuk produk testing; produk running tampil badge 🟢 + tanggal "sejak".
+- Ubah status via form edit (select ad_status): kalau jadi running & `start_running` null → otomatis hari ini.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_09_09_000000_add_phase_dates_to_products_table.php` | 2 kolom date + index + backfill seragam |
+| `app/Models/Product.php` | fillable+casts `start_testing`/`start_running`; `phaseOn($date)` |
+| `app/Http/Controllers/ProductController.php` | create → `start_testing=today`; toggle satu arah; form edit terima `start_testing`/`start_running` (nullable date) |
+| `app/Http/Controllers/SpendingHarianController.php` | `indexAdvertiser` & `indexGeneral`: split running/testing pakai `phaseOn($r->tanggal)`; chart 4 garis pakai `phaseOn($prod, $d)` |
+| `resources/views/spending/index-advertiser.blade.php` | chart & tab splits pakai `$phaseOn = fn($prod,$d)` (closure `use ($phaseOn)` di map) |
+| `resources/views/spending/_table_general.blade.php` | badge 🔬 Testing pakai `phaseOn($dateKey)` |
+| `app/Http/Controllers/RegionalController.php` + `SpendingHarianController.php` | 4 titik query discrepancy running-only jadi **date-aware via JOIN**: `join products` + `whereNotNull(start_running)` + `whereColumn(spending_harians.tanggal >= products.start_running)` |
+| `app/Services/RegionalImportService.php` | `pluck('start_running','id')` (bukan `ad_status`); klasifikasi baris by `$tanggal >= $runningStart` |
+| `database/seeders/ProductSeeder.php` | isi `start_*` bila kosong (tidak menimpa admin) |
+| `resources/views/product/_table.blade.php` + `index.blade.php` | badge running tanpa toggle + tanggal "sejak ..."; modal edit 2 input date + data attrs |
+| `tests/Feature/SpendingSummaryTest.php` | +2 test: fase split by tanggal (data-run/data-test), toggle satu arah |
+| `tests/Feature/RegionalImportTest.php` | +1 test: baris masa testing dilewati walau produk sekarang running |
+| `tests/Feature/OrderOnlineTest.php` | helper `makeProduct` (5 file test) set `start_testing='2026-01-01'` + `start_running` sesuai status; **`ensureCatalog()` kini balikkan semua jurnal `order_online` + recalc → stok katalog baseline tiap test** (fix flakiness stok terkuras di DB test tanpa refresh) |
+
+### Penting
+- **Klasifikasi SELALU by tanggal spending**, bukan status sekarang — berlaku di: tab advertiser, sub-tab general, chart 4 garis, badge Testing, query discrepancy, dan import regional. Produk dengan `start_running` null = semua spending Testing.
+- **Query discrepancy join** memakai kolom berkualifikasi (`spending_harians.tanggal`, `products.start_running`) — aman walau products juga punya kolom lain.
+- **`phaseOn` di view** menerima Carbon atau string `Y-m-d`; closure perlu `use ($phaseOn)` di dalam `map()` (closure Blade/anon tidak menangkap variabel luar tanpa `use`).
+- **Toggle UI satu arah**: produk running tidak render checkbox toggle (klik running→testing ditolak controller 422; JS revert + alert).
+- **Test helper** yang membuat produk 'running' WAJIB set `start_running` (mis. `2026-01-01` sebelum tanggal test) — tanpa itu `phaseOn` mengembalikan testing dan test summary running gagal.
+- Suite: **241/241 pass (1261 assertions)**.
+
+---
+
+## X. ✅ Baris Testing Tetap ke Performa Team — 2 Tabel Running/Testing (10 September 2026)
+
+### Deskripsi
+Halaman Detail Per Daerah (`/regional`) sudah mengecualikan baris produk TESTING dari tabel provinsi (fitur V + klasifikasi by timeline `created_at >= start_running`, fitur W). Sejak fitur ini, **baris yang dilewati itu TETAP diteruskan ke halaman Performa Team** (`/tim/performa`) — ditampung **2 tabel terpisah** (tab 🟢 Running / 🔬 Testing): lead/paid per CS per tanggal produk RUNNING di tabel 1, produk TESTING di tabel 2 (termasuk doughnut porsi lead per status).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_09_10_000000_add_product_status_to_regional_cs_stats_table.php` | + `regional_cs_stats.product_status` string(20) NOT NULL default `running` + index; UNIQUE lama `cs_stats_unique` → **`cs_stats_status_unique`** `(tanggal, user_id, cs_panggilan, product_status)` (1 CS boleh punya baris running & testing di tanggal sama); **hapus SEMUA baris lama** (keputusan user: upload ulang agar akurat) |
+| `app/Models/RegionalCsStat.php` | + konstanta `STATUS_RUNNING`/`STATUS_TESTING`, `product_status` di fillable |
+| `app/Services/RegionalImportService.php` | `previewData`: CS stats dihitung **per status produk** (`$row['product_status']` → testing/running; row tanpa kolom product/produk tak dikenal → running); item `cs_by_date` membawa `product_status` |
+| `app/Http/Controllers/RegionalController.php` | `savePreview`: validasi `cs_stats.*.product_status in:running,testing` (nullable); simpan dengan status (payload tanpa status → default `running`); `$existingCsMap` key menyertakan status |
+| `resources/views/regional/index.blade.php` | JS `previewCsStats` + payload `csStatsPayload` membawa `product_status` |
+| `app/Http/Controllers/TeamController.php` | `performance()` pecah stats → `$statsRunning` (`product_status !== 'testing'`, null dianggap running) & `$statsTesting`; `$byDateRunning/Testing`, `$totalPerCsRunning/Testing`, total lead/paid per status, `$members` diberi `total_lead(_testing)/total_paid(_testing)` (urut porsi gabungan), `$chartDataRunning/Testing` |
+| `resources/views/team/performance.blade.php` | Tab 🟢 Running/🔬 Testing (pola `switchAdTab` spending); tiap tab: tabel (partial `performa-rows` dengan `byDate` per status) + doughnut per status; kartu statistik Total Lead/Paid ikut tab aktif (`data-run`/`data-test` + JS swap); sisi CS juga dapat 2 tab (tanpa donut) |
+| `resources/views/team/partials/performa-donut.blade.php` (baru) | Doughnut diekstrak jadi partial (param `$chartData`, `$groupKey`, `$badgeText/Bg/Color`); svg id unik `cs-donut-{groupKey}`; `data-donut-group` utk scoping hover |
+| `tests/Feature/RegionalImportTest.php` | +`test_save_stores_cs_stats_split_by_product_status` (preview cs_by_date 2 entri 2/1 & 2/1; save → 2 baris dengan status benar) |
+| `tests/Feature/TeamPerformanceTest.php` (baru) | 2 test: halaman punya 2 tab/2 tabel/2 donut + stat cards data-run/data-test; payload cs_stats tanpa status → default `running` → tabel Running |
+
+### Penting
+- **`product_status` NOT NULL default `running`** — skenario null tidak mungkin lagi; cabang null di controller/view hanya defensif.
+- **Data lama dibersihkan di migration** (keputusan user): user wajib **upload ulang** file regional agar 2 tabel performa terisi akurat. `regional_reports` (tabel provinsi) TIDAK disentuh.
+- Tabel provinsi regional tetap running-only (fitur V) — yang berubah hanya sisi CS stats/performa team.
+- **Donut per status**: 2 donut ada di DOM sekaligus (satu di tab tersembunyi) — hover di-scope per `[data-donut-group]` (querySelector dalam group, bukan global), svg id unik `cs-donut-running/testing`.
+- **Batas tinggi tabel (`.perf-scroll-limit` ±7 baris)**: tabel pada tab tersembunyi di-skip saat ukur (`offsetParent === null`) dan diukur ulang saat tab dibuka via `window.reapplyPerfTableLimit()` (dipanggil `switchPerfTab`) — pola sama index-general spending.
+- **DB test perlu re-seed bila roles kosong**: `DB_DATABASE=webawanna_test php artisan migrate:fresh --seed` (roles tabel kosong → semua test `RoleDoesNotExist`).
+- Suite: **244/244 pass (1297 assertions)**. Catatan: `AggregatorTrackingImportTest` kadang flaky di run penuh (resi tetap `999515101688` + tanpa cleanup di DB test yang menumpuk) — pre-existing, tidak terkait fitur ini.
 
 # Fitur Belum Selesai / Ide ke Depan
 

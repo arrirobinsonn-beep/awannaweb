@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Product;
+use App\Models\RegionalCsStat;
 use App\Models\RegionalReport;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
@@ -30,6 +31,8 @@ class RegionalImportTest extends TestCase
             'name' => 'Produk '.$adStatus.' Regional '.$code,
             'status' => 'active',
             'ad_status' => $adStatus,
+            'start_testing' => '2026-01-01',
+            'start_running' => $adStatus === 'running' ? '2026-01-01' : null,
         ]);
     }
 
@@ -243,5 +246,142 @@ class RegionalImportTest extends TestCase
         $this->assertSame(0, $resp->json('skipped_testing'));
         $this->assertSame(2, $resp->json('data.total_lead'));
         $this->assertSame(1, $resp->json('data.total_paid'));
+    }
+
+    /**
+     * CS stats dari file yang sama TETAP diteruskan ke performa team, tapi dipisah
+     * per status produk (running/testing) — baris testing yang dilewati di tabel
+     * provinsi tetap dihitung untuk tabel performa team Testing.
+     */
+    public function test_save_stores_cs_stats_split_by_product_status(): void
+    {
+        $user = $this->makeUser();
+        $user->assignRole('advertiser');
+        $csUser = User::create([
+            'nama' => 'CS '.uniqid(),
+            'panggilan' => 'cs-'.uniqid(),
+            'email' => 'cs-'.uniqid().'@example.com',
+            'password' => bcrypt('secret'),
+            'is_profile_complete' => true,
+            'is_active' => true,
+        ]);
+        $csUser->assignRole('cs');
+
+        $running = $this->makeProduct('running');
+        $testing = $this->makeProduct('testing');
+
+        $csv = "province,product,payment_status,created_at,handled_by\n"
+            ."JAWA BARAT,A.1 - {$running->name} - WL1,paid,2026-08-01,{$csUser->panggilan}\n"
+            ."JAWA BARAT,A.1 - {$running->name} - WL1,unpaid,2026-08-01,{$csUser->panggilan}\n"
+            ."JAWA BARAT,A.1 - {$testing->name} - WL1,paid,2026-08-01,{$csUser->panggilan}\n"
+            ."JAWA BARAT,A.1 - {$testing->name} - WL1,unpaid,2026-08-01,{$csUser->panggilan}\n";
+
+        try {
+            $preview = $this->actingAs($user)
+                ->postJson(route('regional.preview'), [
+                    'file' => $this->tempFile('regional_cs.csv', $csv),
+                ])
+                ->assertOk()
+                ->json('data');
+
+            // Preview: CS stats punya 2 entri terpisah (running 2/1, testing 2/1)
+            $csByDate = $preview['cs_by_date']['2026-08-01'] ?? [];
+            $runItem = collect($csByDate)->firstWhere('product_status', 'running');
+            $testItem = collect($csByDate)->firstWhere('product_status', 'testing');
+            $this->assertNotNull($runItem, 'CS stats running harus ada di preview');
+            $this->assertNotNull($testItem, 'CS stats testing harus ada di preview');
+            $this->assertSame(2, $runItem['lead']);
+            $this->assertSame(1, $runItem['paid']);
+            $this->assertSame(2, $testItem['lead']);
+            $this->assertSame(1, $testItem['paid']);
+
+            // Tiru JS: simpan cs_stats dengan product_status
+            $csStats = [];
+            foreach ($preview['cs_by_date'] as $tgl => $items) {
+                foreach ($items as $it) {
+                    $csStats[] = [
+                        'tanggal' => $it['tanggal'],
+                        'cs_panggilan' => $it['cs_panggilan'],
+                        'lead' => $it['lead'],
+                        'paid' => $it['paid'],
+                        'product_status' => $it['product_status'],
+                    ];
+                }
+            }
+
+            $this->actingAs($user)
+                ->postJson(route('regional.save'), [
+                    'items' => [['tanggal' => '2026-08-01', 'province' => 'JAWA BARAT', 'lead' => 2, 'paid' => 1]],
+                    'cs_stats' => $csStats,
+                ])
+                ->assertOk()
+                ->assertJson(['success' => true]);
+
+            $runRow = RegionalCsStat::where('user_id', $user->id)
+                ->where('cs_panggilan', $csUser->panggilan)
+                ->whereDate('tanggal', '2026-08-01')
+                ->where('product_status', 'running')
+                ->first();
+            $testRow = RegionalCsStat::where('user_id', $user->id)
+                ->where('cs_panggilan', $csUser->panggilan)
+                ->whereDate('tanggal', '2026-08-01')
+                ->where('product_status', 'testing')
+                ->first();
+
+            $this->assertNotNull($runRow, 'Baris CS stats running harus tersimpan');
+            $this->assertNotNull($testRow, 'Baris CS stats testing harus tersimpan');
+            $this->assertSame(2, (int) $runRow->lead);
+            $this->assertSame(1, (int) $runRow->paid);
+            $this->assertSame(2, (int) $testRow->lead);
+            $this->assertSame(1, (int) $testRow->paid);
+        } finally {
+            RegionalReport::where('user_id', $user->id)->delete();
+            RegionalCsStat::where('user_id', $user->id)->delete();
+            $csUser->delete();
+            $running->delete();
+            $testing->delete();
+        }
+    }
+
+    /**
+     * Produk sudah running SEKARANG tapi baru running sejak 2 Sep → baris file
+     * yang tanggalnya masih masa testing (1 Sep) tetap dilewati, bukan dihitung
+     * karena status produk saat ini running.
+     */
+    public function test_regional_classifies_by_phase_date_not_current_status(): void
+    {
+        $user = $this->makeUser();
+        $user->assignRole('advertiser');
+
+        $product = Product::create([
+            'code' => 'RG'.strtoupper(substr(uniqid(), -6)),
+            'name' => 'Produk Fase Regional '.uniqid(),
+            'status' => 'active',
+            'ad_status' => 'running',
+            'start_testing' => '2026-08-01',
+            'start_running' => '2026-09-02',
+        ]);
+
+        $csv = "province,product,payment_status,created_at\n"
+            ."JAWA BARAT,A.1 - {$product->name} - WL1,paid,2026-09-01\n"  // masa testing → dilewati
+            ."JAWA BARAT,A.1 - {$product->name} - WL1,paid,2026-09-03\n"; // masa running → dihitung
+
+        try {
+            $resp = $this->actingAs($user)
+                ->postJson(route('regional.preview'), [
+                    'file' => $this->tempFile('regional_fase_'.uniqid().'.csv', $csv),
+                ]);
+
+            $resp->assertOk()->assertJson(['success' => true]);
+            $this->assertSame(2, $resp->json('total_raw_rows'));
+            $this->assertSame(1, $resp->json('skipped_testing'));
+
+            $data = $resp->json('data');
+            $this->assertSame(1, $data['total_lead'], 'Hanya baris masa running yang dihitung');
+            $this->assertArrayHasKey('2026-09-03', $data['by_date']);
+            $this->assertArrayNotHasKey('2026-09-01', $data['by_date']);
+        } finally {
+            $product->delete();
+        }
     }
 }

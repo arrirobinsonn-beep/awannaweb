@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\SpendingHarianController;
 use App\Models\Product;
+use App\Models\SpendingHarian;
 use App\Models\User;
 use App\Models\Whitelist;
 use Illuminate\Http\Request;
@@ -49,6 +50,8 @@ class SpendingUploadTest extends TestCase
             'name' => 'Produk Test '.$code,
             'status' => 'active',
             'ad_status' => 'running',
+            'start_testing' => '2026-01-01',
+            'start_running' => '2026-01-01',
         ]);
     }
 
@@ -192,5 +195,66 @@ class SpendingUploadTest extends TestCase
             $json['combined'][0]['whitelists'][0]['products'][0]['product_name']
         );
         $this->assertSame(500000.0, (float) $json['combined'][0]['whitelists'][0]['products'][0]['spending']);
+    }
+
+    /**
+     * store dengan Accept: application/json (jalur upload otomatis Meta) → JSON berisi
+     * jumlah REAL tersimpan vs dilewati (combo tanggal|whitelist|produk sudah ada).
+     * Sebelumnya toast menampilkan jumlah item yang DIKIRIM (menyesatkan). Form biasa
+     * (tanpa Accept JSON) tetap redirect seperti dulu.
+     */
+    public function test_store_returns_json_with_imported_and_skipped_counts(): void
+    {
+        $user = $this->makeUser();
+        $user->assignRole('advertiser');
+        $wl = $this->makeWhitelist($user);
+        $product = $this->makeProduct();
+
+        try {
+            // Combo yang SUDAH ada di DB → akan di-skip saat upload
+            $existing = [
+                'tanggal' => '2026-09-01',
+                'user_id' => $user->id,
+                'whitelist_id' => $wl->id,
+                'product_id' => $product->id,
+                'spending' => 10000,
+                'lead' => 1,
+                'paid' => 0,
+            ];
+            SpendingHarian::computeMetrics($existing);
+            SpendingHarian::create($existing);
+
+            $resp = $this->actingAs($user)->postJson(route('spending.store'), [
+                'items' => [
+                    // combo sudah ada → dilewati
+                    ['tanggal' => '2026-09-01', 'product_id' => $product->id, 'whitelist_id' => $wl->id, 'spending' => 50000, 'lead' => 2, 'paid' => 1],
+                    // combo baru → tersimpan
+                    ['tanggal' => '2026-09-02', 'product_id' => $product->id, 'whitelist_id' => $wl->id, 'spending' => 30000, 'lead' => 1, 'paid' => 0],
+                    // duplikat dalam 1 request → dilewati
+                    ['tanggal' => '2026-09-02', 'product_id' => $product->id, 'whitelist_id' => $wl->id, 'spending' => 99999, 'lead' => 1, 'paid' => 0],
+                ],
+            ]);
+
+            $resp->assertOk()->assertJson(['success' => true, 'imported' => 1, 'skipped' => 2]);
+
+            // Hanya 1 baris baru (existing + baru = 2 total)
+            $this->assertSame(2, SpendingHarian::where('user_id', $user->id)->count());
+
+            // Jalur form lama (tanpa Accept JSON) tetap redirect
+            $this->actingAs($user)
+                ->post(route('spending.store'), [
+                    'items' => [
+                        ['tanggal' => '2026-09-03', 'product_id' => $product->id, 'whitelist_id' => $wl->id, 'spending' => 20000, 'lead' => 1, 'paid' => 0],
+                    ],
+                ])
+                ->assertRedirect(route('spending.index'));
+
+            $this->assertSame(3, SpendingHarian::where('user_id', $user->id)->count());
+        } finally {
+            SpendingHarian::where('user_id', $user->id)->delete();
+            $wl->delete();
+            $product->delete();
+            $user->delete();
+        }
     }
 }

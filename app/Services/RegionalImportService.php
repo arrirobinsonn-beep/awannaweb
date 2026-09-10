@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Product;
+use App\Models\RegionalCsStat;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class RegionalImportService
@@ -59,11 +60,17 @@ class RegionalImportService
         // exact → contains → levenshtein. Hanya dipakai bila kolom product ada.
         $matcher = null;
         $productIndex = [];
-        $productStatusMap = [];
+        // Peta start_running per produk — klasifikasi status memakai TIMELINE produk
+        // (produk running sejak tanggal berapa), bukan ad_status saat ini, agar
+        // baris yang tanggalnya masih masa testing TETAP dianggap testing.
+        $productRunningMap = [];
         if ($colProduct !== false) {
             $matcher = new ProductNameMatcher();
             $productIndex = $matcher->buildIndex();
-            $productStatusMap = Product::query()->pluck('ad_status', 'id')->all();
+            $productRunningMap = Product::query()
+                ->whereNotNull('start_running')
+                ->pluck('start_running', 'id')
+                ->all();
         }
 
         $masterProvinces = config('regional.master_provinces', []);
@@ -137,7 +144,10 @@ class RegionalImportService
 
                         $prod = $matcher->match($productName, $productIndex);
                         if ($prod) {
-                            $productStatus = $productStatusMap[$prod->id] ?? null;
+                            $runningStart = $productRunningMap[$prod->id] ?? null;
+                            $productStatus = ($runningStart && $tanggal >= $runningStart)
+                                ? Product::AD_STATUS_RUNNING
+                                : Product::AD_STATUS_TESTING;
                         }
                     }
                 }
@@ -198,7 +208,10 @@ class RegionalImportService
     {
         $grouped = [];
 
-        // ─── CS Stats: hitung lead/paid per CS per tanggal ───
+        // ─── CS Stats: hitung lead/paid per CS per tanggal PER STATUS PRODUK ───
+        // Baris produk TESTING tetap diteruskan ke performa team (CS stats), hanya
+        // tabel provinsi regional yang mengecualikannya. Row tanpa kolom product
+        // (atau produk tak dikenal) dianggap running (perilaku lama).
         $csGrouped = [];
         foreach ($parsedData as $row) {
             $handledBy = $row['handled_by'] ?? '';
@@ -206,13 +219,18 @@ class RegionalImportService
                 continue;
             }
 
-            $key = $row['tanggal'].'|'.$handledBy;
+            $status = ($row['product_status'] ?? null) === Product::AD_STATUS_TESTING
+                ? RegionalCsStat::STATUS_TESTING
+                : RegionalCsStat::STATUS_RUNNING;
+
+            $key = $row['tanggal'].'|'.$handledBy.'|'.$status;
             if (! isset($csGrouped[$key])) {
                 $csGrouped[$key] = [
                     'tanggal' => $row['tanggal'],
                     'cs_panggilan' => $handledBy,
                     'lead' => 0,
                     'paid' => 0,
+                    'product_status' => $status,
                 ];
             }
             $csGrouped[$key]['lead']++;

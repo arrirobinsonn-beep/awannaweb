@@ -9,6 +9,7 @@ use App\Models\SpendingHarian;
 use App\Models\User;
 use App\Models\Whitelist;
 use App\Services\ProductNameMatcher;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -65,13 +66,16 @@ class SpendingHarianController extends Controller
             ->get()
             ->keyBy('tgl');
 
-        // Total spending per tanggal — HANYA produk RUNNING
-        // (regional_reports hanya memuat lead/paid produk running;
-        //  spending testing tidak ikut dibandingkan agar selaras)
+        // Total spending per tanggal — HANYA spending yang jatuh di FASE RUNNING
+        // produk (regional_reports hanya memuat lead/paid produk running;
+        //  spending fase testing tidak ikut dibandingkan agar selaras).
+        // Klasifikasi by tanggal: spending_harians.tanggal >= products.start_running.
         $spendingTotals = SpendingHarian::where('user_id', $userId)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
-            ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
+            ->selectRaw('DATE(spending_harians.tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('tgl')
             ->get()
             ->keyBy('tgl');
@@ -83,9 +87,8 @@ class SpendingHarianController extends Controller
         $hasDiscrepancy = false;
         $discrepancies = [];
         $discrepantDates = [];
-        // Kelompok "Data belum ditambahkan": tanggal punya data REGIONAL tapi
-        // spending-nya kosong (belum diisi) — bukan selisih angka.
         $missingSpendingDates = [];
+        $missingRegionalDates = [];
 
         foreach ($allDates as $date) {
             $regLead = (int) ($regionalTotals[$date]->total_lead ?? 0);
@@ -93,13 +96,22 @@ class SpendingHarianController extends Controller
             $spLead = (int) ($spendingTotals[$date]->total_lead ?? 0);
             $spPaid = (int) ($spendingTotals[$date]->total_paid ?? 0);
 
-            // Spending belum diisi sama sekali → "Data belum ditambahkan"
-            if (($regLead > 0 || $regPaid > 0) && $spLead === 0 && $spPaid === 0) {
+            $hasReg = $regLead > 0 || $regPaid > 0;
+            $hasSp = $spLead > 0 || $spPaid > 0;
+
+            // Hanya regional ada → spending belum diisi
+            if ($hasReg && !$hasSp) {
                 $hasDiscrepancy = true;
                 $missingSpendingDates[$date] = true;
                 continue;
             }
-
+            // Hanya spending ada → regional belum diisi
+            if ($hasSp && !$hasReg) {
+                $hasDiscrepancy = true;
+                $missingRegionalDates[$date] = true;
+                continue;
+            }
+            // Keduanya ada tapi angka beda
             if ($regLead !== $spLead || $regPaid !== $spPaid) {
                 $hasDiscrepancy = true;
                 $discrepancies[$date] = [
@@ -112,7 +124,7 @@ class SpendingHarianController extends Controller
             }
         }
 
-        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates');
+        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates', 'missingRegionalDates');
     }
 
     // ─── View Advertiser: data milik sendiri, group by tanggal → produk ─
@@ -167,10 +179,14 @@ class SpendingHarianController extends Controller
             ];
         });
 
-        // ─── Ringkasan periode: dibagi per ad_status (running / testing) ──
-        // Running = CPA Lead/Paid dihitung; Testing = spending saja (tanpa CPA)
-        $runningRows = $rows->filter(fn ($r) => $r->product?->ad_status === Product::AD_STATUS_RUNNING);
-        $testingRows = $rows->filter(fn ($r) => $r->product?->ad_status === Product::AD_STATUS_TESTING);
+        // ─── Ringkasan periode: dibagi per FASE iklan pada tanggal spending ──
+        // (timeline start_testing/start_running, bukan ad_status saat ini —
+        //  spending masa testing TIDAK ikut pindah ke Running saat produk
+        //  di-toggle belakangan). Running = CPA dihitung; Testing = spending saja.
+        $isRunningOn = fn ($r) => $r->product
+            && $r->product->phaseOn($r->tanggal) === Product::AD_STATUS_RUNNING;
+        $runningRows = $rows->filter($isRunningOn);
+        $testingRows = $rows->reject($isRunningOn);
 
         $summary = $this->computeSummary($rows);
         $runningSummary = $this->computeSummary($runningRows);
@@ -182,6 +198,7 @@ class SpendingHarianController extends Controller
         $discrepancies = $discrepancy['discrepancies'];
         $discrepantDates = $discrepancy['discrepantDates'];
         $missingSpendingDates = $discrepancy['missingSpendingDates'] ?? [];
+        $missingRegionalDates = $discrepancy['missingRegionalDates'] ?? [];
 
         // ─── Cek discrepancy: Data CS tim vs data advertiser ────
         $csTeamIds = User::where('advertiser_id', $user->id)
@@ -269,7 +286,7 @@ class SpendingHarianController extends Controller
         return view('spending.index-advertiser', compact(
             'summaries', 'summary', 'runningSummary', 'testingSummary',
             'dari', 'sampai', 'myWhitelists', 'user',
-            'hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates',
+            'hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates', 'missingRegionalDates',
             'csDiscrepancy', 'hasWhitelist', 'dateChangeRestrictions'
         ));
     }
@@ -289,16 +306,15 @@ class SpendingHarianController extends Controller
 
         if ($advertisers->isEmpty()) {
             return view('spending.index-general', [
-                'dataPerAdvertiser' => [],
                 'advertisers' => $advertisers,
-                'activeTab' => null,
+                'activeTab' => 'all',
                 'dari' => $dari,
                 'sampai' => $sampai,
             ]);
         }
 
         // ─── BATCH: Ambil semua spending untuk semua advertiser dalam 1 query ──
-        $allSpending = SpendingHarian::with(['product', 'whitelist'])
+        $allSpending = SpendingHarian::with(['product', 'whitelist.user'])
             ->whereIn('user_id', $advertisers->pluck('id'))
             ->whereBetween('tanggal', [$dari, $sampai])
             ->orderByDesc('tanggal')
@@ -317,14 +333,16 @@ class SpendingHarianController extends Controller
             ->groupBy('user_id');
 
         $spendingTotals = SpendingHarian::whereIn('user_id', $advIds)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->whereHas('product', fn ($q) => $q->where('ad_status', Product::AD_STATUS_RUNNING))
-            ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->whereNotNull('products.start_running')
+            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
+            ->selectRaw('user_id, DATE(spending_harians.tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
             ->groupBy('user_id', 'tgl')
             ->get()
             ->groupBy('user_id');
 
-        // ─── BATCH: Proses semua advertiser ──
+        // ─── BATCH: Proses semua advertiser (data per advertiser utk tab & banner) ──
         $dataPerAdvertiser = [];
         foreach ($advertisers as $adv) {
             $rows = $allSpending->get($adv->id, collect());
@@ -336,70 +354,123 @@ class SpendingHarianController extends Controller
                 $spendingTotals->get($adv->id, collect())
             );
 
-            if ($rows->isEmpty()) {
-                $dataPerAdvertiser[$adv->id] = [
-                    'user' => $adv,
-                    'summaries' => collect(),
-                    'total_spending' => 0,
-                    'has_discrepancy' => $disc['hasDiscrepancy'],
-                    'discrepancies' => $disc['discrepancies'],
-                    'discrepant_dates' => $disc['discrepantDates'],
-                    'missing_spending_dates' => $disc['missingSpendingDates'] ?? [],
-                ];
-
-                continue;
-            }
-
-            $grouped = $rows->groupBy(fn ($r) => $r->tanggal->format('Y-m-d'));
-
             $dataPerAdvertiser[$adv->id] = [
                 'user' => $adv,
-                'total_spending' => $rows->sum('spending'),
+                'summaries' => $rows->isEmpty() ? collect() : $this->summarizeRows($rows),
+                'total_spending' => (float) $rows->sum('spending'),
                 'has_discrepancy' => $disc['hasDiscrepancy'],
                 'discrepancies' => $disc['discrepancies'],
                 'discrepant_dates' => $disc['discrepantDates'],
                 'missing_spending_dates' => $disc['missingSpendingDates'] ?? [],
-                'summaries' => $grouped->map(function ($items) {
-                    $byProduct = $items->groupBy('product_id')->map(function ($pItems) {
-                        return [
-                            'product' => $pItems->first()->product,
-                            'spending' => $pItems->sum('spending'),
-                            'lead' => $pItems->sum('lead'),
-                            'paid' => $pItems->sum('paid'),
-                            'paid_ratio' => $pItems->sum('lead') > 0
-                                                ? round($pItems->sum('paid') / $pItems->sum('lead') * 100, 2) : 0,
-                            'cpa_lead' => $pItems->sum('lead') > 0
-                                                ? round($pItems->sum('spending') / $pItems->sum('lead'), 2) : 0,
-                            'cpa_paid' => $pItems->sum('paid') > 0
-                                                ? round($pItems->sum('spending') / $pItems->sum('paid'), 2) : 0,
-                            'whitelists' => $pItems,
-                        ];
-                    });
-
-                    return [
-                        'tanggal' => $items->first()->tanggal,
-                        'spending' => $items->sum('spending'),
-                        'lead' => $items->sum('lead'),
-                        'paid' => $items->sum('paid'),
-                        'paid_ratio' => $items->sum('lead') > 0
-                                              ? round($items->sum('paid') / $items->sum('lead') * 100, 2) : 0,
-                        'cpa_lead' => $items->sum('lead') > 0
-                                              ? round($items->sum('spending') / $items->sum('lead'), 2) : 0,
-                        'cpa_paid' => $items->sum('paid') > 0
-                                              ? round($items->sum('spending') / $items->sum('paid'), 2) : 0,
-                        'by_product' => $byProduct,
-                        'total_produk' => $byProduct->count(),
-                    ];
-                }),
+                'missing_regional_dates' => $disc['missingRegionalDates'] ?? [],
             ];
         }
 
-        // Tab aktif (dari query string atau advertiser pertama)
-        $activeTab = $request->input('tab', $advertisers->first()?->id);
+        // Tab aktif: default "Semua spending" ('all'), validasi id advertiser
+        $activeTab = (string) $request->input('tab', 'all');
+        if ($activeTab !== 'all' && ! $advertisers->contains('id', (int) $activeTab)) {
+            $activeTab = 'all';
+        }
+
+        // ─── Baris data tab aktif: 'all' = gabungan SEMUA advertiser ──
+        if ($activeTab === 'all') {
+            $tabRows = collect();
+            foreach ($advertisers as $adv) {
+                $tabRows = $tabRows->merge($allSpending->get($adv->id, collect()));
+            }
+            $tabRows = $tabRows->sortByDesc(fn ($r) => $r->tanggal->format('Y-m-d'))->values();
+        } else {
+            $tabRows = $allSpending->get((int) $activeTab, collect());
+        }
+
+        $tabSummaries = $tabRows->isEmpty() ? collect() : $this->summarizeRows($tabRows);
+        $summary = $this->computeSummary($tabRows);
+
+        // ─── Sub-tab Running/Testing di dalam tabel: summaries per FASE tanggal ──
+        $isRunningRow = fn ($r) => $r->product
+            && $r->product->phaseOn($r->tanggal) === Product::AD_STATUS_RUNNING;
+        $runningRows = $tabRows->filter($isRunningRow)->values();
+        $testingRows = $tabRows->reject($isRunningRow)->values();
+        $runningSummaries = $runningRows->isEmpty() ? collect() : $this->summarizeRows($runningRows);
+        $testingSummaries = $testingRows->isEmpty() ? collect() : $this->summarizeRows($testingRows);
+
+        // ─── Data chart: 4 garis per tanggal (Running & Testing) utk tab aktif ──
+        $chartDates = $tabSummaries->keys()->sort()->values();
+        $phaseOn = fn ($prod, $d) => $prod ? $prod->phaseOn($d) : Product::AD_STATUS_TESTING;
+        $chartRunLead = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === Product::AD_STATUS_RUNNING)->sum('lead'));
+        $chartRunPaid = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === Product::AD_STATUS_RUNNING)->sum('paid'));
+        $chartTestLead = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === Product::AD_STATUS_TESTING)->sum('lead'));
+        $chartTestPaid = $chartDates->map(fn ($d) => (int) collect($tabSummaries[$d]['by_product'])->filter(fn ($p) => $phaseOn($p['product'], $d) === Product::AD_STATUS_TESTING)->sum('paid'));
+
+        // Tanggal bermasalah utk menandai baris tabel (hanya advertiser yg sedang dibuka)
+        $tabDisc = [];
+        if ($activeTab === 'all') {
+            foreach ($advertisers as $adv) {
+                foreach (($dataPerAdvertiser[$adv->id]['discrepant_dates'] ?? []) as $d => $v) {
+                    $tabDisc[$d] = true;
+                }
+            }
+        } else {
+            $tabDisc = $dataPerAdvertiser[(int) $activeTab]['discrepant_dates'] ?? [];
+        }
+
+        // Total spending per advertiser (badge tab) + total semua
+        $totalPerAdv = [];
+        foreach ($advertisers as $adv) {
+            $totalPerAdv[$adv->id] = (float) ($allSpending->get($adv->id, collect())->sum('spending'));
+        }
+        $allTotalSpending = array_sum($totalPerAdv);
 
         return view('spending.index-general', compact(
-            'dataPerAdvertiser', 'advertisers', 'activeTab', 'dari', 'sampai'
+            'advertisers', 'activeTab', 'dari', 'sampai',
+            'tabSummaries', 'summary', 'dataPerAdvertiser', 'tabDisc',
+            'runningSummaries', 'testingSummaries',
+            'chartDates', 'chartRunLead', 'chartRunPaid', 'chartTestLead', 'chartTestPaid',
+            'totalPerAdv', 'allTotalSpending'
         ));
+    }
+
+    /**
+     * Kelompokkan baris SpendingHarian → summaries per tanggal (level 1),
+     * per produk (level 2), per whitelist (level 3). Dipakai per advertiser
+     * maupun gabungan "Semua spending".
+     */
+    private function summarizeRows($rows)
+    {
+        $grouped = $rows->groupBy(fn ($r) => $r->tanggal->format('Y-m-d'));
+
+        return $grouped->map(function ($items) {
+            $byProduct = $items->groupBy('product_id')->map(function ($pItems) {
+                return [
+                    'product' => $pItems->first()->product,
+                    'spending' => $pItems->sum('spending'),
+                    'lead' => $pItems->sum('lead'),
+                    'paid' => $pItems->sum('paid'),
+                    'paid_ratio' => $pItems->sum('lead') > 0
+                                        ? round($pItems->sum('paid') / $pItems->sum('lead') * 100, 2) : 0,
+                    'cpa_lead' => $pItems->sum('lead') > 0
+                                        ? round($pItems->sum('spending') / $pItems->sum('lead'), 2) : 0,
+                    'cpa_paid' => $pItems->sum('paid') > 0
+                                        ? round($pItems->sum('spending') / $pItems->sum('paid'), 2) : 0,
+                    'whitelists' => $pItems,
+                ];
+            });
+
+            return [
+                'tanggal' => $items->first()->tanggal,
+                'spending' => $items->sum('spending'),
+                'lead' => $items->sum('lead'),
+                'paid' => $items->sum('paid'),
+                'paid_ratio' => $items->sum('lead') > 0
+                                      ? round($items->sum('paid') / $items->sum('lead') * 100, 2) : 0,
+                'cpa_lead' => $items->sum('lead') > 0
+                                      ? round($items->sum('spending') / $items->sum('lead'), 2) : 0,
+                'cpa_paid' => $items->sum('paid') > 0
+                                      ? round($items->sum('spending') / $items->sum('paid'), 2) : 0,
+                'by_product' => $byProduct,
+                'total_produk' => $byProduct->count(),
+            ];
+        });
     }
 
     /**
@@ -438,6 +509,7 @@ class SpendingHarianController extends Controller
         $discrepancies = [];
         $discrepantDates = [];
         $missingSpendingDates = [];
+        $missingRegionalDates = [];
 
         foreach ($allDates as $date) {
             $regLead = (int) ($regionalKeyed[$date]->total_lead ?? 0);
@@ -445,13 +517,19 @@ class SpendingHarianController extends Controller
             $spLead = (int) ($spendingKeyed[$date]->total_lead ?? 0);
             $spPaid = (int) ($spendingKeyed[$date]->total_paid ?? 0);
 
-            // Spending belum diisi sama sekali → "Data belum ditambahkan"
-            if (($regLead > 0 || $regPaid > 0) && $spLead === 0 && $spPaid === 0) {
+            $hasReg = $regLead > 0 || $regPaid > 0;
+            $hasSp = $spLead > 0 || $spPaid > 0;
+
+            if ($hasReg && !$hasSp) {
                 $hasDiscrepancy = true;
                 $missingSpendingDates[$date] = true;
                 continue;
             }
-
+            if ($hasSp && !$hasReg) {
+                $hasDiscrepancy = true;
+                $missingRegionalDates[$date] = true;
+                continue;
+            }
             if ($regLead !== $spLead || $regPaid !== $spPaid) {
                 $hasDiscrepancy = true;
                 $discrepancies[$date] = [
@@ -464,7 +542,7 @@ class SpendingHarianController extends Controller
             }
         }
 
-        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates');
+        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates', 'missingRegionalDates');
     }
 
     // ─── Create ────────────────────────────────────────────────────
@@ -489,7 +567,7 @@ class SpendingHarianController extends Controller
 
         $whitelists = $whitelists->get(['id', 'nama', 'kode', 'platform']);
 
-        $products = Product::aktif()->get(['id', 'name', 'code']);
+        $products = Product::aktif()->where('goods_type', 'core')->get(['id', 'name', 'code']);
 
         // Dukung deep-link ?tanggal= dari halaman index (tombol "＋" per tanggal)
         $tanggal = $request->query('tanggal', now()->format('Y-m-d'));
@@ -505,7 +583,7 @@ class SpendingHarianController extends Controller
 
     // ─── Store ─────────────────────────────────────────────────────
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request): RedirectResponse|JsonResponse
     {
         $validated = $request->validate([
             // Multi-tanggal: setiap item bisa membawa tanggal sendiri (fitur upload Excel).
@@ -606,6 +684,18 @@ class SpendingHarianController extends Controller
         $message = "Berhasil menyimpan {$imported} data spending.";
         if ($skipped > 0) {
             $message .= " {$skipped} data dilewati karena sudah tercatat (tanggal + whitelist + produk yang sama).";
+        }
+
+        // Upload otomatis Meta memakai fetch dengan Accept: application/json →
+        // beri jumlah REAL (tersimpan vs dilewati) agar toast tidak menyesatkan
+        // (sebelumnya selalu "N data berhasil disimpan" padahal banyak yang di-skip).
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'imported' => $imported,
+                'skipped' => $skipped,
+                'message' => $message,
+            ]);
         }
 
         return redirect()->route('spending.index')
@@ -750,6 +840,34 @@ class SpendingHarianController extends Controller
             'regional_unmatched' => array_slice(array_values(array_unique($regionalUnmatched)), 0, 20),
             'regional_unmatched_count' => count(array_unique($regionalUnmatched)),
             'total_rows' => count($allKeys),
+        ]);
+    }
+
+    // ─── Cek Tanggal yang Sudah Ada Data Spending (AJAX) ────────
+
+    public function checkExistingDates(Request $request): JsonResponse
+    {
+        $request->validate([
+            'dates' => ['required', 'array', 'min:1'],
+            'dates.*' => ['required', 'date'],
+        ]);
+
+        $user = Auth::user();
+        $advertiserId = $user->hasRole('advertiser') ? $user->id : ($user->advertiser_id ?? $user->id);
+        $dates = $request->input('dates');
+
+        $existingDates = SpendingHarian::where('user_id', $advertiserId)
+            ->whereIn('tanggal', $dates)
+            ->select('tanggal')
+            ->distinct()
+            ->get()
+            ->pluck('tanggal')
+            ->map(fn ($d) => $d instanceof Carbon ? $d->format('Y-m-d') : (string) $d)
+            ->toArray();
+
+        return response()->json([
+            'has_existing' => count($existingDates) > 0,
+            'existing_dates' => $existingDates,
         ]);
     }
 
@@ -1377,7 +1495,7 @@ class SpendingHarianController extends Controller
 
         $whitelists = $whitelists->get(['id', 'nama', 'kode', 'platform']);
 
-        $products = Product::aktif()->get(['id', 'name', 'code']);
+        $products = Product::aktif()->where('goods_type', 'core')->get(['id', 'name', 'code']);
 
         return view('spending.form', [
             'spending' => $spending,

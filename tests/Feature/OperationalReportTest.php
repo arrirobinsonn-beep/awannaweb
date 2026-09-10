@@ -129,7 +129,8 @@ class OperationalReportTest extends TestCase
             ->get(route('dashboard'))
             ->assertOk()
             ->assertSee('Order Hari Ini')
-            ->assertSee('Stok Hari Ini');
+            ->assertSee('Stok Hari Ini')
+            ->assertSee('COD vs Bank Transfer');
     }
 
     public function test_report_lists_sender_with_amounts_and_totals(): void
