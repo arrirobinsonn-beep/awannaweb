@@ -3,11 +3,26 @@
 @section('page-title','📋 Pengajuan')
 @section('page-subtitle','Review & approve pengajuan top up')
 
+@push('styles')
+<style>
+    .approval-tab.active { box-shadow: 0 2px 8px rgba(255,107,107,.15); }
+    .approval-tab:hover { transform: translateY(-1px); }
+    .approval-adv-tab { transition: all .2s; }
+    .approval-adv-tab:hover { background: #fff !important; }
+    @media(max-width:640px) {
+        .approval-header { flex-direction:column !important; align-items:stretch !important; }
+        .approval-header > * { max-width:100% !important; }
+    }
+</style>
+@endpush
+
 @section('content')
 @php
     $u = auth()->user();
     $isAdmin = $u->hasRole(['super_admin','keuangan']);
     $canVerify = $u->hasRole(['owner','super_admin','admin']);
+    $pendingTopUp = \App\Models\TopUpProposal::where('status','pending')->count();
+    $defaultTab = 'topup';
 @endphp
 
 @if(session('success'))
@@ -16,11 +31,6 @@
 </div>
 @endif
 
-@php
-    $pendingTopUp = \App\Models\TopUpProposal::where('status','pending')->count();
-    $defaultTab = 'topup';
-@endphp
-
 {{-- ═══ INFO BOX ═══ --}}
 <div style="background:linear-gradient(135deg,#FFF5F5,#fff);border:1.5px solid rgba(255,107,107,.15);border-radius:14px;padding:16px 20px;margin-bottom:20px;" data-reveal>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
@@ -28,30 +38,29 @@
         <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">Cara Kerja Pengajuan</span>
     </div>
     <div style="font-size:.78rem;color:#6b7280;line-height:1.6;">
-        <strong>💰 Top Up:</strong> Advertiser ajukan → Anda acc/tolak → Advertiser input VA → Anda tandai VA dibayar → Selesai.<br>
-
+        <strong>💰 Top Up:</strong> Advertiser ajukan → Anda acc/tolak → Advertiser input VA → Anda tandai VA dibayar → Selesai.
     </div>
 </div>
 
-
-
-        <div style="flex:1;min-width:200px;max-width:360px;">
-            <select id="sourceAccount" class="clay-input" style="width:100%;" onchange="updateApproveButtons()">
-                <option value="">— Pilih Akun Sumber Dana —</option>
-                @foreach($accounts as $acc)
-                    <option value="{{ $acc->id }}">{{ $acc->name }} ({{ $acc->type_label }}) — Rp {{ number_format((float)$acc->current_balance,0,',','.') }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div id="sourceAccountWarning" style="display:none;font-size:.75rem;color:#dc2626;font-weight:600;background:#fef2f2;padding:4px 10px;border-radius:8px;">
-            ⚠️ Pilih sumber dana terlebih dahulu untuk bisa menyetujui pengajuan
-        </div>
+{{-- ═══ AKUN SUMBER DANA ═══ --}}
+@if($isAdmin)
+<div class="clay-card approval-header" style="padding:16px 20px;margin-bottom:20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;" data-reveal>
+    <div style="font-weight:700;font-size:.85rem;color:#1e1b2e;white-space:nowrap;">🏦 Sumber Dana:</div>
+    <div style="flex:1;min-width:200px;max-width:360px;">
+        <select id="sourceAccount" class="clay-input" style="width:100%;" onchange="updateApproveButtons()">
+            <option value="">— Pilih Akun Sumber Dana —</option>
+            @foreach($accounts as $acc)
+                <option value="{{ $acc->id }}">{{ $acc->name }} ({{ $acc->type_label }}) — Rp {{ number_format((float)$acc->current_balance,0,',','.') }}</option>
+            @endforeach
+        </select>
+    </div>
+    <div id="sourceAccountWarning" style="display:none;font-size:.75rem;color:#dc2626;font-weight:600;background:#fef2f2;padding:4px 10px;border-radius:8px;">
+        ⚠️ Pilih sumber dana terlebih dahulu untuk bisa menyetujui pengajuan
     </div>
 </div>
+@endif
 
-{{-- ═══════════════════════════════════════════════════════════════════════
-     TAB SWITCHER
-     ═══════════════════════════════════════════════════════════════════════ --}}
+{{-- ═══ TAB SWITCHER ═══ --}}
 <div style="display:flex;gap:8px;margin-bottom:20px;" data-reveal>
     <button onclick="showTab('topup')" id="tab-btn-topup"
             class="approval-tab {{ $defaultTab === 'topup' ? 'active' : '' }}"
@@ -61,12 +70,9 @@
         <span style="background:{{ $defaultTab === 'topup' ? 'rgba(255,255,255,.3)' : 'rgba(255,107,107,.12)' }};color:{{ $defaultTab === 'topup' ? '#fff' : 'var(--color-primary)' }};padding:1px 8px;border-radius:999px;font-size:.7rem;margin-left:6px;">{{ $pendingTopUp }} pending</span>
         @endif
     </button>
-
 </div>
 
-{{-- ═══════════════════════════════════════════════════════════════════════
-     TAB: TOP UP
-     ═══════════════════════════════════════════════════════════════════════ --}}
+{{-- ═══ TAB: TOP UP ═══ --}}
 <div id="tab-topup" class="approval-panel" style="display:{{ $defaultTab === 'topup' ? 'block' : 'none' }};">
 
     {{-- Tab per advertiser --}}
@@ -80,7 +86,8 @@
         @foreach($advertisers as $adv)
         @php $isActive = ($activeTab == $adv->id); @endphp
         <a href="{{ route('approval.index', ['tab' => $adv->id]) }}"
-           style="padding:9px 18px 11px;text-decoration:none;border:2px solid {{ $isActive ? 'rgba(255,107,107,.25)' : 'rgba(0,0,0,.08)' }};border-bottom:2px solid {{ $isActive ? '#fff' : 'rgba(0,0,0,.08)' }};border-radius:14px 14px 0 0;background:{{ $isActive ? '#fff' : '#f5f5f5' }};font-family:inherit;font-size:.82rem;font-weight:{{ $isActive ? '700' : '500' }};color:{{ $isActive ? 'var(--color-primary,#FF6B6B)' : '#6b7280' }};cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:6px;margin-right:4px;position:relative;z-index:{{ $isActive ? 3 : 1 }};">
+           class="approval-adv-tab"
+           style="padding:9px 18px 11px;text-decoration:none;border:2px solid {{ $isActive ? 'rgba(255,107,107,.25)' : 'rgba(0,0,0,.08)' }};border-bottom:2px solid {{ $isActive ? '#fff' : 'rgba(0,0,0,.08)' }};border-radius:14px 14px 0 0;background:{{ $isActive ? '#fff' : '#f5f5f5' }};font-family:inherit;font-size:.82rem;font-weight:{{ $isActive ? '700' : '500' }};color:{{ $isActive ? 'var(--color-primary,#FF6B6B)' : '#6b7280' }};cursor:pointer;display:flex;align-items:center;gap:6px;margin-right:4px;position:relative;z-index:{{ $isActive ? 3 : 1 }};">
             <img src="{{ $adv->avatar_url }}" style="width:22px;height:22px;border-radius:6px;object-fit:cover;flex-shrink:0;border:{{ $isActive ? '1.5px solid rgba(255,107,107,.3)' : '1.5px solid #ddd' }};">
             {{ $adv->display_name }}
             @if(isset($summaryPerAdv[$adv->id]))
@@ -183,5 +190,23 @@
     </div>
     @endif
 </div>
-@endsection
 
+<script>
+function showTab(name) {
+    document.querySelectorAll('.approval-panel').forEach(p => p.style.display = 'none');
+    document.querySelectorAll('.approval-tab').forEach(b => { b.classList.remove('active'); b.style.background = '#f9fafb'; b.style.color = '#6b7280'; b.style.borderColor = '#e5e7eb'; b.style.fontWeight = '600'; });
+    var panel = document.getElementById('tab-' + name);
+    var btn = document.getElementById('tab-btn-' + name);
+    if (panel) panel.style.display = 'block';
+    if (btn) { btn.classList.add('active'); btn.style.background = 'var(--color-primary)'; btn.style.color = '#fff'; btn.style.borderColor = 'var(--color-primary)'; btn.style.fontWeight = '700'; }
+}
+
+function updateApproveButtons() {
+    var sel = document.getElementById('sourceAccount');
+    var warn = document.getElementById('sourceAccountWarning');
+    if (sel && warn) {
+        warn.style.display = sel.value ? 'none' : 'block';
+    }
+}
+</script>
+@endsection

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BankStatementController;
 use App\Http\Controllers\BankTransferController;
@@ -170,8 +171,10 @@ Route::middleware('auth')->group(function () {
         // Master Inventory (gudang)
         Route::get('/inventory/master', [InventoryController::class, 'master'])->name('inventory.master');
         Route::post('/inventory/master', [InventoryController::class, 'masterStore'])->name('inventory.master.store');
-        Route::delete('/inventory/master/{inventory}', [InventoryController::class, 'masterDestroy'])->name('inventory.master.destroy');
 
+        Route::put('/inventory/master/{inventory}', [InventoryController::class, 'masterUpdate'])->name('inventory.master.update');
+
+        Route::delete('/inventory/master/{inventory}', [InventoryController::class, 'masterDestroy'])->name('inventory.master.destroy');
         // Master Produk — halaman produk sendiri (CRUD produk & varian).
         // Produk dibuat DI SINI; halaman Gudang hanya meng-attach produk yang sudah ada.
         Route::get('/product/filter', [ProductController::class, 'filter'])->name('product.filter');

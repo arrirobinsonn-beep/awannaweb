@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Account;
 use App\Models\TopUpProposal;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -56,8 +57,10 @@ class ApprovalController extends Controller
             $summaryPerAdv = [];
         }
 
+        $accounts = Account::where('status', 'active')->orderBy('name')->get();
+
         return view('approval.index', compact(
-            'topUpProposals', 'advertisers', 'activeTab', 'summaryPerAdv'
+            'topUpProposals', 'advertisers', 'activeTab', 'summaryPerAdv', 'accounts'
         ));
     }
 }

@@ -13,7 +13,7 @@ class InventoryController extends Controller
     /** Master Inventory (gudang) */
     public function master(): View
     {
-        $inventories = Inventory::with('products')->orderBy('name')->get();
+        $inventories = Inventory::withCount('products')->orderBy('name')->get();
 
         return view('inventory.master', compact('inventories'));
     }
@@ -25,6 +25,17 @@ class InventoryController extends Controller
         Inventory::create($data);
 
         return redirect()->route('inventory.master')->with('success', 'Inventory berhasil ditambahkan.');
+    }
+
+    public function masterUpdate(Request $request, Inventory $inventory): RedirectResponse
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255|unique:inventories,name,'.$inventory->id,
+        ]);
+
+        $inventory->update($data);
+
+        return redirect()->route('inventory.master')->with('success', 'Inventory berhasil diperbarui.');
     }
 
     public function masterDestroy(Inventory $inventory): RedirectResponse
