@@ -1,3 +1,14 @@
+# MEMORY — 19 September 2026
+
+## Session: Push ditolak (non-fast-forward) — rebase menggantung belum difinalisasi
+
+- **Gejala**: user commit+push ke `parhan` → `! [rejected] parhan -> parhan (non-fast-forward)` "pushed branch tip is behind its remote counterpart".
+- **Diagnosa (bukan remote berubah)**: `git fetch` → `origin/parhan` masih `b1bd6b5` (tidak bergerak). Masalahnya LOKAL: (1) rebase interaktif dari sesi 18 Sep masih `rebase in progress` — branch `parhan` masih menunjuk commit LAMA (`aab794f`, sebelum rebase); (2) commit hasil rebase `bd335cf` ("merging perbaikan", 29 berkas) berada di **detached HEAD** — `git branch --contains bd335cf` hanya `(no branch, rebasing parhan)`; (3) `aab794f` tidak memuat `3e80609` (commit origin) → git menilai tip lokal "di belakang" remote → non-fast-forward.
+- **Fix**: `GIT_EDITOR=true git rebase --continue` (editor dipatikan agar tidak hang; commit sudah ada, ini murni memindahkan ref branch + membersihkan state `.git/rebase-merge`). Hasil: `parhan` = `bd335cf`, "ahead of 'origin/parhan' by 1 commit", working tree clean → push fast-forward biasa.
+- **Pelajaran**: rebase interaktif yang berhenti (edit/conflict) TIDAK otomatis memindahkan branch — kerja yang di-commit saat `rebasing` tinggal di detached HEAD; finalisasi dengan `git rebase --continue` (atau `git rebase --abort` kalau mau batal). Cek cepat kondisi ini: `git status` (ada "interactive rebase in progress") + `git branch --contains <commit>`.
+
+---
+
 # MEMORY — 18 September 2026
 
 ## Session: Pemulihan setelah `git pull --rebase origin parhan` menimpa pekerjaan siang (implementasi origin `product_status` dibatalkan, kembali ke `ad_phase`)
@@ -10,7 +21,7 @@
 - **Sengaja DIPERTAHANKAN dari origin** (bukan bagian fitur paralel): fix `clay.css` selalu dimuat di luar if/else `@vite` (app + guest), `store()` spending mengembalikan JSON `{imported, skipped}` + `Accept: application/json` di `index-advertiser`, produk seed `CTA` (Celengan target ATM), modul bonus/keuangan + migration `order_at` dari `staging`, seluruh `filecoba/`, `test-results/`, `tests/e2e/`, `RESTART_SERVER.md`.
 - **Jebakan**: berkas yang sudah auto-merge TIDAK boleh di-`checkout` mentah (akan membuang perubahan origin yang benar) → periksa dulu `git diff <commit-kita> -- <file>`; `SpendingHarianController`, `ProductSeeder`, `spending/index-advertiser` sengaja dibiarkan (hibrida sehat).
 - **DB test**: `DB_DATABASE=webawanna_test php artisan migrate --force` (menjalankan migration `staging` yang masih pending: bonus + `order_at`) → 39 test gagal `Unknown column 'order_at'` hilang.
-- **Verifikasi**: suite penuh **255 pass (1334 assertions)**. Rebase belum di-`--continue` (menunggu perintah user).
+- **Verifikasi**: suite penuh **255 pass (1334 assertions)**. Rebase difinalisasi 19 Sep (lihat sesi di bawah).
 
 ## Session: Detail Per Daerah Kehilangan Lead/Paid di Hari EXACT `start_running` (string vs Carbon)
 
