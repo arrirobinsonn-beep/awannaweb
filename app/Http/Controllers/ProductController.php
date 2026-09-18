@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Services\ProductDeletionService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -98,6 +99,10 @@ class ProductController extends Controller
         $data = $this->validateProduct($request);
 
         $product = DB::transaction(function () use ($data) {
+            // Label spending awal = nama produk (fallback tampilan bila suatu
+            // saat produk dihapus: baris spending lama memakai label arsip).
+            $data['product_label'] = $data['name'];
+
             $product = Product::create($data);
 
             // Varian default otomatis (kode = kode produk, power 0) agar stok
@@ -124,15 +129,26 @@ class ProductController extends Controller
 
         $product->update($data);
 
+        // Nama produk berubah → selaraskan label spending yang masih menempel
+        // produk ini (baris yang sudah berlabel "(Produk dihapus)" tidak
+        // tersentuh karena product_id-nya sudah null).
+        if ($product->wasChanged('name')) {
+            $product->spendingHarians()->update(['product_label' => $product->name]);
+        }
+
         return response()->json(['success' => true, 'message' => 'Produk '.$product->name.' berhasil diperbarui.']);
     }
 
-    public function destroy(Product $product)
+    public function destroy(Product $product, ProductDeletionService $deletionService)
     {
-        $name = $product->name;
-        $product->delete();
+        $result = $deletionService->delete($product);
 
-        return response()->json(['success' => true, 'message' => 'Produk '.$name.' berhasil dihapus.']);
+        $message = 'Produk '.$result['product_name'].' berhasil dihapus permanen.';
+        if ($result['spending_relabelled'] > 0) {
+            $message .= ' Data spending '.$result['spending_relabelled'].' baris ditandai "'.$result['product_name'].'(Produk dihapus)".';
+        }
+
+        return response()->json(['success' => true, 'message' => $message]);
     }
 
     public function toggleStatus(Product $product): JsonResponse
@@ -216,6 +232,8 @@ class ProductController extends Controller
 
     protected function validateProduct(Request $request, ?Product $product = null): array
     {
+        // Hard delete: tidak ada lagi soft delete, jadi unique biasa cukup —
+        // kode produk terhapus langsung bebas dipakai ulang.
         $uniqueCode = $product
             ? 'unique:products,code,'.$product->id
             : 'unique:products';

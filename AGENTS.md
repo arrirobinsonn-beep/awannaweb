@@ -80,6 +80,36 @@ $users = User::whereIn('nama', $uniqueValues)->get()->keyBy('nama');
 
 # Fitur Selesai
 
+## X. ✅ Hard Delete Produk — Kode Bisa Dipakai Ulang + Arsip Label Spending (17 September 2026)
+
+### Deskripsi
+Hapus produk di halaman Produk kini **hard delete** (baris benar-benar hilang dari DB) sehingga kode produk langsung bisa dipakai produk baru — sebelumnya ditolak "kode produk sudah ada" karena `products.code` UNIQUE di level DB + SoftDeletes (validasi unik menghitung baris trashed). Saat produk dihapus, data **spending iklan seluruh advertiser** yang membawakan produk TIDAK ikut terhapus: tautan `product_id` dilepas dan label baris diisi **"{nama produk}(Produk dihapus)"** agar histori keuangan tetap terbaca tanpa mengubah angka spending/lead/paid.
+
+### Skema (migration `2026_09_17_000000_product_hard_delete_prepare_spending`)
+- `spending_harians.product_id`: NOT NULL + cascadeOnDelete → **nullable + nullOnDelete** (tanpa ini, hard delete produk MENGHAPUS semua baris spending-nya!).
+- `spending_harians.product_label` string nullable — label arsip; backfill = nama produk existing.
+- Purge produk lama yang ter-soft-delete (via service, lengkap dgn varian/jurnal/pivot/rule-nya).
+- **Drop `products.deleted_at`** — model `Product` tanpa SoftDeletes lagi.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_09_17_000000_product_hard_delete_prepare_spending.php` | nullable+label+backfill+purge+drop deleted_at (FK & `change()` di `Schema::table` terpisah) |
+| `app/Services/ProductDeletionService.php` | 1 transaksi: UPDATE batch label spending (semua advertiser, SEBELUM delete) → hapus packaging_rules sebagai target (cascade FK hanya utk source) → `$product->delete()` (cascade varian/jurnal/stok gudang/pembelian/pivot/rule source; nullOnDelete melepas tautan order & bukti transfer) |
+| `app/Models/Product.php` | tanpa SoftDeletes |
+| `app/Models/SpendingHarian.php` | + `product_label` fillable, accessor `display_name` & `is_orphan_label` |
+| `app/Http/Controllers/ProductController.php` | `destroy` pakai service (+ pesan jumlah baris spending ditandai); `store` set label awal; `update` selaraskan label saat nama berubah (`wasChanged('name')`; baris yatim aman karena product_id null) |
+| `resources/views/spending/index-advertiser.blade.php`, `_table_general.blade.php` | fallback nama: `$prodData['product']->name ?? ($prodData['whitelists']->first()->display_name ?? 'Tidak Diketahui')`; kode disembunyikan bila produk null; edit/bulk data pakai `display_name` |
+| `resources/views/spending/form.blade.php` | embed edit: `product_id: null` utk baris yatim + `product_name` dari `display_name` |
+| `tests/Feature/ProductDeletionTest.php` | 6 test: hard delete + kode reuse via HTTP, relabel lintas advertiser (spending utuh), service count, cascade varian/jurnal + order selamat amount utuh, packaging rule source/target, halaman spending tampil label arsip |
+
+### Penting
+- **Konsekuensi hard delete (disetujui user)**: HPP laporan operasional utk order lama produk terhapus jadi 0 (LEFT JOIN products + COALESCE sudah aman, tidak error); jurnal stok & pembelian historis produk itu hilang bersama produk (memang bagian produk); order online & bukti transfer tetap utuh (tautan produk dilepas).
+- Label arsip TIDAK masuk perhitungan produk manapun (product_id null) — spending/lead/paid tetap dihitung di total harian, CPA per produk lain tidak terpengaruh. Query discrepancy (JOIN products utk fase running) otomatis melewatkan baris yatim.
+- Update nama produk menyelaraskan `product_label` baris yang masih menempel produk (baris yatim tidak tersentuh).
+- **JANGAN pernah pakai `RefreshDatabase` di test project ini** — DB test `webawanna_test` tanpa refresh; entitas uniqid + cleanup `finally`.
+- Suite: **247/247 pass (1293 assertions)**.
+
 ## A. ✅ Shipment Terpadu — FLIK / SiCepat / SPX (3 Agustus 2026)
 
 ### Deskripsi
@@ -1195,13 +1225,21 @@ File yang diunggah di halaman **Detail Per Daerah** (`/regional`) adalah file ya
 
 ### Penting
 - **Produk tak dikenal (nama tidak cocok DB) TETAP dihitung** — hanya produk yang jelas ber-status `testing` yang dilewati (konservatif, perilaku lama tidak berubah).
+
+### Fix 18 September 2026 — Regresi hari H (exact `start_running`) dianggap Testing di Regional
+- **Gejala**: produk Nozzle Sprayer 2000 Lubang (`NSR`, `start_running=2026-09-04`) — lead/paid-nya di halaman Detail Per Daerah kurang, selisih = data tanggal 4 Sep-nya; halaman Spending benar.
+- **Akar masalah**: `Product::pluck('start_running')` mengembalikan **objek Carbon** (kolom berkast `date`), bukan string. `$tanggal >= $runningStart` lalu membandingkan string `'2026-09-04'` vs `'2026-09-04 00:00:00'` — string lebih pendek (prefix) dianggap LEBIH KECIL → baris di hari EXACT produk mulai running salah masuk testing → di-skip. H-1 & H+1 benar; hanya hari H yang hilang (off-by-one tersembunyi).
+- **Mengapa Spending aman**: `Product::phaseOn()` memanggil `->toDateString()` di KEDUA sisi sebelum membandingkan.
+- **Mengapa lolos test**: test fase memakai 1 Sep vs 3 Sep (start 2 Sep) — tak ada yang menguji tanggal exact sama.
+- **Fix**: `RegionalImportService` normalisasi peta `start_running` → string `Y-m-d` (Carbon → `toDateString()`) sebelum dipakai membandingkan. Aturan umum: **bandingkan tanggal SELALU dalam string `Y-m-d` di kedua sisi** — perbandingan string vs Carbon/DateTime adalah jebakan (DateTime TANPA `__toString` bahkan selalu false via integer-compare).
+- Test regresi: `test_row_on_exact_start_running_date_counts_as_running` (baris H & H+1 dihitung, `skipped_testing=0`). Suite: **248/248 pass (1300 assertions)**.
 - Kolom product TIDAK wajib: bila tidak ada, semua baris dihitung seperti sebelumnya.
-- **Konsekuensi + penyesuaian**: karena regional_reports kini hanya memuat running, perhitungan discrepancy ikut diselaraskan — sisi SPENDING pembanding kini HANYA produk running (`whereHas('product', ad_status=running)`) di **4 titik**: `SpendingHarianController::computeDiscrepancy`, `computeDiscrepancyBatch`, `RegionalController::index` (alarm banner), dan `checkDiscrepancy` (badge sidebar). Spending produk testing TIDAK lagi memicu alarm ketidaksesuaian. (Konsekuensi di paragraf lama — "alarm bisa nyala bila spending punya testing" — sudah TIDAK berlaku sejak penyesuaian ini.)
+- ~~**Konsekuensi + penyesuaian**: sisi SPENDING pembanding HANYA produk running (4 titik: `computeDiscrepancy`, `computeDiscrepancyBatch`, `RegionalController::index`, `checkDiscrepancy`) sehingga spending testing tidak memicu alarm.~~ **BELUM BERLAKU LAGI sejak 18 September** — baris testing kini DISIMPAN (`ad_phase`) dan discrepancy dihitung **per fase** (running↔running, testing↔testing); lihat section X1.
 - **Banner discrepancy 2 kelompok** (follow-up): `computeDiscrepancy`/`computeDiscrepancyBatch`/`RegionalController::index` kini mengembalikan tambahan `missingSpendingDates` — tanggal yang punya data REGIONAL tapi spending-nya KOSONG (`regLead|regPaid > 0 && spLead==0 && spPaid==0`) dipisah dari `discrepancies` (kedua sisi punya data tapi selisih). SATU banner (tetap merah, `@if($hasDiscrepancy)` yang sama) kini punya 2 area dipisah garis putus-putus: (1) "Ketidaksesuaian Data Ditemukan!" + rincian angka per tanggal, (2) "Data Belum Ditambahkan" + kalimat "...belum mengisi data spending iklan tanggal {d M Y}". Berlaku di `spending/index-advertiser`, `spending/index-general` (`data['missing_spending_dates']`), dan `regional/index`.
 - **Jebakan teknis view**: (1) sintaks **inline `@php($x = ...)`** di Blade GAGAL compile bila ekspresi memuat array literal + chained index (parse error unexpected end of file) → WAJIB blok `@php ... @endphp`; (2) `translatedFormat` mengikuti locale app (test = en) dan proyek TIDAK punya paket carbon locale id (`locale('id')` malah menghasilkan "02 Agt") → format tanggal Indonesia memakai array bulan manual `(int) substr($tgl,8,2) . ' ' . $BULAN_ID[(int) substr($tgl,5,2)] . ' ' . substr($tgl,0,4)`.
 - Badge baris "DATA BELUM DIISI" TIDAK dipasang — tanggal dengan spending kosong tidak punya baris di tabel (tabel hanya merender tanggal berdata), jadi badge mustahil tampil; kebutuhan dipenuhi banner saja.
 - `ProductNameMatcher` dipakai ulang (sama persis dengan halaman spending) — skema `code`/`name`/`ad_status`.
-- Suite: **148 pass** (hanya `ExampleTest` 302 pre-existing).
+- Suite (3 September): **148 pass** (hanya `ExampleTest` 302 pre-existing). **Sejak 18 September baris testing TIDAK dilewati lagi** — lihat section X1.
 
 ---
 
@@ -1251,33 +1289,35 @@ Klasifikasi spending iklan ke tab **Testing/Running** tidak lagi memakai `ad_sta
 
 ---
 
-## X. ✅ Baris Testing Tetap ke Performa Team — 2 Tabel Running/Testing (10 September 2026)
+## X1. ✅ Regional Dual Fase — Baris Testing Ikut Disimpan (`ad_phase`) + 2 Matriks & 2 Tabel Performa Team (18 September 2026)
 
 ### Deskripsi
-Halaman Detail Per Daerah (`/regional`) sudah mengecualikan baris produk TESTING dari tabel provinsi (fitur V + klasifikasi by timeline `created_at >= start_running`, fitur W). Sejak fitur ini, **baris yang dilewati itu TETAP diteruskan ke halaman Performa Team** (`/tim/performa`) — ditampung **2 tabel terpisah** (tab 🟢 Running / 🔬 Testing): lead/paid per CS per tanggal produk RUNNING di tabel 1, produk TESTING di tabel 2 (termasuk doughnut porsi lead per status).
+Baris produk TESTING **tidak lagi dibuang** dari Detail Per Daerah (`/regional`) maupun Performa Team (`/tim/performa`) — baris itu disimpan & ditampilkan berdampingan dengan baris RUNNING, dipisah dimensi kolom **`ad_phase`** (`running`/`testing`, string(10) default `running` → semua data lama otomatis dianggap running, tanpa migrasi data). Klasifikasi fase tetap dari `Product::phaseOn($tanggal)` (fitur W: perbandingan `start_running`, **string `Y-m-d` di kedua sisi** — lihat fix hari H di section V).
+
+- **Detail Per Daerah**: DUA matriks provinsi bertumpuk (partial `resources/views/regional/_matrix_table.blade.php` dipakai 2×) — Matriks Running (aksen teal `#0d9488`) + Matriks Testing (aksen amber `#B45309`), masing-masing kolom provinsi sticky + kolom TOTAL. Preview modal merender tabel per fase (`data-phase`) dan mengirim `items[].ad_phase` + `cs_stats[].ad_phase`.
+- **Performa Team**: DUA tab (🟢 Running / 🔬 Testing) — tabel lead/paid per CS per tanggal + doughnut porsi lead per fase (partial `resources/views/team/partials/_donut.blade.php`, param `$chartData` + `$domId`) + kartu statistik Total Lead/Paid ikut tab aktif (`data-run`/`data-test`, swap via JS).
+- **Discrepancy per fase**: running↔running, testing↔testing (`hasDiscrepancyTesting`, `discrepanciesTesting`, `missingSpendingDatesTesting`, `missingRegionalDatesTesting`; JSON `regional.check` menyertakan `spending_testing`) — **menggantikan** perilaku "sisi spending pembanding hanya produk running" yang lama (section V/W ditandai sudah tidak berlaku).
+- `previewData()` mengembalikan `by_date` (running) + `by_date_testing` + `cs_by_date` + `cs_by_date_testing`; `skipped_testing` kini berarti "jumlah baris testing TERDETEKSI" (baris tetap disimpan, bukan dibuang).
 
 ### Implementasi
 | File | Keterangan |
 |---|---|
-| `database/migrations/2026_09_10_000000_add_product_status_to_regional_cs_stats_table.php` | + `regional_cs_stats.product_status` string(20) NOT NULL default `running` + index; UNIQUE lama `cs_stats_unique` → **`cs_stats_status_unique`** `(tanggal, user_id, cs_panggilan, product_status)` (1 CS boleh punya baris running & testing di tanggal sama); **hapus SEMUA baris lama** (keputusan user: upload ulang agar akurat) |
-| `app/Models/RegionalCsStat.php` | + konstanta `STATUS_RUNNING`/`STATUS_TESTING`, `product_status` di fillable |
-| `app/Services/RegionalImportService.php` | `previewData`: CS stats dihitung **per status produk** (`$row['product_status']` → testing/running; row tanpa kolom product/produk tak dikenal → running); item `cs_by_date` membawa `product_status` |
-| `app/Http/Controllers/RegionalController.php` | `savePreview`: validasi `cs_stats.*.product_status in:running,testing` (nullable); simpan dengan status (payload tanpa status → default `running`); `$existingCsMap` key menyertakan status |
-| `resources/views/regional/index.blade.php` | JS `previewCsStats` + payload `csStatsPayload` membawa `product_status` |
-| `app/Http/Controllers/TeamController.php` | `performance()` pecah stats → `$statsRunning` (`product_status !== 'testing'`, null dianggap running) & `$statsTesting`; `$byDateRunning/Testing`, `$totalPerCsRunning/Testing`, total lead/paid per status, `$members` diberi `total_lead(_testing)/total_paid(_testing)` (urut porsi gabungan), `$chartDataRunning/Testing` |
-| `resources/views/team/performance.blade.php` | Tab 🟢 Running/🔬 Testing (pola `switchAdTab` spending); tiap tab: tabel (partial `performa-rows` dengan `byDate` per status) + doughnut per status; kartu statistik Total Lead/Paid ikut tab aktif (`data-run`/`data-test` + JS swap); sisi CS juga dapat 2 tab (tanpa donut) |
-| `resources/views/team/partials/performa-donut.blade.php` (baru) | Doughnut diekstrak jadi partial (param `$chartData`, `$groupKey`, `$badgeText/Bg/Color`); svg id unik `cs-donut-{groupKey}`; `data-donut-group` utk scoping hover |
-| `tests/Feature/RegionalImportTest.php` | +`test_save_stores_cs_stats_split_by_product_status` (preview cs_by_date 2 entri 2/1 & 2/1; save → 2 baris dengan status benar) |
-| `tests/Feature/TeamPerformanceTest.php` (baru) | 2 test: halaman punya 2 tab/2 tabel/2 donut + stat cards data-run/data-test; payload cs_stats tanpa status → default `running` → tabel Running |
+| `database/migrations/2026_09_18_000000_add_ad_phase_to_regional_tables.php` | + `ad_phase` di `regional_reports` & `regional_cs_stats` (string(10) default `running` + index `(user_id, tanggal, ad_phase)`); UNIQUE lama → **`(tanggal, user_id, province, ad_phase)`** & **`(tanggal, user_id, cs_panggilan, ad_phase)`** (1 provinsi/CS boleh punya baris running & testing di tanggal sama); swap index dalam 1 ALTER atomik (raw) karena FK MySQL meminjam index tsb |
+| `app/Models/RegionalReport.php`, `app/Models/RegionalCsStat.php` | konstanta `PHASE_RUNNING`/`PHASE_TESTING`/`PHASES` + `ad_phase` fillable; `scopeKeyedPhase` (keyBy `tanggal\|province\|ad_phase`) |
+| `app/Services/RegionalImportService.php` | `previewData` dual fase: `groupProvincesByDate()` + `groupCsByDate()` dipanggil 2× (closure `$isRunningSide`/`$isTesting`); baris tanpa atribusi produk (kolom product absen / produk tak dikenal) dianggap running |
+| `app/Http/Controllers/RegionalController.php` | `savePreview` validasi `items.*.ad_phase` & `cs_stats.*.ad_phase` (`nullable, in:running,testing`, default running); update/insert per kombinasi `(tanggal\|province\|ad_phase)` |
+| `app/Http/Controllers/TeamController.php` | `performance()` split `$statsRunning`/`$statsTesting` (sekali loop, tanpa query tambahan) → `$byDate`/`$byDateTesting`, `$totalPerCs`/`$totalPerCsTesting`, `total_lead(_testing)`/`total_paid(_testing)` per member, `$chartData`/`$chartDataTesting` |
+| `resources/views/regional/index.blade.php` + `regional/_matrix_table.blade.php` | 2 matriks (running & testing) + JS mengirim fase per item |
+| `resources/views/team/performance.blade.php` + `team/partials/_donut.blade.php` | 2 tab/tabel/donut; kartu statistik `data-run`/`data-test` |
+| `tests/Feature/TeamPerformanceDualPhaseTest.php` (baru) | `test_team_performance_splits_cs_stats_per_ad_phase` |
+| `tests/Feature/RegionalImportTest.php` | +`test_testing_rows_save_to_ad_phase_testing`, `test_discrepancy_check_includes_testing_phase`, `test_row_on_exact_start_running_date_counts_as_running` |
 
 ### Penting
-- **`product_status` NOT NULL default `running`** — skenario null tidak mungkin lagi; cabang null di controller/view hanya defensif.
-- **Data lama dibersihkan di migration** (keputusan user): user wajib **upload ulang** file regional agar 2 tabel performa terisi akurat. `regional_reports` (tabel provinsi) TIDAK disentuh.
-- Tabel provinsi regional tetap running-only (fitur V) — yang berubah hanya sisi CS stats/performa team.
-- **Donut per status**: 2 donut ada di DOM sekaligus (satu di tab tersembunyi) — hover di-scope per `[data-donut-group]` (querySelector dalam group, bukan global), svg id unik `cs-donut-running/testing`.
-- **Batas tinggi tabel (`.perf-scroll-limit` ±7 baris)**: tabel pada tab tersembunyi di-skip saat ukur (`offsetParent === null`) dan diukur ulang saat tab dibuka via `window.reapplyPerfTableLimit()` (dipanggil `switchPerfTab`) — pola sama index-general spending.
-- **DB test perlu re-seed bila roles kosong**: `DB_DATABASE=webawanna_test php artisan migrate:fresh --seed` (roles tabel kosong → semua test `RoleDoesNotExist`).
-- Suite: **244/244 pass (1297 assertions)**. Catatan: `AggregatorTrackingImportTest` kadang flaky di run penuh (resi tetap `999515101688` + tanpa cleanup di DB test yang menumpuk) — pre-existing, tidak terkait fitur ini.
+- **`product_status` DIBATALKAN (jangan dihidupkan lagi)**: origin sempat punya implementasi paralel memakai kolom `product_status` (commit `3e80609` + migration `2026_09_10_000000_add_product_status_to_regional_cs_stats_table`, partial `team/partials/performa-donut.blade.php`, `tests/Feature/TeamPerformanceTest.php`). Semua berkas itu DIHAPUS saat rebase 18 Sep dan digantikan pendekatan `ad_phase`; migration versi `product_status` belum pernah `migrate` di DB dev/test.
+- **Key update/insert WAJIB menyertakan `ad_phase`** — tanpa itu baris testing menimpa baris running di tanggal+provinsi/CS yang sama.
+- **Donut pada tab tersembunyi**: jangan query `document.querySelector` global (2 donut ada di DOM sekaligus, satu tersembunyi) — scope per grup; tabel di tab tersembunyi di-skip saat mengukur tinggi (`offsetParent === null`) dan diukur ulang saat tab dibuka (`window.reapplyPerfTableLimit()`).
+- **Yang tetap dari origin & JANGAN dihapus**: `clay.css` selalu dimuat di luar if/else `@vite` (app + guest) + regression assert di `OrderOnlineTest`, `store()` spending mengembalikan JSON `{imported, skipped}` (+ `Accept: application/json` di `index-advertiser`), produk seed `CTA` (Celengan target ATM).
+- Suite: **255 pass (1334 assertions)** setelah rebase ke `origin/parhan` (18 September).
 
 # Fitur Belum Selesai / Ide ke Depan
 

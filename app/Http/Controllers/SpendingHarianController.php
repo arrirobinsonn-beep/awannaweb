@@ -55,76 +55,59 @@ class SpendingHarianController extends Controller
 
     /**
      * Hitung ketidaksesuaian antara RegionalReport vs SpendingHarian untuk user tertentu.
+     *
+     * DUAL FASE (18 September 2026): regional FASE running dibandingkan dgn spending
+     * fase running; regional FASE testing dgn spending fase testing — masing-masing
+     * menghasilkan banner sendiri (testing dgn key khusus *Testing).
      */
     private function computeDiscrepancy(int $userId, string $dari, string $sampai): array
     {
-        // Total regional per tanggal
-        $regionalTotals = RegionalReport::where('user_id', $userId)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->selectRaw('DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
-            ->groupBy('tgl')
-            ->get()
-            ->keyBy('tgl');
+        $phase = $this->phaseTotalsForUsers(collect([$userId]), $dari, $sampai);
 
-        // Total spending per tanggal — HANYA spending yang jatuh di FASE RUNNING
-        // produk (regional_reports hanya memuat lead/paid produk running;
-        //  spending fase testing tidak ikut dibandingkan agar selaras).
-        // Klasifikasi by tanggal: spending_harians.tanggal >= products.start_running.
-        $spendingTotals = SpendingHarian::where('user_id', $userId)
+        return $this->computeDiscrepancyBatch(
+            $userId,
+            $dari,
+            $sampai,
+            $phase['regional_running']->get($userId, collect()),
+            $phase['spending_running']->get($userId, collect()),
+            $phase['regional_testing']->get($userId, collect()),
+            $phase['spending_testing']->get($userId, collect()),
+        );
+    }
+
+    /**
+     * BATCH: total regional & spending per (user, tanggal, FASE) dalam 2 query
+     * untuk semua advertiser sekaligus (pola batch AGENTS.md — tanpa query per user).
+     *
+     * Fase spending via CASE: running = start_running terisi & tanggal >= start_running;
+     * testing = start_running null (belum pernah running) ATAU tanggal masih sebelumnya.
+     */
+    private function phaseTotalsForUsers($userIds, string $dari, string $sampai): array
+    {
+        $regional = RegionalReport::whereIn('user_id', $userIds)
+            ->whereBetween('tanggal', [$dari, $sampai])
+            ->selectRaw('user_id, DATE(tanggal) as tgl, ad_phase, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
+            ->groupBy('user_id', 'tgl', 'ad_phase')
+            ->get();
+
+        $spending = SpendingHarian::whereIn('user_id', $userIds)
             ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
             ->join('products', 'products.id', '=', 'spending_harians.product_id')
-            ->whereNotNull('products.start_running')
-            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
-            ->selectRaw('DATE(spending_harians.tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
-            ->groupBy('tgl')
-            ->get()
-            ->keyBy('tgl');
+            ->selectRaw("user_id, DATE(spending_harians.tanggal) as tgl,
+                CASE WHEN products.start_running IS NOT NULL
+                     AND spending_harians.tanggal >= products.start_running
+                     THEN 1 ELSE 0 END as is_running,
+                COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid")
+            ->groupBy('user_id', 'tgl', 'is_running')
+            ->get();
 
-        // Semua tanggal unik dari kedua sumber
-        $allDates = collect($regionalTotals->keys()->merge($spendingTotals->keys()))
-            ->unique()->sort()->values();
-
-        $hasDiscrepancy = false;
-        $discrepancies = [];
-        $discrepantDates = [];
-        $missingSpendingDates = [];
-        $missingRegionalDates = [];
-
-        foreach ($allDates as $date) {
-            $regLead = (int) ($regionalTotals[$date]->total_lead ?? 0);
-            $regPaid = (int) ($regionalTotals[$date]->total_paid ?? 0);
-            $spLead = (int) ($spendingTotals[$date]->total_lead ?? 0);
-            $spPaid = (int) ($spendingTotals[$date]->total_paid ?? 0);
-
-            $hasReg = $regLead > 0 || $regPaid > 0;
-            $hasSp = $spLead > 0 || $spPaid > 0;
-
-            // Hanya regional ada → spending belum diisi
-            if ($hasReg && !$hasSp) {
-                $hasDiscrepancy = true;
-                $missingSpendingDates[$date] = true;
-                continue;
-            }
-            // Hanya spending ada → regional belum diisi
-            if ($hasSp && !$hasReg) {
-                $hasDiscrepancy = true;
-                $missingRegionalDates[$date] = true;
-                continue;
-            }
-            // Keduanya ada tapi angka beda
-            if ($regLead !== $spLead || $regPaid !== $spPaid) {
-                $hasDiscrepancy = true;
-                $discrepancies[$date] = [
-                    'regional_lead' => $regLead,
-                    'regional_paid' => $regPaid,
-                    'spending_lead' => $spLead,
-                    'spending_paid' => $spPaid,
-                ];
-                $discrepantDates[$date] = true;
-            }
-        }
-
-        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates', 'missingRegionalDates');
+        return [
+            'regional_running' => $regional->where('ad_phase', RegionalReport::PHASE_RUNNING)->groupBy('user_id'),
+            'regional_testing' => $regional->where('ad_phase', RegionalReport::PHASE_TESTING)->groupBy('user_id'),
+            // is_running dari selectRaw bisa string '1' (PDO emulation) — Collection::where loose-compare aman
+            'spending_running' => $spending->where('is_running', 1)->groupBy('user_id'),
+            'spending_testing' => $spending->where('is_running', 0)->groupBy('user_id'),
+        ];
     }
 
     // ─── View Advertiser: data milik sendiri, group by tanggal → produk ─
@@ -192,13 +175,18 @@ class SpendingHarianController extends Controller
         $runningSummary = $this->computeSummary($runningRows);
         $testingSummary = $this->computeSummary($testingRows);
 
-        // ─── Cek discrepancy: Regional vs Spending ───────────────
+        // ─── Cek discrepancy: Regional vs Spending (DUAL FASE) ───────────
         $discrepancy = $this->computeDiscrepancy($user->id, $dari, $sampai);
         $hasDiscrepancy = $discrepancy['hasDiscrepancy'];
         $discrepancies = $discrepancy['discrepancies'];
         $discrepantDates = $discrepancy['discrepantDates'];
         $missingSpendingDates = $discrepancy['missingSpendingDates'] ?? [];
         $missingRegionalDates = $discrepancy['missingRegionalDates'] ?? [];
+        // Fase testing (banner terpisah di view)
+        $hasDiscrepancyTesting = $discrepancy['hasDiscrepancyTesting'];
+        $discrepanciesTesting = $discrepancy['discrepanciesTesting'];
+        $missingSpendingDatesTesting = $discrepancy['missingSpendingDatesTesting'];
+        $missingRegionalDatesTesting = $discrepancy['missingRegionalDatesTesting'];
 
         // ─── Cek discrepancy: Data CS tim vs data advertiser ────
         $csTeamIds = User::where('advertiser_id', $user->id)
@@ -287,6 +275,7 @@ class SpendingHarianController extends Controller
             'summaries', 'summary', 'runningSummary', 'testingSummary',
             'dari', 'sampai', 'myWhitelists', 'user',
             'hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates', 'missingRegionalDates',
+            'hasDiscrepancyTesting', 'discrepanciesTesting', 'missingSpendingDatesTesting', 'missingRegionalDatesTesting',
             'csDiscrepancy', 'hasWhitelist', 'dateChangeRestrictions'
         ));
     }
@@ -322,36 +311,22 @@ class SpendingHarianController extends Controller
             ->get()
             ->groupBy('user_id');
 
-        // ─── BATCH: Ambil semua regional & spending totals untuk discrepancy ──
+        // ─── BATCH: Ambil semua regional & spending totals untuk discrepancy (DUAL FASE) ──
         $advIds = $advertisers->pluck('id');
-
-        $regionalTotals = RegionalReport::whereIn('user_id', $advIds)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->selectRaw('user_id, DATE(tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
-            ->groupBy('user_id', 'tgl')
-            ->get()
-            ->groupBy('user_id');
-
-        $spendingTotals = SpendingHarian::whereIn('user_id', $advIds)
-            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
-            ->join('products', 'products.id', '=', 'spending_harians.product_id')
-            ->whereNotNull('products.start_running')
-            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
-            ->selectRaw('user_id, DATE(spending_harians.tanggal) as tgl, COALESCE(SUM(`lead`),0) as total_lead, COALESCE(SUM(paid),0) as total_paid')
-            ->groupBy('user_id', 'tgl')
-            ->get()
-            ->groupBy('user_id');
+        $phaseTotals = $this->phaseTotalsForUsers($advIds, $dari, $sampai);
 
         // ─── BATCH: Proses semua advertiser (data per advertiser utk tab & banner) ──
         $dataPerAdvertiser = [];
         foreach ($advertisers as $adv) {
             $rows = $allSpending->get($adv->id, collect());
 
-            // Hitung discrepancy dari batch data
+            // Hitung discrepancy dari batch data (running + testing)
             $disc = $this->computeDiscrepancyBatch(
                 $adv->id, $dari, $sampai,
-                $regionalTotals->get($adv->id, collect()),
-                $spendingTotals->get($adv->id, collect())
+                $phaseTotals['regional_running']->get($adv->id, collect()),
+                $phaseTotals['spending_running']->get($adv->id, collect()),
+                $phaseTotals['regional_testing']->get($adv->id, collect()),
+                $phaseTotals['spending_testing']->get($adv->id, collect()),
             );
 
             $dataPerAdvertiser[$adv->id] = [
@@ -363,6 +338,11 @@ class SpendingHarianController extends Controller
                 'discrepant_dates' => $disc['discrepantDates'],
                 'missing_spending_dates' => $disc['missingSpendingDates'] ?? [],
                 'missing_regional_dates' => $disc['missingRegionalDates'] ?? [],
+                // DUAL FASE: banner testing per advertiser
+                'has_discrepancy_testing' => $disc['hasDiscrepancyTesting'],
+                'discrepancies_testing' => $disc['discrepanciesTesting'],
+                'missing_spending_dates_testing' => $disc['missingSpendingDatesTesting'],
+                'missing_regional_dates_testing' => $disc['missingRegionalDatesTesting'],
             ];
         }
 
@@ -496,10 +476,17 @@ class SpendingHarianController extends Controller
     /**
      * Batch version: hitung discrepancy dari data yang sudah di-batch.
      */
-    private function computeDiscrepancyBatch(int $userId, string $dari, string $sampai, $regionalTotals, $spendingTotals): array
+    /**
+     * Bandingkan totals yang SUDAH di-batch untuk satu user — DUAL FASE:
+     * sisi utama (regional running vs spending running) + sisi testing
+     * (regional testing vs spending testing, key banner ber-akhiran Testing).
+     */
+    private function computeDiscrepancyBatch(int $userId, string $dari, string $sampai, $regionalTotals, $spendingTotals, $regionalTestingTotals = null, $spendingTestingTotals = null): array
     {
         $regionalKeyed = $regionalTotals->keyBy('tgl');
         $spendingKeyed = $spendingTotals->keyBy('tgl');
+        $regionalTestingKeyed = collect($regionalTestingTotals ?? [])->keyBy('tgl');
+        $spendingTestingKeyed = collect($spendingTestingTotals ?? [])->keyBy('tgl');
 
         // Semua tanggal unik dari kedua sumber
         $allDates = collect($regionalKeyed->keys()->merge($spendingKeyed->keys()))
@@ -542,7 +529,58 @@ class SpendingHarianController extends Controller
             }
         }
 
-        return compact('hasDiscrepancy', 'discrepancies', 'discrepantDates', 'missingSpendingDates', 'missingRegionalDates');
+        // ─── Fase testing (18 Sep): pembanding regional testing vs spending testing ──
+        $hasDiscrepancyTesting = false;
+        $discrepanciesTesting = [];
+        $missingSpendingDatesTesting = [];
+        $missingRegionalDatesTesting = [];
+
+        $allDatesTesting = collect($regionalTestingKeyed->keys()->merge($spendingTestingKeyed->keys()))
+            ->unique()->sort()->values();
+
+        foreach ($allDatesTesting as $date) {
+            $regLead = (int) ($regionalTestingKeyed[$date]->total_lead ?? 0);
+            $regPaid = (int) ($regionalTestingKeyed[$date]->total_paid ?? 0);
+            $spLead = (int) ($spendingTestingKeyed[$date]->total_lead ?? 0);
+            $spPaid = (int) ($spendingTestingKeyed[$date]->total_paid ?? 0);
+
+            $hasReg = $regLead > 0 || $regPaid > 0;
+            $hasSp = $spLead > 0 || $spPaid > 0;
+
+            if ($hasReg && !$hasSp) {
+                $hasDiscrepancyTesting = true;
+                $missingSpendingDatesTesting[$date] = true;
+                continue;
+            }
+            if ($hasSp && !$hasReg) {
+                $hasDiscrepancyTesting = true;
+                $missingRegionalDatesTesting[$date] = true;
+                continue;
+            }
+            if ($regLead !== $spLead || $regPaid !== $spPaid) {
+                $hasDiscrepancyTesting = true;
+                $discrepanciesTesting[$date] = [
+                    'regional_lead' => $regLead,
+                    'regional_paid' => $regPaid,
+                    'spending_lead' => $spLead,
+                    'spending_paid' => $spPaid,
+                ];
+                $discrepantDates[$date] = true;
+            }
+        }
+
+        return [
+            'hasDiscrepancy' => $hasDiscrepancy || $hasDiscrepancyTesting,
+            'discrepancies' => $discrepancies,
+            'discrepantDates' => $discrepantDates,
+            'missingSpendingDates' => $missingSpendingDates,
+            'missingRegionalDates' => $missingRegionalDates,
+            // Fase testing — banner terpisah di view
+            'hasDiscrepancyTesting' => $hasDiscrepancyTesting,
+            'discrepanciesTesting' => $discrepanciesTesting,
+            'missingSpendingDatesTesting' => $missingSpendingDatesTesting,
+            'missingRegionalDatesTesting' => $missingRegionalDatesTesting,
+        ];
     }
 
     // ─── Create ────────────────────────────────────────────────────

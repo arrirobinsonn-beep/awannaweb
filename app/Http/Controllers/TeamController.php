@@ -105,21 +105,15 @@ class TeamController extends Controller
         }
 
         $stats = collect();
-        $statsRunning = collect();
-        $statsTesting = collect();
-        $byDateRunning = [];
-        $byDateTesting = [];
-        $totalPerCsRunning = [];
-        $totalPerCsTesting = [];
+        $byDate = [];
+        $totalPerCs = [];
         $mainMembers = collect();
         $guestMembers = collect();
-        $members = collect();
-        $chartDataRunning = [];
-        $chartDataTesting = [];
-        $runTotalLead = 0;
-        $runTotalPaid = 0;
-        $testTotalLead = 0;
-        $testTotalPaid = 0;
+
+        // DUAL FASE (18 Sep): lead/paid CS dipisah per fase iklan produk asal baris.
+        // Baris tanpa ad_phase (data lama) dianggap running.
+        $byDateTesting = [];
+        $totalPerCsTesting = [];
 
         if ($advertiserId) {
             $stats = RegionalCsStat::with('csUser.advertiser')
@@ -129,18 +123,20 @@ class TeamController extends Controller
                 ->orderBy('cs_panggilan', 'asc')
                 ->get();
 
-            // ─── Pecah per status produk (running/testing) ─────────────
-            // Baris testing tetap diteruskan ke performa team, tapi ditampung
-            // tabel terpisah. Row tanpa status (null) dianggap running.
-            $statsRunning = $stats->filter(fn ($s) => $s->product_status !== RegionalCsStat::STATUS_TESTING);
-            $statsTesting = $stats->filter(fn ($s) => $s->product_status === RegionalCsStat::STATUS_TESTING);
+            // Split per fase — sekali loop, tanpa query tambahan
+            $statsRunning = $stats->filter(
+                fn ($s) => ($s->ad_phase ?? RegionalCsStat::PHASE_RUNNING) === RegionalCsStat::PHASE_RUNNING
+            )->values();
+            $statsTesting = $stats->filter(
+                fn ($s) => ($s->ad_phase ?? RegionalCsStat::PHASE_RUNNING) === RegionalCsStat::PHASE_TESTING
+            )->values();
 
-            // Group by tanggal → CS (per status)
+            // Group by tanggal → CS (per fase)
             foreach ($statsRunning as $stat) {
                 $tglKey = $stat->tanggal instanceof Carbon
                     ? $stat->tanggal->format('Y-m-d')
                     : substr((string) $stat->tanggal, 0, 10);
-                $byDateRunning[$tglKey][] = $stat;
+                $byDate[$tglKey][] = $stat;
             }
             foreach ($statsTesting as $stat) {
                 $tglKey = $stat->tanggal instanceof Carbon
@@ -166,9 +162,9 @@ class TeamController extends Controller
                     ->get(['id', 'nama', 'panggilan', 'email', 'avatar']);
             }
 
-            // Total per CS (untuk kartu statistik) — per status produk
+            // Total per CS (untuk kartu statistik) — per fase
             foreach ($statsRunning->groupBy('cs_panggilan') as $csName => $csStats) {
-                $totalPerCsRunning[$csName] = [
+                $totalPerCs[$csName] = [
                     'lead' => $csStats->sum('lead'),
                     'paid' => $csStats->sum('paid'),
                 ];
@@ -179,11 +175,6 @@ class TeamController extends Controller
                     'paid' => $csStats->sum('paid'),
                 ];
             }
-
-            $runTotalLead = $statsRunning->sum('lead');
-            $runTotalPaid = $statsRunning->sum('paid');
-            $testTotalLead = $statsTesting->sum('lead');
-            $testTotalPaid = $statsTesting->sum('paid');
 
             // ─── CS Tamu: SEMUA user CS terdaftar di sistem (role 'cs') kecuali CS utama ───
             // Tampilkan semua akun CS yang punya akun di sistem — termasuk yang belum
@@ -227,54 +218,51 @@ class TeamController extends Controller
 
         // ─── Sisi advertiser: gabungkan CS Utama + CS Tamu jadi 1 daftar berurutan ──
         // Urutan: CS Utama (badge) paling atas → lalu CS lain dari porsi penerimaan
-        // data (total lead) terbesar. Lead/paid dihitung PER STATUS dengan logika
-        // matching yang sama persis dengan performa-rows (FK cs_user_id dulu, fallback nama).
-        $totalOf = function ($member) use ($statsRunning, $statsTesting): array {
-            $sum = function ($member, $stats): array {
-                $lead = 0;
-                $paid = 0;
-                foreach ($stats as $stat) {
-                    $isMatch = false;
-                    if (! empty($member->id) && ! empty($stat->cs_user_id)
-                        && (int) $stat->cs_user_id === (int) $member->id) {
-                        $isMatch = true;
-                    } elseif (strtolower(trim((string) $stat->cs_panggilan)) === strtolower(trim((string) ($member->panggilan ?? '')))
-                        || strtolower(trim((string) $stat->cs_panggilan)) === strtolower(trim((string) ($member->nama ?? '')))) {
-                        $isMatch = true;
-                    }
-                    if ($isMatch) {
-                        $lead += (int) $stat->lead;
-                        $paid += (int) $stat->paid;
-                    }
+        // data (total lead) terbesar. Lead/paid dihitung dengan logika matching yang
+        // sama persis dengan performa-rows (FK cs_user_id dulu, fallback nama).
+        $totalOf = function ($member, $statsCollection): array {
+            $lead = 0;
+            $paid = 0;
+            foreach ($statsCollection as $stat) {
+                $isMatch = false;
+                if (! empty($member->id) && ! empty($stat->cs_user_id)
+                    && (int) $stat->cs_user_id === (int) $member->id) {
+                    $isMatch = true;
+                } elseif (strtolower(trim((string) $stat->cs_panggilan)) === strtolower(trim((string) ($member->panggilan ?? '')))
+                    || strtolower(trim((string) $stat->cs_panggilan)) === strtolower(trim((string) ($member->nama ?? '')))) {
+                    $isMatch = true;
                 }
+                if ($isMatch) {
+                    $lead += (int) $stat->lead;
+                    $paid += (int) $stat->paid;
+                }
+            }
 
-                return [$lead, $paid];
-            };
-            [$lr, $pr] = $sum($member, $statsRunning);
-            [$lt, $pt] = $sum($member, $statsTesting);
-
-            return [$lr, $pr, $lt, $pt];
+            return [$lead, $paid];
         };
 
-        // Tandai & hitung porsi data tiap anggota (running + testing)
+        // Tandai & hitung porsi data tiap anggota — DUAL FASE (running + testing)
         foreach ($mainMembers as $member) {
             $member->is_utama = true;
-            [$member->total_lead, $member->total_paid, $member->total_lead_testing, $member->total_paid_testing] = $totalOf($member);
+            [$member->total_lead, $member->total_paid] = $totalOf($member, $statsRunning ?? collect());
+            [$member->total_lead_testing, $member->total_paid_testing] = $totalOf($member, $statsTesting ?? collect());
         }
         foreach ($guestMembers as $member) {
             $member->is_utama = false;
-            [$member->total_lead, $member->total_paid, $member->total_lead_testing, $member->total_paid_testing] = $totalOf($member);
+            [$member->total_lead, $member->total_paid] = $totalOf($member, $statsRunning ?? collect());
+            [$member->total_lead_testing, $member->total_paid_testing] = $totalOf($member, $statsTesting ?? collect());
         }
 
         // Gabung: CS Utama dulu (urut porsi data antar-utama), lalu CS lain (porsi data terbesar)
-        $members = $mainMembers->sortByDesc(fn ($m) => ($m->total_lead ?? 0) + ($m->total_lead_testing ?? 0))
-            ->concat($guestMembers->sortByDesc(fn ($m) => ($m->total_lead ?? 0) + ($m->total_lead_testing ?? 0)))
+        $members = $mainMembers->sortByDesc('total_lead')
+            ->concat($guestMembers->sortByDesc('total_lead'))
             ->values();
 
-        // Data diagram doughnut PER STATUS: porsi lead per CS yang menerima lead
-        // (termasuk CS tamu). Hanya lead > 0 — CS tanpa lead tidak punya lengkungan
-        // di chart, jadi jangan ikut tampil di legend (menghindari pemetaan warna).
-        $chartDataRunning = $members
+        // Data diagram doughnut: porsi lead per CS yang menerima lead (termasuk CS tamu).
+        // Hanya lead > 0 — CS tanpa lead tidak punya lengkungan di chart, jadi jangan
+        // ikut tampil di legend (menghindari pemetaan warna yang membingungkan).
+        // DUAL FASE: satu donut utk running, satu utk testing.
+        $chartData = $members
             ->filter(fn ($m) => ($m->total_lead ?? 0) > 0)
             ->values()
             ->map(fn ($m) => [
@@ -308,9 +296,8 @@ class TeamController extends Controller
         $allDates = array_values(array_filter($allDates, fn ($d) => $d <= $today));
 
         return view('team.performance', compact(
-            'byDateRunning', 'byDateTesting', 'mainMembers', 'guestMembers', 'members',
-            'chartDataRunning', 'chartDataTesting', 'totalPerCsRunning', 'totalPerCsTesting',
-            'runTotalLead', 'runTotalPaid', 'testTotalLead', 'testTotalPaid', 'allDates',
+            'byDate', 'byDateTesting', 'mainMembers', 'guestMembers', 'members', 'chartData', 'chartDataTesting',
+            'totalPerCs', 'totalPerCsTesting', 'allDates',
             'dari', 'sampai', 'user',
         ));
     }

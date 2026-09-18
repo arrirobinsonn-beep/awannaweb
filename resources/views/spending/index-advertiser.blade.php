@@ -72,6 +72,67 @@
 </div>
 @endif
 
+{{-- 🔬 Banner Ketidaksesuaian FASE TESTING (DUAL FASE, 18 Sep) — regional testing vs spending testing --}}
+@if($hasDiscrepancyTesting)
+<div class="clay-alert clay-alert-error" data-reveal style="margin-bottom:16px;">
+    <span>🔬</span>
+    <div style="flex:1;font-size:.83rem;">
+        @if(count($discrepanciesTesting) > 0)
+        <strong>Ketidaksesuaian Data TESTING Ditemukan!</strong> Lead/Paid Regional Testing tidak sama dengan Spending iklan fase Testing.
+        @if(count($discrepanciesTesting) > 5)
+        <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+            ⬇ Menampilkan 5 dari {{ count($discrepanciesTesting) }} tanggal — scroll untuk melihat sisanya
+        </div>
+        @endif
+        <div style="margin-top:4px;max-height:112px;overflow:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+            @foreach(array_slice($discrepanciesTesting, 0, 5, true) as $tgl => $d)
+            <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                Regional Testing: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                Spending Testing: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+            </div>
+            @endforeach
+        </div>
+        @endif
+
+        @php
+            $allMissingTesting = collect($missingSpendingDatesTesting)
+                ->merge(collect($missingRegionalDatesTesting))
+                ->sortKeys()->all();
+            $totalMissingTesting = count($allMissingTesting);
+        @endphp
+        @if($totalMissingTesting > 0)
+        @if(count($discrepanciesTesting) > 0)
+        <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
+        @endif
+        <strong>Data TESTING Belum Ditambahkan</strong>
+        @if($totalMissingTesting > 5)
+        <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+            ⬇ Menampilkan 5 dari {{ $totalMissingTesting }} tanggal — scroll untuk melihat sisanya
+        </div>
+        @endif
+        <div style="margin-top:4px;max-height:112px;overflow:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+            @foreach(array_slice(array_keys($allMissingTesting), 0, 5) as $tgl)
+            @php
+                $tglPartsT = explode('-', $tgl);
+                $monthNamesT = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+                $tglLblT = (int) $tglPartsT[2] . ' ' . $monthNamesT[(int) $tglPartsT[1] - 1] . ' ' . $tglPartsT[0];
+            @endphp
+            <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                📅 {{ $tglLblT }} —
+                @if(isset($missingSpendingDatesTesting[$tgl]))
+                Anda belum mengisi data spending (fase testing) tanggal {{ $tglLblT }}
+                @else
+                Data regional testing belum diisi untuk tanggal {{ $tglLblT }}
+                @endif
+            </div>
+            @endforeach
+        </div>
+        @endif
+    </div>
+</div>
+@endif
+
 @if($csDiscrepancy['has_discrepancy'] ?? false)
 <div class="clay-alert clay-alert-warning" data-reveal style="margin-top:8px;margin-bottom:16px;">
     <span>🔔</span>        <div style="flex:1;font-size:.83rem;">
@@ -388,11 +449,13 @@
                                                  font-size:.65rem;font-weight:700;padding:2px 8px;
                                                  border-radius:999px;flex-shrink:0;">📦 Produk</span>
                                     <span style="font-weight:700;font-size:.85rem;color:#1e1b2e;">
-                                        {{ $prodData['product']->name ?? 'Tidak Diketahui' }}
+                                        {{ $prodData['product']->name ?? ($prodData['whitelists']->first()->display_name ?? 'Tidak Diketahui') }}
                                     </span>
+                                    @if($prodData['product'])
                                     <span style="font-size:.68rem;color:#9ca3af;">
                                         {{ $prodData['product']->code ?? '' }}
                                     </span>
+                                    @endif
                                 </div>
                                 <div class="lvl2-sub" style="font-size:.68rem;color:#9ca3af;margin-top:2px;margin-left:56px;">
                                     {{ count($prodData['whitelists']) }} whitelist mengiklankan produk ini
@@ -449,7 +512,7 @@
                                                    data-prod="{{ $dateKey }}-{{ $prodId }}"
                                                    data-tanggal="{{ $dateKey }}"
                                                    data-product-id="{{ $prodId }}"
-                                                   data-product-name="{{ $prodData['product']->name ?? '' }}"
+                                                   data-product-name="{{ $prodData['product']->name ?? ($prodData['whitelists']->first()->display_name ?? '') }}"
                                                    data-product-code="{{ $prodData['product']->code ?? '' }}"
                                                    data-whitelist-name="{{ $item->whitelist->nama ?? '' }}"
                                                    data-whitelist-code="{{ $item->whitelist->kode ?? '' }}"
@@ -499,7 +562,7 @@
                                                data-wl-name="{{ $item->whitelist->nama ?? '' }}"
                                                data-wl-code="{{ $item->whitelist->kode ?? '' }}"
                                                data-product-id="{{ $item->product_id }}"
-                                               data-product-name="{{ $item->product->name ?? '' }}"
+                                               data-product-name="{{ $item->display_name }}"
                                                data-spending="{{ $item->spending }}"
                                                data-lead="{{ $item->lead }}"
                                                data-paid="{{ $item->paid }}">✏️</a>
@@ -647,11 +710,13 @@
                                                  font-size:.65rem;font-weight:700;padding:2px 8px;
                                                  border-radius:999px;flex-shrink:0;">🔬 Testing</span>
                                     <span style="font-weight:700;font-size:.85rem;color:#92400e;">
-                                        {{ $prodData['product']->name ?? 'Tidak Diketahui' }}
+                                        {{ $prodData['product']->name ?? ($prodData['whitelists']->first()->display_name ?? 'Tidak Diketahui') }}
                                     </span>
+                                    @if($prodData['product'])
                                     <span style="font-size:.68rem;color:#b45309;">
                                         {{ $prodData['product']->code ?? '' }}
                                     </span>
+                                    @endif
                                 </div>
                                 <div class="lvl2-sub" style="font-size:.68rem;color:#b45309;margin-top:2px;margin-left:56px;">
                                     {{ count($prodData['whitelists']) }} whitelist mengiklankan produk ini
@@ -708,7 +773,7 @@
                                                    data-prod="{{ $dateKey }}-{{ $prodId }}"
                                                    data-tanggal="{{ $dateKey }}"
                                                    data-product-id="{{ $prodId }}"
-                                                   data-product-name="{{ $prodData['product']->name ?? '' }}"
+                                                   data-product-name="{{ $prodData['product']->name ?? ($prodData['whitelists']->first()->display_name ?? '') }}"
                                                    data-product-code="{{ $prodData['product']->code ?? '' }}"
                                                    data-whitelist-name="{{ $item->whitelist->nama ?? '' }}"
                                                    data-whitelist-code="{{ $item->whitelist->kode ?? '' }}"
@@ -758,7 +823,7 @@
                                                data-wl-name="{{ $item->whitelist->nama ?? '' }}"
                                                data-wl-code="{{ $item->whitelist->kode ?? '' }}"
                                                data-product-id="{{ $item->product_id }}"
-                                               data-product-name="{{ $item->product->name ?? '' }}"
+                                               data-product-name="{{ $item->display_name }}"
                                                data-spending="{{ $item->spending }}"
                                                data-lead="{{ $item->lead }}"
                                                data-paid="{{ $item->paid }}">✏️</a>

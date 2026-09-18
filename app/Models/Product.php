@@ -2,15 +2,18 @@
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Product extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory;
+    // TANPA SoftDeletes: hapus produk = hapus permanen (hard delete) lewat
+    // ProductDeletionService — barisnya benar-benar hilang sehingga kode
+    // produk langsung bisa dipakai produk baru (tanpa konflik unique).
 
     protected $fillable = [
         'code',
@@ -38,8 +41,11 @@ class Product extends Model
 
     /** Status iklan: testing (fase uji coba) atau running (sudah aktif). */
     public const AD_STATUS_TESTING = 'testing';
+
     public const AD_STATUS_RUNNING = 'running';
+
     public const AD_STATUSES = [self::AD_STATUS_TESTING, self::AD_STATUS_RUNNING];
+
     public const AD_STATUS_LABELS = [
         self::AD_STATUS_TESTING => 'Testing',
         self::AD_STATUS_RUNNING => 'Running',
@@ -203,7 +209,7 @@ class Product extends Model
      * saat ini. Spending yang dicatat sebelum `start_running` tetap Testing walau
      * produk sudah di-toggle Running belakangan.
      *
-     * @param  \Carbon\CarbonInterface|string|null  $date
+     * @param  CarbonInterface|string|null  $date
      */
     public function phaseOn($date): string
     {
@@ -211,7 +217,7 @@ class Product extends Model
             return self::AD_STATUS_TESTING;
         }
 
-        $d = $date instanceof \Carbon\CarbonInterface
+        $d = $date instanceof CarbonInterface
             ? $date->toDateString()
             : (string) $date;
 

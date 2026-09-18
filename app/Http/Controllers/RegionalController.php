@@ -68,13 +68,12 @@ class RegionalController extends Controller
             }
         }
 
-        // Ambil data regional untuk target user di range tanggal
+        // Ambil data regional untuk target user di range tanggal — DUAL FASE
         $reports = RegionalReport::where('user_id', $targetUserId)
             ->whereBetween('tanggal', [$dari, $sampai])
             ->orderBy('tanggal')
             ->orderBy('province')
-            ->get()
-            ->groupBy('tanggal');
+            ->get();
 
         // Bangun semua tanggal dalam range
         $allDates = [];
@@ -89,109 +88,53 @@ class RegionalController extends Controller
         $today = now()->format('Y-m-d');
         $allDates = array_values(array_filter($allDates, fn ($d) => $d <= $today));
 
-        // Matrix: [province][tanggal] = { lead, paid, ratio }
-        $matrix = [];
-        foreach ($masterProvinces as $province) {
-            $matrix[$province] = [];
-            foreach ($allDates as $date) {
-                $matrix[$province][$date] = [
-                    'lead' => 0,
-                    'paid' => 0,
-                    'ratio' => 0,
-                ];
-            }
-        }
+        // ─── Dua matriks per fase: running (utama) & testing (baru) ───
+        $matrix = $this->buildMatrix($masterProvinces, $allDates, $reports, RegionalReport::PHASE_RUNNING);
+        $matrixTesting = $this->buildMatrix($masterProvinces, $allDates, $reports, RegionalReport::PHASE_TESTING);
 
-        // Isi matrix dengan data dari database
-        foreach ($reports as $tanggal => $items) {
-            $tglKey = substr((string) $tanggal, 0, 10);
-            foreach ($items as $item) {
-                if (isset($matrix[$item->province][$tglKey])) {
-                    $matrix[$item->province][$tglKey] = [
-                        'id' => (int) $item->id,
-                        'lead' => (int) $item->lead,
-                        'paid' => (int) $item->paid,
-                        'ratio' => (float) $item->paid_ratio,
-                    ];
-                }
-            }
-        }
+        // Total per tanggal per fase (untuk alarm + grand total)
+        $totalPerTanggal = $this->totalPerTanggal($masterProvinces, $allDates, $matrix);
+        $totalPerTanggalTesting = $this->totalPerTanggal($masterProvinces, $allDates, $matrixTesting);
 
-        // Total per tanggal (untuk alarm)
-        $totalPerTanggal = [];
-        foreach ($allDates as $date) {
-            $tLead = 0;
-            $tPaid = 0;
-            foreach ($masterProvinces as $province) {
-                $tLead += $matrix[$province][$date]['lead'];
-                $tPaid += $matrix[$province][$date]['paid'];
-            }
-            $totalPerTanggal[$date] = [
-                'lead' => $tLead,
-                'paid' => $tPaid,
-            ];
-        }
+        // ─── Alarm DUAL FASE: bandingkan dengan Spending Harian per fase ────────
+        // Regional running ↔ spending fase running (tanggal >= products.start_running)
+        // Regional testing ↔ spending fase testing (start_running null ATAU tanggal < start_running)
+        $spendingByPhase = $this->spendingTotalsByPhase($targetUserId, $dari, $sampai);
+        $spendingTotals = $spendingByPhase['running'];
+        $spendingTotalsTesting = $spendingByPhase['testing'];
 
-        // ─── Alarm: bandingkan dengan Spending Harian ────────
-        // Regional hanya memuat produk RUNNING → spending pembanding juga hanya
-        // spending yang jatuh di fase running (tanggal >= products.start_running)
-        $spendingTotals = SpendingHarian::where('user_id', $targetUserId)
-            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
-            ->join('products', 'products.id', '=', 'spending_harians.product_id')
-            ->whereNotNull('products.start_running')
-            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
-            ->selectRaw('spending_harians.tanggal, COALESCE(SUM(`lead`), 0) as total_lead, COALESCE(SUM(paid), 0) as total_paid')
-            ->groupBy('spending_harians.tanggal')
-            ->get()
-            ->keyBy('tanggal')
-            ->mapWithKeys(fn ($item, $key) => [substr((string) $key, 0, 10) => $item]);
+        $discRunning = $this->comparePhase(
+            $allDates, $totalPerTanggal, $spendingTotals, 'Regional', 'Spending'
+        );
+        $discTesting = $this->comparePhase(
+            $allDates, $totalPerTanggalTesting, $spendingTotalsTesting, 'Regional Testing', 'Spending Testing'
+        );
 
-        $hasDiscrepancy = false;
-        $discrepancies = [];
-        $missingSpendingDates = [];
-        $missingRegionalDates = [];
-
-        foreach ($allDates as $date) {
-            $regLead = $totalPerTanggal[$date]['lead'];
-            $regPaid = $totalPerTanggal[$date]['paid'];
-            $spLead = (int) ($spendingTotals[$date]->total_lead ?? 0);
-            $spPaid = (int) ($spendingTotals[$date]->total_paid ?? 0);
-
-            $hasReg = $regLead > 0 || $regPaid > 0;
-            $hasSp = $spLead > 0 || $spPaid > 0;
-
-            // Hanya regional ada → spending belum diisi
-            if ($hasReg && !$hasSp) {
-                $hasDiscrepancy = true;
-                $missingSpendingDates[$date] = true;
-                continue;
-            }
-            // Hanya spending ada → regional belum diisi
-            if ($hasSp && !$hasReg) {
-                $hasDiscrepancy = true;
-                $missingRegionalDates[$date] = true;
-                continue;
-            }
-            // Keduanya ada tapi angka beda
-            if ($regLead !== $spLead || $regPaid !== $spPaid) {
-                $hasDiscrepancy = true;
-                $discrepancies[$date] = [
-                    'regional_lead' => $regLead,
-                    'regional_paid' => $regPaid,
-                    'spending_lead' => $spLead,
-                    'spending_paid' => $spPaid,
-                ];
-            }
-        }
+        $hasDiscrepancy = $discRunning['hasDiscrepancy'] || $discTesting['hasDiscrepancy'];
+        $discrepancies = $discRunning['discrepancies'];
+        $missingSpendingDates = $discRunning['missingSpendingDates'];
+        $missingRegionalDates = $discRunning['missingRegionalDates'];
+        // Fase testing: namespace terpisah agar banner bisa menampilkan keduanya
+        $discrepanciesTesting = $discTesting['discrepancies'];
+        $missingSpendingDatesTesting = $discTesting['missingSpendingDates'];
+        $missingRegionalDatesTesting = $discTesting['missingRegionalDates'];
 
         $totalRegional = [
             'lead' => collect($totalPerTanggal)->sum('lead'),
             'paid' => collect($totalPerTanggal)->sum('paid'),
         ];
+        $totalRegionalTesting = [
+            'lead' => collect($totalPerTanggalTesting)->sum('lead'),
+            'paid' => collect($totalPerTanggalTesting)->sum('paid'),
+        ];
 
         $totalSpending = [
             'lead' => (int) $spendingTotals->sum('total_lead'),
             'paid' => (int) $spendingTotals->sum('total_paid'),
+        ];
+        $totalSpendingTesting = [
+            'lead' => (int) $spendingTotalsTesting->sum('total_lead'),
+            'paid' => (int) $spendingTotalsTesting->sum('total_paid'),
         ];
 
         // ─── Guard tombol "Upload File Excel": advertiser wajib punya CS yang ditugaskan ──
@@ -216,18 +159,157 @@ class RegionalController extends Controller
             'masterProvinces',
             'allDates',
             'matrix',
+            'matrixTesting',
             'totalPerTanggal',
+            'totalPerTanggalTesting',
             'totalRegional',
+            'totalRegionalTesting',
             'totalSpending',
+            'totalSpendingTesting',
             'hasDiscrepancy',
             'discrepancies',
             'missingSpendingDates', 'missingRegionalDates',
+            'discrepanciesTesting',
+            'missingSpendingDatesTesting', 'missingRegionalDatesTesting',
             'dari',
             'sampai',
             'advertisers',
             'targetUserId',
             'hasAssignedCs',
         ));
+    }
+
+    /**
+     * Matriks [province][tanggal] untuk satu fase regional.
+     */
+    private function buildMatrix(array $masterProvinces, array $allDates, $reports, string $phase): array
+    {
+        $matrix = [];
+        foreach ($masterProvinces as $province) {
+            $matrix[$province] = [];
+            foreach ($allDates as $date) {
+                $matrix[$province][$date] = [
+                    'lead' => 0,
+                    'paid' => 0,
+                    'ratio' => 0,
+                ];
+            }
+        }
+
+        foreach ($reports->where('ad_phase', $phase)->groupBy('tanggal') as $tanggal => $items) {
+            $tglKey = substr((string) $tanggal, 0, 10);
+            foreach ($items as $item) {
+                if (isset($matrix[$item->province][$tglKey])) {
+                    $matrix[$item->province][$tglKey] = [
+                        'id' => (int) $item->id,
+                        'lead' => (int) $item->lead,
+                        'paid' => (int) $item->paid,
+                        'ratio' => (float) $item->paid_ratio,
+                    ];
+                }
+            }
+        }
+
+        return $matrix;
+    }
+
+    /**
+     * Total lead/paid per tanggal dari matriks (untuk alarm & grand total).
+     */
+    private function totalPerTanggal(array $masterProvinces, array $allDates, array $matrix): array
+    {
+        $totalPerTanggal = [];
+        foreach ($allDates as $date) {
+            $tLead = 0;
+            $tPaid = 0;
+            foreach ($masterProvinces as $province) {
+                $tLead += $matrix[$province][$date]['lead'];
+                $tPaid += $matrix[$province][$date]['paid'];
+            }
+            $totalPerTanggal[$date] = [
+                'lead' => $tLead,
+                'paid' => $tPaid,
+            ];
+        }
+
+        return $totalPerTanggal;
+    }
+
+    /**
+     * Total spending per tanggal DUAL FASE (1 query gabungan, dipisah via CASE).
+     * running: tanggal >= products.start_running (start_running wajib terisi)
+     * testing: start_running null ATAU tanggal < products.start_running
+     */
+    private function spendingTotalsByPhase(int $userId, string $dari, string $sampai): array
+    {
+        $rows = SpendingHarian::where('user_id', $userId)
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->selectRaw("spending_harians.tanggal,
+                CASE WHEN products.start_running IS NOT NULL
+                     AND spending_harians.tanggal >= products.start_running
+                     THEN 1 ELSE 0 END as is_running,
+                COALESCE(SUM(`lead`), 0) as total_lead,
+                COALESCE(SUM(paid), 0) as total_paid")
+            ->groupBy('spending_harians.tanggal', 'is_running')
+            ->get();
+
+        $byPhase = [
+            'running' => collect(),
+            'testing' => collect(),
+        ];
+        foreach ($rows as $row) {
+            $tglKey = substr((string) $row->tanggal, 0, 10);
+            $phase = ((int) $row->is_running) === 1 ? 'running' : 'testing';
+            $byPhase[$phase][$tglKey] = $row;
+        }
+
+        return $byPhase;
+    }
+
+    /**
+     * Bandingkan regional vs spending untuk satu fase → struktur banner.
+     */
+    private function comparePhase(array $allDates, array $totalPerTanggal, $spendingTotals, string $regLabel, string $spLabel): array
+    {
+        $hasDiscrepancy = false;
+        $discrepancies = [];
+        $missingSpendingDates = [];
+        $missingRegionalDates = [];
+
+        foreach ($allDates as $date) {
+            $regLead = $totalPerTanggal[$date]['lead'];
+            $regPaid = $totalPerTanggal[$date]['paid'];
+            $spLead = (int) ($spendingTotals[$date]->total_lead ?? 0);
+            $spPaid = (int) ($spendingTotals[$date]->total_paid ?? 0);
+
+            $hasReg = $regLead > 0 || $regPaid > 0;
+            $hasSp = $spLead > 0 || $spPaid > 0;
+
+            if ($hasReg && !$hasSp) {
+                $hasDiscrepancy = true;
+                $missingSpendingDates[$date] = true;
+                continue;
+            }
+            if ($hasSp && !$hasReg) {
+                $hasDiscrepancy = true;
+                $missingRegionalDates[$date] = true;
+                continue;
+            }
+            if ($regLead !== $spLead || $regPaid !== $spPaid) {
+                $hasDiscrepancy = true;
+                $discrepancies[$date] = [
+                    'regional_lead' => $regLead,
+                    'regional_paid' => $regPaid,
+                    'spending_lead' => $spLead,
+                    'spending_paid' => $spPaid,
+                    'reg_label' => $regLabel,
+                    'sp_label' => $spLabel,
+                ];
+            }
+        }
+
+        return compact('hasDiscrepancy', 'discrepancies', 'missingSpendingDates', 'missingRegionalDates');
     }
 
     // ─── Preview File (AJAX) ───────────────────────────────────
@@ -265,9 +347,11 @@ class RegionalController extends Controller
                 'success' => true,
                 'data' => $preview,
                 'errors' => $result['errors'],
-                'total_raw_rows' => $result['total'],
-                'skipped_testing' => $result['skipped_testing'] ?? 0,
-                'phone_contacts' => $result['phone_contacts'] ?? [],
+            'total_raw_rows' => $result['total'],
+            'skipped_testing' => $result['skipped_testing'] ?? 0,
+            'total_testing_lead' => $preview['total_testing_lead'] ?? 0,
+            'total_testing_paid' => $preview['total_testing_paid'] ?? 0,
+            'phone_contacts' => $result['phone_contacts'] ?? [],
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -285,6 +369,9 @@ class RegionalController extends Controller
             'items' => ['required', 'array', 'min:1'],
             'items.*.tanggal' => ['required', 'date'],
             'items.*.province' => ['required', 'string', 'max:100'],
+            // DUAL FASE: 'running' (tabel utama) atau 'testing' (tabel kedua).
+            // Tanpa key = 'running' (kompatibel dgn payload lama).
+            'items.*.ad_phase' => ['nullable', 'string', 'in:running,testing'],
             'items.*.lead' => ['required', 'integer', 'min:0'],
             'items.*.paid' => ['required', 'integer', 'min:0'],
 
@@ -292,9 +379,9 @@ class RegionalController extends Controller
             'cs_stats' => ['nullable', 'array'],
             'cs_stats.*.tanggal' => ['required_with:cs_stats', 'date'],
             'cs_stats.*.cs_panggilan' => ['required_with:cs_stats', 'string', 'max:100'],
+            'cs_stats.*.ad_phase' => ['nullable', 'string', 'in:running,testing'],
             'cs_stats.*.lead' => ['required_with:cs_stats', 'integer', 'min:0'],
             'cs_stats.*.paid' => ['required_with:cs_stats', 'integer', 'min:0'],
-            'cs_stats.*.product_status' => ['nullable', 'string', 'in:running,testing'],
 
             // Phone → CS mapping dari file yang sama (opsional)
             'phone_contacts' => ['nullable', 'array'],
@@ -324,25 +411,28 @@ class RegionalController extends Controller
             $csSaved = 0;
 
             DB::transaction(function () use ($items, $csStats, $phoneContacts, $targetUserId, &$imported, &$updated, &$csSaved) {
-                // Batch-load existing records untuk dates + user ini
+                // Batch-load existing records untuk dates + user ini — keyed per
+                // (tanggal|province|ad_phase) karena tiap fase punya barisnya sendiri.
                 $dates = array_unique(array_column($items, 'tanggal'));
                 $existingMap = RegionalReport::where('user_id', $targetUserId)
                     ->whereIn('tanggal', $dates)
-                    ->get()
-                    ->keyBy(fn ($r) => $r->tanggal->format('Y-m-d').'|'.$r->province);
+                    ->keyedPhase();
 
                 foreach ($items as $item) {
                     $data = [
                         'tanggal' => $item['tanggal'],
                         'user_id' => $targetUserId,
                         'province' => $item['province'],
+                        'ad_phase' => ($item['ad_phase'] ?? null) === RegionalReport::PHASE_TESTING
+                            ? RegionalReport::PHASE_TESTING
+                            : RegionalReport::PHASE_RUNNING,
                         'lead' => (int) $item['lead'],
                         'paid' => (int) $item['paid'],
                     ];
 
                     RegionalReport::computeRatio($data);
 
-                    $key = $item['tanggal'].'|'.$item['province'];
+                    $key = $item['tanggal'].'|'.$item['province'].'|'.$data['ad_phase'];
                     $existing = $existingMap[$key] ?? null;
 
                     if ($existing) {
@@ -369,7 +459,7 @@ class RegionalController extends Controller
                     $existingCsMap = RegionalCsStat::where('user_id', $targetUserId)
                         ->whereIn('tanggal', $csDates)
                         ->get()
-                        ->keyBy(fn ($s) => $s->tanggal->format('Y-m-d').'|'.$s->cs_panggilan.'|'.$s->product_status);
+                        ->keyBy(fn ($s) => $s->tanggal->format('Y-m-d').'|'.$s->cs_panggilan.'|'.($s->ad_phase ?? RegionalCsStat::PHASE_RUNNING));
 
                     foreach ($csStats as $stat) {
                         $csPanggilan = trim($stat['cs_panggilan']);
@@ -378,19 +468,21 @@ class RegionalController extends Controller
                         }
 
                         $csUser = $csUsers[$csPanggilan] ?? null;
-                        $status = $stat['product_status'] ?? RegionalCsStat::STATUS_RUNNING;
+                        $adPhase = ($stat['ad_phase'] ?? null) === RegionalCsStat::PHASE_TESTING
+                            ? RegionalCsStat::PHASE_TESTING
+                            : RegionalCsStat::PHASE_RUNNING;
 
                         $data = [
                             'tanggal' => $stat['tanggal'],
                             'user_id' => $targetUserId,
                             'cs_panggilan' => $csPanggilan,
                             'cs_user_id' => $csUser?->id,
+                            'ad_phase' => $adPhase,
                             'lead' => (int) $stat['lead'],
                             'paid' => (int) $stat['paid'],
-                            'product_status' => $status,
                         ];
 
-                        $existing = $existingCsMap[date('Y-m-d', strtotime($stat['tanggal'])).'|'.$csPanggilan.'|'.$status] ?? null;
+                        $existing = $existingCsMap[date('Y-m-d', strtotime($stat['tanggal'])).'|'.$csPanggilan.'|'.$adPhase] ?? null;
 
                         if ($existing) {
                             $existing->update($data);
@@ -593,34 +685,68 @@ class RegionalController extends Controller
         $dari = $request->input('dari', now()->startOfMonth()->format('Y-m-d'));
         $sampai = $request->input('sampai', now()->format('Y-m-d'));
 
-        $regionalLead = (int) RegionalReport::where('user_id', $user->id)
+        $regionalByPhase = RegionalReport::where('user_id', $user->id)
             ->whereBetween('tanggal', [$dari, $sampai])
-            ->sum('lead');
+            ->get()
+            ->groupBy('ad_phase');
 
-        $regionalPaid = (int) RegionalReport::where('user_id', $user->id)
-            ->whereBetween('tanggal', [$dari, $sampai])
-            ->sum('paid');
+        // Regional running ↔ spending fase running; testing ↔ testing.
+        $spendingByPhase = $this->spendingTotalsPhaseSums($user->id, $dari, $sampai);
 
-        // Regional hanya memuat produk RUNNING → spending pembanding juga hanya
-        // spending yang jatuh di fase running (tanggal >= products.start_running)
-        $spendingLead = (int) SpendingHarian::where('user_id', $user->id)
-            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
-            ->join('products', 'products.id', '=', 'spending_harians.product_id')
-            ->whereNotNull('products.start_running')
-            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
-            ->sum('lead');
+        $regionalRunning = $regionalByPhase->get(RegionalReport::PHASE_RUNNING, collect());
+        $regionalTesting = $regionalByPhase->get(RegionalReport::PHASE_TESTING, collect());
 
-        $spendingPaid = (int) SpendingHarian::where('user_id', $user->id)
-            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
-            ->join('products', 'products.id', '=', 'spending_harians.product_id')
-            ->whereNotNull('products.start_running')
-            ->whereColumn('spending_harians.tanggal', '>=', 'products.start_running')
-            ->sum('paid');
+        $regionalLead = (int) $regionalRunning->sum('lead');
+        $regionalPaid = (int) $regionalRunning->sum('paid');
+        $regionalTestingLead = (int) $regionalTesting->sum('lead');
+        $regionalTestingPaid = (int) $regionalTesting->sum('paid');
 
         return response()->json([
-            'has_discrepancy' => $regionalLead !== $spendingLead || $regionalPaid !== $spendingPaid,
+            'has_discrepancy' => $regionalLead !== $spendingByPhase['running']['lead']
+                || $regionalPaid !== $spendingByPhase['running']['paid']
+                || $regionalTestingLead !== $spendingByPhase['testing']['lead']
+                || $regionalTestingPaid !== $spendingByPhase['testing']['paid'],
             'regional' => ['lead' => $regionalLead, 'paid' => $regionalPaid],
-            'spending' => ['lead' => $spendingLead, 'paid' => $spendingPaid],
+            'spending' => [
+                'lead' => $spendingByPhase['running']['lead'],
+                'paid' => $spendingByPhase['running']['paid'],
+            ],
+            // DUAL FASE (18 Sep): angka testing utk badge/banner lebih presisi
+            'regional_testing' => ['lead' => $regionalTestingLead, 'paid' => $regionalTestingPaid],
+            'spending_testing' => [
+                'lead' => $spendingByPhase['testing']['lead'],
+                'paid' => $spendingByPhase['testing']['paid'],
+            ],
         ]);
+    }
+
+    /**
+     * Total lead/paid spending per fase (running/testing) untuk SATU user —
+     * 1 query + klasifikasi via CASE (bukan 2 query terpisah).
+     */
+    private function spendingTotalsPhaseSums(int $userId, string $dari, string $sampai): array
+    {
+        $rows = SpendingHarian::where('user_id', $userId)
+            ->whereBetween('spending_harians.tanggal', [$dari, $sampai])
+            ->join('products', 'products.id', '=', 'spending_harians.product_id')
+            ->selectRaw("CASE WHEN products.start_running IS NOT NULL
+                     AND spending_harians.tanggal >= products.start_running
+                     THEN 'running' ELSE 'testing' END as phase,
+                COALESCE(SUM(`lead`), 0) as total_lead,
+                COALESCE(SUM(paid), 0) as total_paid")
+            ->groupBy('phase')
+            ->get()
+            ->keyBy('phase');
+
+        return [
+            'running' => [
+                'lead' => (int) ($rows['running']->total_lead ?? 0),
+                'paid' => (int) ($rows['running']->total_paid ?? 0),
+            ],
+            'testing' => [
+                'lead' => (int) ($rows['testing']->total_lead ?? 0),
+                'paid' => (int) ($rows['testing']->total_paid ?? 0),
+            ],
+        ];
     }
 }

@@ -16,6 +16,7 @@ class SpendingHarian extends Model
         'user_id',
         'whitelist_id',
         'product_id',
+        'product_label',
         'spending',
         'lead',
         'paid',
@@ -50,6 +51,25 @@ class SpendingHarian extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * Nama tampilan produk: dari relasi product, atau label arsip
+     * "{nama}(Produk dihapus)" bila produk sudah dihapus permanen.
+     */
+    public function getDisplayNameAttribute(): string
+    {
+        if ($this->product_id && $this->product) {
+            return $this->product->name;
+        }
+
+        return $this->product_label ?? 'Produk Dihapus';
+    }
+
+    /** true bila produk asli sudah dihapus (baris spending hanya punya label arsip). */
+    public function getIsOrphanLabelAttribute(): bool
+    {
+        return (! $this->product_id || ! $this->product) && $this->product_label !== null;
     }
 
     // ─── Static helper: hitung & isi metric otomatis ───────────

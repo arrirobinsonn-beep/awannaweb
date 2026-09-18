@@ -420,8 +420,8 @@
 <script id="edit-data" type="application/json">
 {
     "tanggal": "{{ $spending->tanggal->format('Y-m-d') }}",
-    "product_id": {{ $spending->product_id }},
-    "product_name": "{{ $spending->product?->name }} ({{ $spending->product?->code }})",
+    "product_id": {{ $spending->product_id ?? 'null' }},
+    "product_name": "{{ $spending->display_name }}",
     "whitelist_id": {{ $spending->whitelist_id }},
     "whitelist_name": "{{ $spending->whitelist?->nama }}",
     "whitelist_code": "{{ $spending->whitelist?->kode }}",

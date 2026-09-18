@@ -92,11 +92,13 @@
                                              font-size:.62rem;font-weight:700;padding:2px 8px;
                                              border-radius:999px;flex-shrink:0;">📦 Produk</span>
                                 <span style="font-weight:700;font-size:.85rem;color:#1e1b2e;">
-                                    {{ $prodData['product']->name ?? 'Tidak Diketahui' }}
+                                    {{ $prodData['product']->name ?? ($prodData['whitelists']->first()->display_name ?? 'Tidak Diketahui') }}
                                 </span>
+                                @if($prodData['product'])
                                 <span style="font-size:.68rem;color:#9ca3af;">
                                     {{ $prodData['product']->code ?? '' }}
                                 </span>
+                                @endif
                                 @if($prodData['product'] && $prodData['product']->phaseOn($dateKey) === 'testing')
                                 <span style="display:inline-block;font-size:.58rem;font-weight:700;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;">🔬 Testing</span>
                                 @endif

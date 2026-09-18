@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\Product;
-use App\Models\RegionalCsStat;
+use Carbon\CarbonInterface;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class RegionalImportService
@@ -13,8 +13,9 @@ class RegionalImportService
      * Format kolom: province, payment_status, created_at (optional), product (optional).
      *
      * Kolom `product` (format "P.1 - Nama Produk - 22760") dipakai untuk mengetahui
-     * status iklan produk (running/testing): lead/paid produk TESTING TIDAK
-     * ditampilkan di tabel regional — hanya produk Running yang dihitung.
+     * fase iklan produk (running/testing berdasar timeline start_running):
+     * baris running → tabel regional utama; baris testing → tabel regional
+     * testing (DUAL FASE — sejak 18 Sep 2026 baris testing tidak dibuang lagi).
      */
     public function parseExcel(string $filePath): array
     {
@@ -67,9 +68,15 @@ class RegionalImportService
         if ($colProduct !== false) {
             $matcher = new ProductNameMatcher();
             $productIndex = $matcher->buildIndex();
+            // pluck pada kolom berkast 'date' mengembalikan objek Carbon — WAJIB
+            // dinormalisasi ke string Y-m-d. Tanpa ini `$tanggal >= $runningStart`
+            // membandingkan string dgn 'Y-m-d 00:00:00': tanggal EXACT sama dgn
+            // start_running dinilai lebih kecil (string lebih pendek = prefix) →
+            // baris di hari produk MULAI running salah dikategorikan testing.
             $productRunningMap = Product::query()
                 ->whereNotNull('start_running')
                 ->pluck('start_running', 'id')
+                ->map(fn ($v) => $v instanceof CarbonInterface ? $v->toDateString() : (string) $v)
                 ->all();
         }
 
@@ -195,6 +202,8 @@ class RegionalImportService
             'data' => $parsed,
             'errors' => $errors,
             'total' => count($parsed),
+            // Baris testing TIDAK dibuang lagi (DUAL FASE) — key ini kini
+            // berarti "jumlah baris produk testing terdeteksi" (masuk tabel testing).
             'skipped_testing' => $skippedTesting,
             'phone_contacts' => array_values($uniquePhones),
         ];
@@ -202,61 +211,61 @@ class RegionalImportService
 
     /**
      * Agregasi data parsing untuk preview (tanpa simpan ke DB).
-     * Group by tanggal + province → hitung lead, paid, paid_ratio.
+     *
+     * DUAL FASE (18 September 2026): baris produk RUNNING (dan baris tanpa
+     * atribusi produk — tak dikenal/tanpa kolom product, konservatif) masuk
+     * grup running; baris produk TESTING TIDAK lagi dibuang — masuk grup
+     * testing sendiri (tabel kedua di Detail Per Daerah).
      */
     public function previewData(array $parsedData): array
     {
-        $grouped = [];
+        $isTesting = fn ($ps) => $ps === Product::AD_STATUS_TESTING;
+        $isRunningSide = fn ($ps) => $ps !== Product::AD_STATUS_TESTING; // running ATAU null
 
-        // ─── CS Stats: hitung lead/paid per CS per tanggal PER STATUS PRODUK ───
-        // Baris produk TESTING tetap diteruskan ke performa team (CS stats), hanya
-        // tabel provinsi regional yang mengecualikannya. Row tanpa kolom product
-        // (atau produk tak dikenal) dianggap running (perilaku lama).
-        $csGrouped = [];
-        foreach ($parsedData as $row) {
-            $handledBy = $row['handled_by'] ?? '';
-            if (empty($handledBy)) {
-                continue;
-            }
+        // ─── CS Stats per fase: lead/paid per CS per tanggal ───
+        $csByDate = $this->groupCsByDate($parsedData, $isRunningSide);
+        $csByDateTesting = $this->groupCsByDate($parsedData, $isTesting);
 
-            $status = ($row['product_status'] ?? null) === Product::AD_STATUS_TESTING
-                ? RegionalCsStat::STATUS_TESTING
-                : RegionalCsStat::STATUS_RUNNING;
+        // ─── Province grouping per fase ─────────
+        [$byDate, $totalLead, $totalPaid, $totalRows] = $this->groupProvincesByDate($parsedData, $isRunningSide);
+        [$byDateTesting, $totalTestingLead, $totalTestingPaid, $totalTestingRows] = $this->groupProvincesByDate($parsedData, $isTesting);
 
-            $key = $row['tanggal'].'|'.$handledBy.'|'.$status;
-            if (! isset($csGrouped[$key])) {
-                $csGrouped[$key] = [
-                    'tanggal' => $row['tanggal'],
-                    'cs_panggilan' => $handledBy,
-                    'lead' => 0,
-                    'paid' => 0,
-                    'product_status' => $status,
-                ];
-            }
-            $csGrouped[$key]['lead']++;
-            if ($row['is_paid']) {
-                $csGrouped[$key]['paid']++;
-            }
-        }
-
-        // Group CS stats by date
-        $csByDate = [];
-        foreach ($csGrouped as $item) {
-            $tgl = $item['tanggal'];
-            if (! isset($csByDate[$tgl])) {
-                $csByDate[$tgl] = [];
-            }
-            $csByDate[$tgl][] = $item;
-        }
-        ksort($csByDate);
-
-        // ─── Province grouping — HANYA produk Running ─────────
+        // Baris testing TIDAK di-skip lagi — dihitung ke tabel testing.
+        // Key lama dipertahankan (skipped_testing = jumlah baris testing terdeteksi).
         $skippedTesting = 0;
         foreach ($parsedData as $row) {
-            // Lead/paid produk TESTING tidak diperlukan di detail per daerah
-            if (($row['product_status'] ?? null) === Product::AD_STATUS_TESTING) {
+            if ($isTesting($row['product_status'] ?? null)) {
                 $skippedTesting++;
+            }
+        }
 
+        return [
+            'by_date' => $byDate,
+            'total_lead' => $totalLead,
+            'total_paid' => $totalPaid,
+            'total_rows' => $totalRows,
+            'skipped_testing' => $skippedTesting,
+            'cs_by_date' => $csByDate, // data CS stats per tanggal (running)
+            // ─── Fase testing (baru) ───
+            'by_date_testing' => $byDateTesting,
+            'total_testing_lead' => $totalTestingLead,
+            'total_testing_paid' => $totalTestingPaid,
+            'total_testing_rows' => $totalTestingRows,
+            'cs_by_date_testing' => $csByDateTesting,
+        ];
+    }
+
+    /**
+     * Group baris parsed per (tanggal, province) → by_date ter-sort.
+     * $include menerima product_status baris (null = tanpa atribusi produk).
+     *
+     * @return array{0: array, 1: int, 2: int, 3: int} [byDate, totalLead, totalPaid, totalRows]
+     */
+    private function groupProvincesByDate(array $parsedData, \Closure $include): array
+    {
+        $grouped = [];
+        foreach ($parsedData as $row) {
+            if (! $include($row['product_status'] ?? null)) {
                 continue;
             }
 
@@ -308,14 +317,51 @@ class RegionalImportService
         }
         unset($items);
 
-        return [
-            'by_date' => $byDate,
-            'total_lead' => $totalLead,
-            'total_paid' => $totalPaid,
-            'total_rows' => count($grouped),
-            'skipped_testing' => $skippedTesting,
-            'cs_by_date' => $csByDate, // data CS stats per tanggal
-        ];
+        return [$byDate, $totalLead, $totalPaid, count($grouped)];
+    }
+
+    /**
+     * Group baris parsed per (tanggal, CS) untuk satu sisi fase → cs_by_date.
+     */
+    private function groupCsByDate(array $parsedData, \Closure $include): array
+    {
+        $csGrouped = [];
+        foreach ($parsedData as $row) {
+            $handledBy = $row['handled_by'] ?? '';
+            if (empty($handledBy)) {
+                continue;
+            }
+            if (! $include($row['product_status'] ?? null)) {
+                continue;
+            }
+
+            $key = $row['tanggal'].'|'.$handledBy;
+            if (! isset($csGrouped[$key])) {
+                $csGrouped[$key] = [
+                    'tanggal' => $row['tanggal'],
+                    'cs_panggilan' => $handledBy,
+                    'lead' => 0,
+                    'paid' => 0,
+                ];
+            }
+            $csGrouped[$key]['lead']++;
+            if ($row['is_paid']) {
+                $csGrouped[$key]['paid']++;
+            }
+        }
+
+        // Group CS stats by date
+        $csByDate = [];
+        foreach ($csGrouped as $item) {
+            $tgl = $item['tanggal'];
+            if (! isset($csByDate[$tgl])) {
+                $csByDate[$tgl] = [];
+            }
+            $csByDate[$tgl][] = $item;
+        }
+        ksort($csByDate);
+
+        return $csByDate;
     }
 
     // ─── Private Helpers ───────────────────────────────────────

@@ -16,6 +16,21 @@ class ProductSeeder extends Seeder
     /** Produk kacamata yang punya ukuran power (10 power, +1.00..+3.00 step 0.25). */
     public const SIZED_PRODUCTS = ['KBJ', 'KMP', 'KSP', 'KDF', 'KP'];
 
+    /**
+     * Produk inti yang sudah lama beriklan RUNNING sejak sebelum Juli 2026
+     * (keputusan data 17 Sep 2026): backfill bawaan fitur W men-set 2026-09-01,
+     * padahal order/spending Juli sudah masuk masa running — akibatnya data
+     * regional & spending Juli terklasifikasi testing dan dilewati.
+     */
+    public const RUNNING_SINCE_BY_CODE = [
+        'KMP' => '2026-07-01',
+        'KSP' => '2026-07-01',
+        'KBJ' => '2026-07-01',
+        'KCHP' => '2026-07-01',
+        'SH' => '2026-07-01',
+        'KNGH' => '2026-07-01',
+    ];
+
     public function run(): void
     {
         $inventoryId = Inventory::orderBy('id')->first()?->id;
@@ -227,7 +242,9 @@ class ProductSeeder extends Seeder
             }
             $toRunning = ($updates['ad_status'] ?? $p->ad_status) === Product::AD_STATUS_RUNNING;
             if ($toRunning && $p->start_running === null) {
-                $updates['start_running'] = $p->created_at?->toDateString() ?? now()->toDateString();
+                $updates['start_running'] = self::RUNNING_SINCE_BY_CODE[$p->code]
+                    ?? $p->created_at?->toDateString()
+                    ?? now()->toDateString();
             }
             if (! empty($updates)) {
                 $p->update($updates);

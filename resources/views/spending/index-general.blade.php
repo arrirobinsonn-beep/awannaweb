@@ -230,6 +230,51 @@
     </div>
     @endif
 
+    {{-- 🔬 Banner Ketidaksesuaian FASE TESTING (DUAL FASE, 18 Sep) --}}
+    @if($data['has_discrepancy_testing'] ?? false)
+    <div class="clay-alert clay-alert-error" style="margin:12px 16px;" data-reveal>
+        <span>🔬</span>
+        <div style="flex:1;font-size:.78rem;">
+            @if(count($data['discrepancies_testing']) > 0)
+            <strong>Ketidaksesuaian Data TESTING!</strong> Lead/Paid Regional Testing tidak sama dengan Spending fase Testing.
+            <div style="margin-top:3px;max-height:102px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach(array_slice($data['discrepancies_testing'], 0, 5, true) as $tgl => $d)
+                <div style="margin-top:3px;font-size:.74rem;line-height:1.45;">
+                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                    Regional Testing: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                    Spending Testing: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+                </div>
+                @endforeach
+            </div>
+            @endif
+
+            @php
+                $allMissingT = collect($data['missing_spending_dates_testing'] ?? [])
+                    ->merge(collect($data['missing_regional_dates_testing'] ?? []))
+                    ->sortKeys()->all();
+            @endphp
+            @if(count($allMissingT) > 0)
+            <strong style="display:block;margin-top:6px;">Data TESTING Belum Ditambahkan</strong>
+            <div style="margin-top:3px;max-height:102px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach(array_slice(array_keys($allMissingT), 0, 5) as $tgl)
+                @php
+                    $tglLblT = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+                @endphp
+                <div style="margin-top:3px;font-size:.74rem;line-height:1.45;">
+                    📅 {{ $tglLblT }} —
+                    @if(isset($data['missing_spending_dates_testing'][$tgl]))
+                    Belum mengisi data spending (fase testing) tanggal {{ $tglLblT }}
+                    @else
+                    Data regional testing belum diisi untuk tanggal {{ $tglLblT }}
+                    @endif
+                </div>
+                @endforeach
+            </div>
+            @endif
+        </div>
+    </div>
+    @endif
+
     {{-- ── Sub-tab Running/Testing (lebar penuh, dibagi 2) di dalam kartu tabel ── --}}
     <div class="table-subtabs">
         <button type="button" id="subtab-running" class="table-subtab active" onclick="switchSubTab('running')">

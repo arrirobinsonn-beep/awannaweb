@@ -10,10 +10,18 @@ class RegionalReport extends Model
 {
     use HasFactory;
 
+    /** Fase iklan asal baris (produk running/testing berdasar timeline produk). */
+    public const PHASE_RUNNING = 'running';
+
+    public const PHASE_TESTING = 'testing';
+
+    public const PHASES = [self::PHASE_RUNNING, self::PHASE_TESTING];
+
     protected $fillable = [
         'tanggal',
         'user_id',
         'province',
+        'ad_phase',
         'lead',
         'paid',
         'paid_ratio',
@@ -62,5 +70,15 @@ class RegionalReport extends Model
     public function scopeByProvince($query, string $province)
     {
         return $query->where('province', $province);
+    }
+
+    /**
+     * KeyBy map existing per (tanggal|province|ad_phase) — dipakai savePreview.
+     */
+    public function scopeKeyedPhase($query)
+    {
+        return $query->get()->keyBy(
+            fn ($r) => $r->tanggal->format('Y-m-d').'|'.$r->province.'|'.$r->ad_phase
+        );
     }
 }
