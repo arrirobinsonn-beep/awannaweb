@@ -307,6 +307,23 @@ function toggleVarian(id) {
         }
     }
 
+    // Tabel di-render ulang oleh AJAX → semua baris varian kembali TERTUTUP di
+    // DOM sementara `openRows` masih menyimpan id-nya (tidak sinkron → klik
+    // pertama pada tombol 🔖 tidak membuka apa pun). Ingat baris yang terbuka,
+    // kosongkan set, lalu buka kembali setelah render selesai.
+    function reopenVariantRows() {
+        var ids = Array.from(openRows);
+        openRows.clear();
+        ids.forEach(function(id) {
+            var el = document.getElementById('pv-' + id);
+            var chev = document.getElementById('chev-pv-' + id);
+            if (!el) return;
+            el.style.display = 'table-row';
+            if (chev) chev.style.transform = 'rotate(180deg)';
+            openRows.add(id);
+        });
+    }
+
     function fetchFiltered() {
         var url = filterUrl + '?' + getFilterParams().toString();
         fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
@@ -316,6 +333,7 @@ function toggleVarian(id) {
                 data.consumable_html, data.consumable_pagination, data.consumable_total, 'produk');
             applyTableSection(coreWrap, corePag, coreSection, coreCountEl,
                 data.core_html, data.core_pagination, data.core_total, 'produk');
+            reopenVariantRows();
             bindToggleEvents();
             bindPaginationLinks(consumablePag);
             bindPaginationLinks(corePag);
@@ -329,6 +347,7 @@ function toggleVarian(id) {
         .then(function(data) {
             applyTableSection(wrap, pag, section, countEl,
                 data.html, data.pagination, data.total, label);
+            reopenVariantRows();
             bindToggleEvents();
             bindPaginationLinks(pag);
             wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -398,6 +417,20 @@ function toggleVarian(id) {
     var pm = { url: null, method: 'POST' };
     var mProd = document.getElementById('modal-product');
     var pmTitle = document.getElementById('pm-title');
+    var PM_LABEL = '💾 Simpan Produk';
+
+    /**
+     * Tombol simpan WAJIB di-reset setiap modal dibuka & setelah simpan sukses.
+     * Dulu jalur SUKSES hanya memanggil fetchFiltered()+closeProductModal()
+     * sehingga tombol tertinggal `disabled` bertuliskan "Menyimpan..." — membuka
+     * modal lagi untuk produk berikutnya jadi tidak bisa disimpan (harus hard
+     * refresh dulu).
+     */
+    function resetProductSaveButton() {
+        var btn = document.getElementById('pm-save');
+        btn.disabled = false;
+        btn.innerHTML = PM_LABEL;
+    }
 
     function toggleAdFields(visible) {
         var fields = ['pm-ad-fields', 'pm-start-testing-field', 'pm-start-running-field'];
@@ -450,6 +483,7 @@ function toggleVarian(id) {
             var isConsumable = (defaultGoodsType || 'core') === 'consumable';
             toggleAdFields(!isConsumable);
         }
+        resetProductSaveButton();
         mProd.classList.add('active');
         setTimeout(function() { f('pm-kode').focus(); }, 150);
     };
@@ -484,10 +518,18 @@ function toggleVarian(id) {
         }
         post(pm.url, pm.method, body)
             .then(function(json) {
-                if (json.success) { fetchFiltered(); closeProductModal(); }
-                else { alert('Gagal: ' + json.message); btn.disabled = false; btn.innerHTML = '💾 Simpan Produk'; }
+                if (json.success) {
+                    fetchFiltered();
+                    closeProductModal();
+                } else {
+                    alert('Gagal: ' + json.message);
+                }
             })
-            .catch(function(err) { alert('Error: ' + err.message); btn.disabled = false; btn.innerHTML = '💾 Simpan Produk'; });
+            .catch(function(err) { alert('Error: ' + err.message); })
+            // SELALU reset tombol (pola .finally spt purchase/courier-rule):
+            // tanpa ini tombol tertinggal disabled "Menyimpan..." dan produk
+            // berikutnya tidak bisa disimpan tanpa hard refresh.
+            .finally(resetProductSaveButton);
     });
 
     // ══════════════════════════════════════════════════════
@@ -496,6 +538,14 @@ function toggleVarian(id) {
     var st = { url: null, edit: false };
     var mVar = document.getElementById('modal-variant');
     var pvTitle = document.getElementById('pv-title');
+    var PV_LABEL = '💾 Simpan Varian';
+
+    /** Reset tombol simpan varian (alasan sama dgn modal produk). */
+    function resetVariantSaveButton() {
+        var btn = document.getElementById('pv-save');
+        btn.disabled = false;
+        btn.innerHTML = PV_LABEL;
+    }
 
     window.openVariantModal = function(productId, btn) {
         var f = function(id) { return document.getElementById(id); };
@@ -514,6 +564,7 @@ function toggleVarian(id) {
             f('pv-jenis').value = ''; f('pv-power').value = '0';
             f('pv-status').value = 'active';
         }
+        resetVariantSaveButton();
         mVar.classList.add('active');
         setTimeout(function() { f('pv-kode').focus(); }, 150);
     };
@@ -532,10 +583,15 @@ function toggleVarian(id) {
         };
         post(st.url, st.edit ? 'PUT' : 'POST', body)
             .then(function(json) {
-                if (json.success) { fetchFiltered(); closeVariantModal(); }
-                else { alert('Gagal: ' + json.message); btn.disabled = false; btn.innerHTML = '💾 Simpan Varian'; }
+                if (json.success) {
+                    fetchFiltered();
+                    closeVariantModal();
+                } else {
+                    alert('Gagal: ' + json.message);
+                }
             })
-            .catch(function(err) { alert('Error: ' + err.message); btn.disabled = false; btn.innerHTML = '💾 Simpan Varian'; });
+            .catch(function(err) { alert('Error: ' + err.message); })
+            .finally(resetVariantSaveButton);
     });
 
     window.deleteVariant = function(id) {
