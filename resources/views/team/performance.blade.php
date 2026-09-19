@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('title','Performa Tim')
 @section('page-title','📊 Performa Tim')
-@section('page-subtitle','Lead & Paid per CS — data dari import Regional (dipisah Running / Testing)')
+@section('page-subtitle','Lead & Paid per CS — data dari import Regional')
 
 @push('styles')
 <style>
@@ -93,11 +93,6 @@ tbody .cs-name-sticky { z-index: 2; }
 
 @section('content')
 @php $u = auth()->user(); @endphp
-@php
-    // Tanggal unik dari kedua status (running + testing) — kartu "Total Hari"
-    $perfAllDates = array_unique(array_merge(array_keys($byDateRunning), array_keys($byDateTesting)));
-    $perfHasStats = count($perfAllDates) > 0;
-@endphp
 
 <div style="display:flex;flex-direction:column;gap:16px;">
 
@@ -116,19 +111,15 @@ tbody .cs-name-sticky { z-index: 2; }
         </form>
     </div>
 
-    {{-- Statistik ringkasan (Total Lead/Paid mengikuti tab aktif) --}}
+    {{-- Statistik ringkasan — kartu Lead/Paid mengikuti tab Running/Testing --}}
     <div class="grid-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:0;" data-reveal>
         <div class="stat-card stat-card-1" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Lead (CS)</div>
-            <div style="font-size:1.5rem;font-weight:900;" id="perf-sum-lead"
-                 data-run="{{ $runTotalLead }}" data-test="{{ $testTotalLead }}"
-                 data-counter="{{ $runTotalLead }}">{{ $runTotalLead }}</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('lead') }}" data-run="{{ collect($totalPerCs)->sum('lead') }}" data-test="{{ collect($totalPerCsTesting ?? [])->sum('lead') }}">{{ collect($totalPerCs)->sum('lead') }}</div>
         </div>
         <div class="stat-card stat-card-2" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Paid (CS)</div>
-            <div style="font-size:1.5rem;font-weight:900;" id="perf-sum-paid"
-                 data-run="{{ $runTotalPaid }}" data-test="{{ $testTotalPaid }}"
-                 data-counter="{{ $runTotalPaid }}">{{ $runTotalPaid }}</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ collect($totalPerCs)->sum('paid') }}" data-run="{{ collect($totalPerCs)->sum('paid') }}" data-test="{{ collect($totalPerCsTesting ?? [])->sum('paid') }}">{{ collect($totalPerCs)->sum('paid') }}</div>
         </div>
         <div class="stat-card stat-card-3" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total CS</div>
@@ -136,11 +127,11 @@ tbody .cs-name-sticky { z-index: 2; }
         </div>
         <div class="stat-card stat-card-4" style="padding:14px;">
             <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;opacity:.7;">Total Hari</div>
-            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ count($perfAllDates) }}">{{ count($perfAllDates) }}</div>
+            <div style="font-size:1.5rem;font-weight:900;" data-counter="{{ count($byDate) }}">{{ count($byDate) }}</div>
         </div>
     </div>
 
-    @if(! $perfHasStats)
+    @if(empty($byDate) && empty($byDateTesting))
         {{-- Empty state --}}
         <div class="clay-card" style="padding:60px 20px;text-align:center;" data-reveal>
             <div style="font-size:3.5rem;margin-bottom:12px;">📊</div>
@@ -156,77 +147,80 @@ tbody .cs-name-sticky { z-index: 2; }
         </div>
     @else
 
-        {{-- ═══════════════ TAB Running / Testing ═══════════════ --}}
-        <div style="display:flex;gap:0;margin-bottom:-2px;position:relative;z-index:2;" data-reveal>
-            <button onclick="switchPerfTab('running')" id="perftab-running"
-                    style="padding:9px 18px 11px;border:2px solid rgba(255,107,107,.25);border-bottom:2px solid #fff;border-radius:14px 14px 0 0;background:#fff;font-family:inherit;font-size:.82rem;font-weight:700;color:var(--color-primary,#FF6B6B);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;margin-right:4px;position:relative;z-index:3;">
-                🟢 Running
-                <span style="font-size:.7rem;font-weight:600;padding:1px 7px;border-radius:999px;background:rgba(255,107,107,.12);color:var(--color-primary);">{{ number_format($runTotalLead) }} lead</span>
+        {{-- ─── Tab fase: 🔵 Running / 🔬 Testing (DUAL FASE, 18 Sep) ─── --}}
+        <div style="display:flex;gap:8px;margin-bottom:12px;" data-reveal>
+            <button type="button" id="teamtab-btn-running" onclick="switchTeamTab('running')"
+                    class="clay-btn clay-btn-primary" style="padding:7px 16px;font-size:.78rem;font-weight:700;">
+                🔵 Running
             </button>
-            <button onclick="switchPerfTab('testing')" id="perftab-testing"
-                    style="padding:9px 18px 11px;border:2px solid rgba(0,0,0,.08);border-bottom:2px solid rgba(0,0,0,.08);border-radius:14px 14px 0 0;background:#f5f5f5;font-family:inherit;font-size:.82rem;font-weight:500;color:#6b7280;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;margin-right:4px;position:relative;z-index:1;">
+            <button type="button" id="teamtab-btn-testing" onclick="switchTeamTab('testing')"
+                    class="clay-btn clay-btn-outline" style="padding:7px 16px;font-size:.78rem;font-weight:700;">
                 🔬 Testing
-                <span style="font-size:.7rem;font-weight:600;padding:1px 7px;border-radius:999px;background:rgba(0,0,0,.06);color:#9ca3af;">{{ number_format($testTotalLead) }} lead</span>
             </button>
         </div>
 
-        {{-- ═══════════════ TAB CONTENT: Running ═══════════════ --}}
-        <div id="perftabcontent-running">
-            @if($u->hasRole('cs'))
-                {{-- SISI CS: satu tabel — tim di bawah advertiser tempat bernaung --}}
-                <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
+        <div id="teamtabcontent-running">
+        @if($u->hasRole('cs'))
+            {{-- ═══════ SISI CS: satu tabel — tim di bawah advertiser tempat bernaung ═══════ --}}
+            <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
+                <div class="perf-scroll-limit" style="overflow-x:auto;">
+                    <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
+                        @include('team.partials.performa-head', ['allDates' => $allDates, 'csCount' => $mainMembers->count()])
+                        <tbody>
+                            @include('team.partials.performa-rows', [
+                                'csList' => $mainMembers,
+                                'byDate' => $byDate,
+                                'allDates' => $allDates,
+                                'badge' => 'Utama',
+                            ])
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        @else
+            {{-- ═══════ SISI ADVERTISER: 1 tabel + diagram doughnut di samping ═══════ --}}
+            <div style="display:flex;gap:16px;align-items:stretch;flex-wrap:wrap;">
+                <div class="clay-card" style="padding:0;overflow:hidden;flex:1 1 520px;min-width:0;" data-reveal>
+                    <div style="padding:12px 16px;border-bottom:1px solid rgba(0,0,0,.05);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">👥 Performa Semua CS</span>
+                        <span class="clay-badge clay-badge-green" style="font-size:.65rem;">CS Utama paling atas · urut porsi penerimaan data</span>
+                    </div>
                     <div class="perf-scroll-limit" style="overflow-x:auto;">
                         <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
-                            @include('team.partials.performa-head', ['allDates' => $allDates, 'csCount' => $mainMembers->count()])
+                            @include('team.partials.performa-head', ['allDates' => $allDates, 'csCount' => $members->count()])
                             <tbody>
                                 @include('team.partials.performa-rows', [
-                                    'csList' => $mainMembers,
-                                    'byDate' => $byDateRunning,
+                                    'csList' => $members,
+                                    'byDate' => $byDate,
                                     'allDates' => $allDates,
-                                    'badge' => 'Utama',
                                 ])
                             </tbody>
                         </table>
                     </div>
                 </div>
-            @else
-                {{-- SISI ADVERTISER: tabel + diagram doughnut di samping --}}
-                <div style="display:flex;gap:16px;align-items:stretch;flex-wrap:wrap;">
-                    <div class="clay-card" style="padding:0;overflow:hidden;flex:1 1 520px;min-width:0;" data-reveal>
-                        <div style="padding:12px 16px;border-bottom:1px solid rgba(0,0,0,.05);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                            <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">👥 Performa Semua CS</span>
-                            <span class="clay-badge clay-badge-green" style="font-size:.65rem;">🟢 Running · CS Utama paling atas · urut porsi penerimaan data</span>
-                        </div>
-                        <div class="perf-scroll-limit" style="overflow-x:auto;">
-                            <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
-                                @include('team.partials.performa-head', ['allDates' => $allDates, 'csCount' => $members->count()])
-                                <tbody>
-                                    @include('team.partials.performa-rows', [
-                                        'csList' => $members,
-                                        'byDate' => $byDateRunning,
-                                        'allDates' => $allDates,
-                                    ])
-                                </tbody>
-                            </table>
-                        </div>
+
+                {{-- 🍩 Diagram doughnut: porsi lead per CS (termasuk CS tamu) --}}
+                <div class="clay-card donut-panel" style="padding:16px;width:320px;flex:0 0 320px;display:flex;flex-direction:column;" data-reveal data-reveal-delay="120">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">🍩 Porsi Lead per CS</span>
                     </div>
-
-                    @include('team.partials.performa-donut', [
-                        'chartData' => $chartDataRunning,
-                        'groupKey' => 'running',
-                        'badgeText' => '🟢 Running',
-                        'badgeBg' => 'rgba(16,185,129,.12)',
-                        'badgeColor' => '#065f46',
-                    ])
+                    <div style="font-size:.68rem;color:#9ca3af;margin-top:2px;margin-bottom:10px;">
+                        Hanya CS yang menerima lead pada rentang tanggal ini
+                    </div>
+                    @include('team.partials._donut', ['chartData' => $chartData, 'domId' => 'cs-donut'])
                 </div>
-            @endif
-        </div>
+            </div>
+        @endif
+        </div>{{{{-- /teamtabcontent-running --}}}
 
-        {{-- ═══════════════ TAB CONTENT: Testing ═══════════════ --}}
-        <div id="perftabcontent-testing" style="display:none;">
+        <div id="teamtabcontent-testing" style="display:none;">
             @if($u->hasRole('cs'))
-                {{-- SISI CS: satu tabel — tim di bawah advertiser tempat bernaung --}}
+                {{-- ═══════ SISI CS — FASE TESTING ═══════ --}}
                 <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
+                    <div style="padding:12px 16px;border-bottom:1px solid rgba(0,0,0,.05);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">🔬 Performa CS — Produk Testing</span>
+                        <span class="clay-badge" style="font-size:.65rem;background:#B45309;color:#fff;">Regional Testing</span>
+                    </div>
                     <div class="perf-scroll-limit" style="overflow-x:auto;">
                         <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
                             @include('team.partials.performa-head', ['allDates' => $allDates, 'csCount' => $mainMembers->count()])
@@ -242,12 +236,12 @@ tbody .cs-name-sticky { z-index: 2; }
                     </div>
                 </div>
             @else
-                {{-- SISI ADVERTISER: tabel + diagram doughnut di samping --}}
+                {{-- ═══════ SISI ADVERTISER — FASE TESTING: tabel + donut testing ═══════ --}}
                 <div style="display:flex;gap:16px;align-items:stretch;flex-wrap:wrap;">
                     <div class="clay-card" style="padding:0;overflow:hidden;flex:1 1 520px;min-width:0;" data-reveal>
                         <div style="padding:12px 16px;border-bottom:1px solid rgba(0,0,0,.05);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                            <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">👥 Performa Semua CS</span>
-                            <span class="clay-badge" style="font-size:.65rem;background:#fffbeb;color:#92400e;">🔬 Testing · CS Utama paling atas · urut porsi penerimaan data</span>
+                            <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">🔬 Performa Semua CS — Produk Testing</span>
+                            <span class="clay-badge" style="font-size:.65rem;background:#B45309;color:#fff;">Regional Testing</span>
                         </div>
                         <div class="perf-scroll-limit" style="overflow-x:auto;">
                             <table style="border-collapse:separate;border-spacing:0;width:100%;font-size:.78rem;white-space:nowrap;">
@@ -263,16 +257,18 @@ tbody .cs-name-sticky { z-index: 2; }
                         </div>
                     </div>
 
-                    @include('team.partials.performa-donut', [
-                        'chartData' => $chartDataTesting,
-                        'groupKey' => 'testing',
-                        'badgeText' => '🔬 Testing',
-                        'badgeBg' => 'rgba(245,158,11,.14)',
-                        'badgeColor' => '#92400e',
-                    ])
+                    <div class="clay-card donut-panel" style="padding:16px;width:320px;flex:0 0 320px;display:flex;flex-direction:column;" data-reveal data-reveal-delay="120">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">🍩 Porsi Lead per CS (Testing)</span>
+                        </div>
+                        <div style="font-size:.68rem;color:#9ca3af;margin-top:2px;margin-bottom:10px;">
+                            Hanya CS yang menerima lead TESTING pada rentang tanggal ini
+                        </div>
+                        @include('team.partials._donut', ['chartData' => $chartDataTesting, 'domId' => 'cs-donut-testing'])
+                    </div>
                 </div>
             @endif
-        </div>
+        </div>{{{{-- /teamtabcontent-testing --}}}
 
     @endif
 
@@ -286,29 +282,20 @@ tbody .cs-name-sticky { z-index: 2; }
     // ── Batas tinggi tabel: tampilkan ±7 baris data, sisanya scroll vertikal ──
     // Header sticky + kolom sticky + baris GRAND TOTAL (sticky bottom) tetap berfungsi
     // di dalam container scroll ini. Baris data = baris tbody non-sticky.
-    // Tabel pada tab yang tersembunyi (display:none) tidak diukur — diukur saat tab dibuka.
+    // Catatan: deteksi baris total memakai inline position:sticky (baris GRAND TOTAL) —
+    // jika nanti dipindah ke CSS class, sesuaikan filter di sini.
     const MAX_ROWS = 7;
 
-    function measure(table, dataRows, footerRow) {
-        let h = table.tHead ? table.tHead.offsetHeight : 0;
-        for (let i = 0; i < MAX_ROWS; i++) h += dataRows[i].offsetHeight;
-        const ft = footerRow();
-        if (ft) h += ft.offsetHeight;
-        return h;
-    }
-
-    function apply(scrollEl) {
+    document.querySelectorAll('.perf-scroll-limit').forEach((scrollEl) => {
         const table = scrollEl.querySelector('table');
         if (!table || !table.tBodies.length) return;
-        if (scrollEl.offsetParent === null) return; // tersembunyi (tab nonaktif) → nanti diukur saat dibuka
-
         const tbody = table.tBodies[0];
 
         // Baris data: tbody tanpa posisi sticky (grand total) & tanpa display:none
         const dataRows = Array.prototype.filter.call(tbody.rows, (r) => (
             r.style.position !== 'sticky' && r.style.display !== 'none'
         ));
-        if (dataRows.length <= MAX_ROWS) { scrollEl.style.maxHeight = ''; return; }
+        if (dataRows.length <= MAX_ROWS) return;
 
         const footerRow = () => {
             for (let j = 0; j < tbody.rows.length; j++) {
@@ -317,27 +304,29 @@ tbody .cs-name-sticky { z-index: 2; }
             return null;
         };
 
-        scrollEl.style.maxHeight = measure(table, dataRows, footerRow) + 'px';
+        const measure = () => {
+            let h = table.tHead ? table.tHead.offsetHeight : 0;
+            for (let i = 0; i < MAX_ROWS; i++) h += dataRows[i].offsetHeight;
+            // Grand total sticky-bottom ikut dihitung agar tidak menutupi baris ke-7
+            const ft = footerRow();
+            if (ft) h += ft.offsetHeight;
+            return h;
+        };
+
+        scrollEl.style.maxHeight = measure() + 'px';
 
         // Pass 2: scrollbar vertikal muncul → lebar konten menyusut → ukur ulang
         requestAnimationFrame(() => {
-            scrollEl.style.maxHeight = measure(table, dataRows, footerRow) + 'px';
+            scrollEl.style.maxHeight = measure() + 'px';
         });
-    }
 
-    // Dipakai switchPerfTab(): ukur ulang tabel pada tab yang baru ditampilkan
-    window.reapplyPerfTableLimit = function() {
-        document.querySelectorAll('.perf-scroll-limit').forEach((el) => apply(el));
-    };
-
-    document.querySelectorAll('.perf-scroll-limit').forEach((el) => apply(el));
-
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-            document.querySelectorAll('.perf-scroll-limit').forEach((el) => apply(el));
-        }, 150);
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                scrollEl.style.maxHeight = measure() + 'px';
+            }, 150);
+        });
     });
 })();
 </script>
@@ -345,58 +334,23 @@ tbody .cs-name-sticky { z-index: 2; }
 
 @push('scripts')
 <script>
-// ── Tab Running / Testing (2 tabel performa team) ──────────────
-function switchPerfTab(tab) {
-    var running = document.getElementById('perftabcontent-running');
-    var testing = document.getElementById('perftabcontent-testing');
-    var btnRun  = document.getElementById('perftab-running');
-    var btnTest = document.getElementById('perftab-testing');
-    if (tab === 'running') {
-        if (running) running.style.display = '';
-        if (testing) testing.style.display = 'none';
-        if (btnRun)  { btnRun.style.background = '#fff'; btnRun.style.color = 'var(--color-primary,#FF6B6B)'; btnRun.style.fontWeight = '700'; btnRun.style.borderColor = 'rgba(255,107,107,.25)'; btnRun.style.borderBottom = '2px solid #fff'; btnRun.style.zIndex = '3'; }
-        if (btnTest) { btnTest.style.background = '#f5f5f5'; btnTest.style.color = '#6b7280'; btnTest.style.fontWeight = '500'; btnTest.style.borderColor = 'rgba(0,0,0,.08)'; btnTest.style.borderBottom = '2px solid rgba(0,0,0,.08)'; btnTest.style.zIndex = '1'; }
-    } else {
-        if (running) running.style.display = 'none';
-        if (testing) testing.style.display = '';
-        if (btnRun)  { btnRun.style.background = '#f5f5f5'; btnRun.style.color = '#6b7280'; btnRun.style.fontWeight = '500'; btnRun.style.borderColor = 'rgba(0,0,0,.08)'; btnRun.style.borderBottom = '2px solid rgba(0,0,0,.08)'; btnRun.style.zIndex = '1'; }
-        if (btnTest) { btnTest.style.background = '#fff'; btnTest.style.color = '#92400e'; btnTest.style.fontWeight = '700'; btnTest.style.borderColor = 'rgba(245,158,11,.25)'; btnTest.style.borderBottom = '2px solid #fff'; btnTest.style.zIndex = '3'; }
-    }
-
-    // Kartu statistik (Total Lead/Paid CS) mengikuti tab aktif
-    ['perf-sum-lead', 'perf-sum-paid'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (!el) return;
-        el.textContent = (tab === 'running') ? el.getAttribute('data-run') : el.getAttribute('data-test');
-    });
-
-    // Ukur ulang tinggi tabel pada tab yang baru ditampilkan
-    if (window.reapplyPerfTableLimit) window.reapplyPerfTableLimit();
-}
-</script>
-@endpush
-
-@push('scripts')
-<script>
 (function () {
     'use strict';
-    // Hover doughnut — per grup (running & testing punya donut sendiri, keduanya
-    // ada di DOM; scoping via [data-donut-group] agar tidak saling menimpa).
-    document.querySelectorAll('[data-donut-group]').forEach(function(group) {
-        const segs = group.querySelectorAll('.cs-donut-seg');
-        const rows = group.querySelectorAll('[data-cs-legend]');
-        if (!segs.length) return;
+    // Hover donut SCOPED PER PANEL — 2 donut (Running/Testing) masing-masing
+    // punya svg + legend sendiri; jangan biarkan hover legend testing
+    // me-highlight segmen donut running.
+    document.querySelectorAll('.donut-panel').forEach((panel) => {
+        const svg = panel.querySelector('svg');
+        if (!svg) return;
+        const segs = panel.querySelectorAll('.cs-donut-seg');
+        const rows = panel.querySelectorAll('[data-cs-legend]');
 
-        // Warna segmen selalu tampil penuh (opacity 1) — hover hanya meredupkan yang lain,
-        // jadi warna kepingan di state diam = warna saat di-hover = warna swatch legend.
-        function highlight(name) {
+        const highlight = (name) => {
             segs.forEach(s => {
                 s.style.opacity = (!name || s.getAttribute('data-cs') === name) ? '1' : '0.15';
             });
-        }
+        };
 
-        // State diam = sama persis dengan state hover: set semua segmen ke opacity penuh
-        // lewat jalur inline-style yang identik (bukan atribut), biar render-nya dijamin sama.
         highlight(null);
 
         rows.forEach(row => {
@@ -409,5 +363,30 @@ function switchPerfTab(tab) {
         });
     });
 })();
+</script>
+@endpush
+
+@push('scripts')
+<script>
+// ── Tab fase 🔵 Running / 🔬 Testing (DUAL FASE) ──
+function switchTeamTab(tab) {
+    const runBtn = document.getElementById('teamtab-btn-running');
+    const testBtn = document.getElementById('teamtab-btn-testing');
+    const runPanel = document.getElementById('teamtabcontent-running');
+    const testPanel = document.getElementById('teamtabcontent-testing');
+    if (!runBtn || !testBtn || !runPanel || !testPanel) return;
+
+    const isRun = tab !== 'testing';
+    runPanel.style.display = isRun ? '' : 'none';
+    testPanel.style.display = isRun ? 'none' : '';
+    runBtn.className = isRun ? 'clay-btn clay-btn-primary' : 'clay-btn clay-btn-outline';
+    testBtn.className = isRun ? 'clay-btn clay-btn-outline' : 'clay-btn clay-btn-primary';
+
+    // Kartu Total Lead/Paid (CS) ikut tab aktif (pola applySummary halaman Spending)
+    document.querySelectorAll('[data-run][data-test]').forEach((el) => {
+        const val = isRun ? el.getAttribute('data-run') : el.getAttribute('data-test');
+        if (val !== null) el.textContent = val;
+    });
+}
 </script>
 @endpush

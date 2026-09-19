@@ -418,6 +418,52 @@
                 @endforeach
             </div>
             @endif
+
+            {{-- ─── FASE TESTING (18 Sep): banner terpisah utk regional testing vs spending testing ─── --}}
+            @if(count($discrepanciesTesting) > 0 || count($missingSpendingDatesTesting) > 0 || count($missingRegionalDatesTesting) > 0)
+            <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
+            <strong>🔬 Ketidaksesuaian Data TESTING Ditemukan!</strong> Lead/Paid Regional Testing tidak sama dengan Spending fase Testing.
+            @if(count($discrepanciesTesting) > 5)
+            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($discrepanciesTesting) }} tanggal — scroll untuk melihat sisanya
+            </div>
+            @endif
+            @if(count($discrepanciesTesting) > 0)
+            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach(array_slice($discrepanciesTesting, 0, 5, true) as $tgl => $d)
+                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                    Regional Testing: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                    Spending Testing: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+                </div>
+                @endforeach
+            </div>
+            @endif
+
+            @php
+                $allMissingTesting = collect($missingSpendingDatesTesting)
+                    ->merge(collect($missingRegionalDatesTesting))
+                    ->sortKeys()->all();
+            @endphp
+            @if(count($allMissingTesting) > 0)
+            <strong style="display:block;margin-top:6px;">🔬 Data TESTING Belum Ditambahkan</strong>
+            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach(array_slice(array_keys($allMissingTesting), 0, 5) as $tgl)
+                @php
+                    $tglLblT = (int) substr($tgl, 8, 2) . ' ' . ['1' => 'Januari', '2' => 'Februari', '3' => 'Maret', '4' => 'April', '5' => 'Mei', '6' => 'Juni', '7' => 'Juli', '8' => 'Agustus', '9' => 'September', '10' => 'Oktober', '11' => 'November', '12' => 'Desember'][(int) substr($tgl, 5, 2)] . ' ' . substr($tgl, 0, 4);
+                @endphp
+                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                    📅 {{ $tglLblT }} —
+                    @if(isset($missingSpendingDatesTesting[$tgl]))
+                    Belum mengisi data spending (fase testing) tanggal {{ $tglLblT }}
+                    @else
+                    Data regional testing belum diisi untuk tanggal {{ $tglLblT }}
+                    @endif
+                </div>
+                @endforeach
+            </div>
+            @endif
+            @endif
         </div>
     </div>
     @endif
@@ -474,48 +520,88 @@
             </div>
         </div>
 
-        {{-- KANAN: 4 Kartu Summary (2×2) --}}
+        {{-- KANAN: 8 Kartu Summary (4 Running + 4 Testing) --}}
         <div class="reg-summary-grid">
-            {{-- 1. Total Lead (Regional) --}}
-            <div class="reg-summary-card" title="Total lead dari data regional">
+            {{-- 1. Total Lead Regional Running --}}
+            <div class="reg-summary-card" title="Total lead produk RUNNING dari data regional">
                 <div class="reg-sc-icon reg-sc-purple">👥</div>
                 <div class="reg-sc-body">
-                    <div class="reg-sc-label">Lead (Regional)</div>
+                    <div class="reg-sc-label">🔵 Lead (Regional Running)</div>
                     <div class="reg-sc-value" data-counter="{{ $totalRegional['lead'] }}">{{ $totalRegional['lead'] }}</div>
                     <div class="reg-sc-sub">Dari file Excel regional</div>
                 </div>
             </div>
-            {{-- 2. Total Paid (Regional) --}}
-            <div class="reg-summary-card" title="Total paid dari data regional">
+            {{-- 2. Total Paid Regional Running --}}
+            <div class="reg-summary-card" title="Total paid produk RUNNING dari data regional">
                 <div class="reg-sc-icon reg-sc-teal">✅</div>
                 <div class="reg-sc-body">
-                    <div class="reg-sc-label">Paid (Regional)</div>
+                    <div class="reg-sc-label">🔵 Paid (Regional Running)</div>
                     <div class="reg-sc-value" style="color:#059669;" data-counter="{{ $totalRegional['paid'] }}">{{ $totalRegional['paid'] }}</div>
                     <div class="reg-sc-sub">Dari file Excel regional</div>
                 </div>
             </div>
-            {{-- 3. Total Lead (Spending) --}}
-            <div class="reg-summary-card" title="Total lead dari spending harian">
+            {{-- 3. Total Lead Spending Running --}}
+            <div class="reg-summary-card" title="Total lead spending fase running">
                 <div class="reg-sc-icon reg-sc-amber">📊</div>
                 <div class="reg-sc-body">
-                    <div class="reg-sc-label">Lead (Spending)</div>
+                    <div class="reg-sc-label">🔵 Lead (Spending Running)</div>
                     <div class="reg-sc-value" data-counter="{{ $totalSpending['lead'] }}">{{ $totalSpending['lead'] }}</div>
                     <div class="reg-sc-sub">Dari data spending harian</div>
                 </div>
             </div>
-            {{-- 4. Total Paid (Spending) --}}
-            <div class="reg-summary-card" title="Total paid dari spending harian">
+            {{-- 4. Total Paid Spending Running --}}
+            <div class="reg-summary-card" title="Total paid spending fase running">
                 <div class="reg-sc-icon reg-sc-red">💰</div>
                 <div class="reg-sc-body">
-                    <div class="reg-sc-label">Paid (Spending)</div>
+                    <div class="reg-sc-label">🔵 Paid (Spending Running)</div>
                     <div class="reg-sc-value" style="color:#ef4444;" data-counter="{{ $totalSpending['paid'] }}">{{ $totalSpending['paid'] }}</div>
+                    <div class="reg-sc-sub">Dari data spending harian</div>
+                </div>
+            </div>
+            {{-- 5. Total Lead Regional Testing --}}
+            <div class="reg-summary-card" title="Total lead produk TESTING dari data regional">
+                <div class="reg-sc-icon reg-sc-purple">👥</div>
+                <div class="reg-sc-body">
+                    <div class="reg-sc-label">🔬 Lead (Regional Testing)</div>
+                    <div class="reg-sc-value" data-counter="{{ $totalRegionalTesting['lead'] }}">{{ $totalRegionalTesting['lead'] }}</div>
+                    <div class="reg-sc-sub">Dari file Excel regional</div>
+                </div>
+            </div>
+            {{-- 6. Total Paid Regional Testing --}}
+            <div class="reg-summary-card" title="Total paid produk TESTING dari data regional">
+                <div class="reg-sc-icon reg-sc-teal">✅</div>
+                <div class="reg-sc-body">
+                    <div class="reg-sc-label">🔬 Paid (Regional Testing)</div>
+                    <div class="reg-sc-value" style="color:#059669;" data-counter="{{ $totalRegionalTesting['paid'] }}">{{ $totalRegionalTesting['paid'] }}</div>
+                    <div class="reg-sc-sub">Dari file Excel regional</div>
+                </div>
+            </div>
+            {{-- 7. Total Lead Spending Testing --}}
+            <div class="reg-summary-card" title="Total lead spending fase testing">
+                <div class="reg-sc-icon reg-sc-amber">📊</div>
+                <div class="reg-sc-body">
+                    <div class="reg-sc-label">🔬 Lead (Spending Testing)</div>
+                    <div class="reg-sc-value" data-counter="{{ $totalSpendingTesting['lead'] }}">{{ $totalSpendingTesting['lead'] }}</div>
+                    <div class="reg-sc-sub">Dari data spending harian</div>
+                </div>
+            </div>
+            {{-- 8. Total Paid Spending Testing --}}
+            <div class="reg-summary-card" title="Total paid spending fase testing">
+                <div class="reg-sc-icon reg-sc-red">💰</div>
+                <div class="reg-sc-body">
+                    <div class="reg-sc-label">🔬 Paid (Spending Testing)</div>
+                    <div class="reg-sc-value" style="color:#ef4444;" data-counter="{{ $totalSpendingTesting['paid'] }}">{{ $totalSpendingTesting['paid'] }}</div>
                     <div class="reg-sc-sub">Dari data spending harian</div>
                 </div>
             </div>
         </div>
     </div>
 
-    {{-- ─── Tabel Utama ─────────────────────────────── --}}
+    {{-- ─── Tabel Utama: Regional RUNNING ─────────── --}}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;" data-reveal>
+        <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">🔵 Produk Running</span>
+        <span class="clay-badge" style="font-size:.65rem;background:#4472C4;color:#fff;">Regional Running</span>
+    </div>
     <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
         <div class="reg-scroll-wrap">
             <table style="border-collapse:collapse;width:100%;font-size:.78rem;white-space:nowrap;">
@@ -635,6 +721,19 @@
                 </tbody>
             </table>
         </div>
+    </div>
+
+    {{-- ─── Tabel Kedua: Regional TESTING (DUAL FASE, 18 Sep) ─── --}}
+    <div style="margin-top:16px;" data-reveal>
+        @include('regional._matrix_table', [
+            'tableTitle' => '🔬 Produk Testing',
+            'tableSubtitle' => 'Regional Testing',
+            'matrix' => $matrixTesting,
+            'totalPerTanggal' => $totalPerTanggalTesting,
+            'accentHead' => '#B45309',
+            'accentHead2' => '#D97706',
+            'accentTotal' => '#B45309',
+        ])
     </div>
 
     {{-- Info --}}
@@ -1030,22 +1129,25 @@
                 previewErrors = json.errors || [];
                 previewPhoneContacts = json.phone_contacts || [];
                 previewSkippedTesting = json.skipped_testing || 0;
-                // ─── Simpan CS stats dari preview ────
+                // ─── Simpan CS stats dari preview (DUAL FASE) ────
                 previewCsStats = [];
-                if (json.data.cs_by_date) {
-                    var csDates = Object.keys(json.data.cs_by_date).sort();
+                var collectCs = function(csByDate, phase) {
+                    if (!csByDate) return;
+                    var csDates = Object.keys(csByDate).sort();
                     csDates.forEach(function(tgl) {
-                        json.data.cs_by_date[tgl].forEach(function(csItem) {
+                        csByDate[tgl].forEach(function(csItem) {
                             previewCsStats.push({
                                 tanggal: csItem.tanggal,
                                 cs_panggilan: csItem.cs_panggilan,
+                                ad_phase: phase,
                                 lead: csItem.lead,
-                                paid: csItem.paid,
-                                product_status: csItem.product_status || 'running'
+                                paid: csItem.paid
                             });
                         });
                     });
-                }
+                };
+                collectCs(json.data.cs_by_date, 'running');
+                collectCs(json.data.cs_by_date_testing, 'testing');
                 uploadIcon.textContent = '✅';
                 mUpload.classList.remove('active');
                 // Gunakan setTimeout biar transisi modal keluar dulu
@@ -1083,11 +1185,11 @@
             (pcCount ? '<div class="preview-stat" style="background:#f0fdf4;"><div class="val" style="color:#059669;">' + formatNumber(pcCount) + '</div><div class="lbl">No Telepon</div></div>' : '') +
             (uniqueCs.length ? '<div class="preview-stat" style="background:#f0fdf4;"><div class="val" style="color:#059669;">' + uniqueCs.length + '</div><div class="lbl">CS Unik</div></div>' : '');
 
-        // Info produk Testing yang dilewati (tidak tampil di tabel regional)
+        // Info produk Testing — kini MASUK tabel testing (DUAL FASE, tidak dibuang)
         if (previewSkippedTesting > 0) {
             var skipNote = document.createElement('div');
             skipNote.className = 'preview-testing-note';
-            skipNote.textContent = '🔬 ' + formatNumber(previewSkippedTesting) + ' lead produk Testing dilewati (tabel hanya menampilkan produk Running).';
+            skipNote.textContent = '🔬 ' + formatNumber(previewSkippedTesting) + ' baris produk Testing dimasukkan ke tabel Regional Testing (tidak dibuang).';
             statsEl.appendChild(skipNote);
         }
 
@@ -1103,30 +1205,42 @@
             errorsEl.style.display = 'none';
         }
 
-        // Tables
-        var dates = Object.keys(data.by_date).sort();
-        var html = '';
-        dates.forEach(function(tgl) {
-            var items = data.by_date[tgl];
-            var subLead = 0, subPaid = 0;
-            items.forEach(function(it) { subLead += it.lead; subPaid += it.paid; });
-            var subRatio = subLead > 0 ? (subPaid / subLead * 100) : 0;
-            var lbl = new Date(tgl + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+        // Tables — DUAL FASE: running (utama) + testing (kedua)
+        function renderProvinceTables(byDate, phase) {
+            var dates = Object.keys(byDate).sort();
+            var html = '';
+            dates.forEach(function(tgl) {
+                var items = byDate[tgl];
+                var subLead = 0, subPaid = 0;
+                items.forEach(function(it) { subLead += it.lead; subPaid += it.paid; });
+                var subRatio = subLead > 0 ? (subPaid / subLead * 100) : 0;
+                var lbl = new Date(tgl + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-            html += '<div class="date-section">📅 ' + lbl +
-                ' <span style="font-weight:400;font-size:.75rem;color:#6b7280;">— Lead: ' + formatNumber(subLead) +
-                ', Paid: ' + formatNumber(subPaid) + ', Ratio: ' + subRatio.toFixed(1) + '%</span></div>';
-            html += '<div style="overflow-x:auto;"><table class="modal-table" data-tanggal="' + tgl + '">';
-            html += '<thead><tr><th style="width:38%;text-align:left;">PROVINSI</th><th style="width:19%;">LEAD</th><th style="width:19%;">PAID</th><th style="width:19%;">RATIO</th></tr></thead><tbody>';
-            items.forEach(function(item) {
-                var ratio = item.lead > 0 ? (item.paid / item.lead * 100) : 0;
-                html += '<tr><td>' + item.province + '</td>' +
-                    '<td style="text-align:center;"><input type="number" min="0" class="prov-lead" value="' + item.lead + '" data-tanggal="' + tgl + '" data-province="' + escHtml(item.province) + '"></td>' +
-                    '<td style="text-align:center;"><input type="number" min="0" class="prov-paid" value="' + item.paid + '" data-tanggal="' + tgl + '" data-province="' + escHtml(item.province) + '"></td>' +
-                    '<td style="text-align:center;font-weight:700;" class="ratio-cell">' + ratio.toFixed(1) + '%</td></tr>';
+                html += '<div class="date-section">📅 ' + lbl +
+                    ' <span style="font-weight:400;font-size:.75rem;color:#6b7280;">— Lead: ' + formatNumber(subLead) +
+                    ', Paid: ' + formatNumber(subPaid) + ', Ratio: ' + subRatio.toFixed(1) + '%</span></div>';
+                html += '<div style="overflow-x:auto;"><table class="modal-table" data-tanggal="' + tgl + '" data-phase="' + phase + '">';
+                html += '<thead><tr><th style="width:38%;text-align:left;">PROVINSI</th><th style="width:19%;">LEAD</th><th style="width:19%;">PAID</th><th style="width:19%;">RATIO</th></tr></thead><tbody>';
+                items.forEach(function(item) {
+                    var ratio = item.lead > 0 ? (item.paid / item.lead * 100) : 0;
+                    html += '<tr><td>' + item.province + '</td>' +
+                        '<td style="text-align:center;"><input type="number" min="0" class="prov-lead" value="' + item.lead + '" data-tanggal="' + tgl + '" data-province="' + escHtml(item.province) + '"></td>' +
+                        '<td style="text-align:center;"><input type="number" min="0" class="prov-paid" value="' + item.paid + '" data-tanggal="' + tgl + '" data-province="' + escHtml(item.province) + '"></td>' +
+                        '<td style="text-align:center;font-weight:700;" class="ratio-cell">' + ratio.toFixed(1) + '%</td></tr>';
+                });
+                html += '</tbody></table></div>';
             });
-            html += '</tbody></table></div>';
-        });
+            return html;
+        }
+
+        var html = '<div class="date-section" style="color:#1d4ed8;font-weight:800;">🔵 Produk Running</div>'
+            + renderProvinceTables(data.by_date || {}, 'running');
+
+        var testingByDate = data.by_date_testing || {};
+        if (Object.keys(testingByDate).length > 0) {
+            html += '<div class="date-section" style="color:#b45309;font-weight:800;margin-top:10px;">🔬 Produk Testing</div>'
+                + renderProvinceTables(testingByDate, 'testing');
+        }
 
         // ─── Phone contacts table ──────────────────────
         if (previewPhoneContacts.length > 0) {
@@ -1331,17 +1445,18 @@
         previewSave.disabled = true;
         previewSave.innerHTML = '<span class="spinner-sm"></span> Memeriksa...';
 
-        // Collect items & unique dates
+        // Collect items & unique dates — DUAL FASE: phase dari data-phase tabel
         var items = [];
         var dateSet = {};
         tablesEl.querySelectorAll('.modal-table[data-tanggal]').forEach(function(table) {
             var tanggal = table.getAttribute('data-tanggal');
+            var phase = table.getAttribute('data-phase') || 'running';
             table.querySelectorAll('tbody tr').forEach(function(tr) {
                 var province = tr.querySelector('td:first-child').textContent.trim();
                 var lead = parseInt(tr.querySelector('.prov-lead').value) || 0;
                 var paid = parseInt(tr.querySelector('.prov-paid').value) || 0;
                 if (lead > 0 || paid > 0) {
-                    items.push({ tanggal: tanggal, province: province, lead: lead, paid: paid });
+                    items.push({ tanggal: tanggal, province: province, lead: lead, paid: paid, ad_phase: phase });
                     dateSet[tanggal] = true;
                 }
             });
@@ -1353,15 +1468,15 @@
             return;
         }
 
-        // ─── Kumpulkan CS stats ─────────────────────
+        // ─── Kumpulkan CS stats (DUAL FASE: ad_phase ikut terkirim) ─────────────────
         var csStatsPayload = [];
         previewCsStats.forEach(function(cs) {
             csStatsPayload.push({
                 tanggal: cs.tanggal,
                 cs_panggilan: cs.cs_panggilan,
+                ad_phase: cs.ad_phase || 'running',
                 lead: cs.lead,
-                paid: cs.paid,
-                product_status: cs.product_status || 'running'
+                paid: cs.paid
             });
         });
 

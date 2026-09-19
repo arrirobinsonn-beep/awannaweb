@@ -7,18 +7,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RegionalCsStat extends Model
 {
-    // Status produk dari baris file regional (dimensi pemisah 2 tabel performa team)
-    public const STATUS_RUNNING = 'running';
-    public const STATUS_TESTING = 'testing';
+    /** Fase iklan asal baris (produk running/testing berdasar timeline produk). */
+    public const PHASE_RUNNING = 'running';
+
+    public const PHASE_TESTING = 'testing';
+
+    public const PHASES = [self::PHASE_RUNNING, self::PHASE_TESTING];
 
     protected $fillable = [
         'tanggal',
         'user_id',
         'cs_panggilan',
         'cs_user_id',
+        'ad_phase',
         'lead',
         'paid',
-        'product_status',
     ];
 
     protected $casts = [
