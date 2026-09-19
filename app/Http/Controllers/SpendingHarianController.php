@@ -627,6 +627,9 @@ class SpendingHarianController extends Controller
             // Multi-tanggal: setiap item bisa membawa tanggal sendiri (fitur upload Excel).
             // Global 'tanggal' tetap didukung untuk form lama / edit.
             'tanggal' => ['nullable', 'date'],
+            // Upload Excel: baris yang SUDAH ada diganti (modal konfirmasi menjanjikan
+            // "isian lama akan DIGANTI"). Form manual tidak mengirim flag ini → tetap dilewati.
+            'replace' => ['nullable', 'boolean'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.tanggal' => ['required_without:tanggal', 'nullable', 'date'],
             'items.*.product_id' => ['required', 'exists:products,id'],
@@ -639,6 +642,7 @@ class SpendingHarianController extends Controller
         $user = Auth::user();
         $globalTanggal = $validated['tanggal'] ?? null;
         $items = $validated['items'];
+        $replace = (bool) ($validated['replace'] ?? false);
 
         // Validasi: advertiser hanya boleh pakai whitelist miliknya
         if ($user->hasRole('advertiser')) {
@@ -651,6 +655,7 @@ class SpendingHarianController extends Controller
         }
 
         $imported = 0;
+        $updated = 0;
         $skipped = 0;
         $affectedWhitelists = []; // whitelist_id => tanggal (untuk notifikasi CS)
 
@@ -661,19 +666,19 @@ class SpendingHarianController extends Controller
             ->whereIn('tanggal', $tanggalList)
             ->whereIn('whitelist_id', array_values(array_unique(array_column($items, 'whitelist_id'))))
             ->whereIn('product_id', array_values(array_unique(array_column($items, 'product_id'))))
-            ->get(['tanggal', 'whitelist_id', 'product_id'])
-            ->map(fn ($r) => $r->tanggal->format('Y-m-d').'|'.$r->whitelist_id.'|'.$r->product_id)
-            ->flip();
+            ->get(['id', 'tanggal', 'whitelist_id', 'product_id'])
+            ->mapWithKeys(fn ($r) => [$r->tanggal->format('Y-m-d').'|'.$r->whitelist_id.'|'.$r->product_id => $r->id]);
 
         $seenCombos = [];
 
-        DB::transaction(function () use ($items, $user, $globalTanggal, &$imported, &$skipped, &$affectedWhitelists, $existingCombos, &$seenCombos) {
+        DB::transaction(function () use ($items, $user, $globalTanggal, $replace, &$imported, &$updated, &$skipped, &$affectedWhitelists, $existingCombos, &$seenCombos) {
             foreach ($items as $item) {
                 $tanggal = $item['tanggal'] ?? $globalTanggal;
                 abort_unless($tanggal, 422, 'Tanggal tidak lengkap pada salah satu data.');
 
                 $combo = $tanggal.'|'.$item['whitelist_id'].'|'.$item['product_id'];
-                if (isset($existingCombos[$combo]) || isset($seenCombos[$combo])) {
+                if (isset($seenCombos[$combo])) {
+                    // Duplikat di dalam SATU payload → cukup baris pertama yang dipakai
                     $skipped++;
                     continue;
                 }
@@ -690,6 +695,27 @@ class SpendingHarianController extends Controller
                 ];
 
                 SpendingHarian::computeMetrics($data);
+
+                // Baris combo ini sudah ada:
+                // - replace=true (upload Excel + konfirmasi "AKAN DIGANTI") → data lama DIGANTI
+                // - tanpa replace (form manual) → dilewati seperti sebelumnya
+                if (isset($existingCombos[$combo])) {
+                    if (! $replace) {
+                        $skipped++;
+                        continue;
+                    }
+
+                    $row = SpendingHarian::find($existingCombos[$combo]);
+                    if ($row) {
+                        $row->update($data);
+                        $updated++;
+                        $affectedWhitelists[$item['whitelist_id']] = $tanggal;
+                    } else {
+                        $skipped++;
+                    }
+                    continue;
+                }
+
                 SpendingHarian::create($data);
                 $imported++;
 
@@ -720,17 +746,21 @@ class SpendingHarianController extends Controller
         }
 
         $message = "Berhasil menyimpan {$imported} data spending.";
+        if ($updated > 0) {
+            $message .= " {$updated} data lama diganti.";
+        }
         if ($skipped > 0) {
             $message .= " {$skipped} data dilewati karena sudah tercatat (tanggal + whitelist + produk yang sama).";
         }
 
         // Upload otomatis Meta memakai fetch dengan Accept: application/json →
-        // beri jumlah REAL (tersimpan vs dilewati) agar toast tidak menyesatkan
+        // beri jumlah REAL (tersimpan/diganti/dilewati) agar toast tidak menyesatkan
         // (sebelumnya selalu "N data berhasil disimpan" padahal banyak yang di-skip).
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
                 'imported' => $imported,
+                'updated' => $updated,
                 'skipped' => $skipped,
                 'message' => $message,
             ]);

@@ -1863,6 +1863,19 @@ function toggle(id) {
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── Toast flash JS (showFlash) — JANGAN dihapus: tanpa CSS ini semua notifikasi
+          hasil simpan/gagal di halaman ini tak terlihat (menggantung di akhir <body>). ── */
+    .sp-toast {
+        position: fixed; bottom: 26px; left: 50%;
+        transform: translateX(-50%) translateY(24px);
+        background: #1e1b2e; color: #fff; font-size: .8rem; font-weight: 600;
+        padding: 13px 22px; border-radius: 14px;
+        box-shadow: 0 12px 34px rgba(0,0,0,.3);
+        opacity: 0; transition: all .25s; z-index: 1300;
+        max-width: 92vw; text-align: center;
+    }
+    .sp-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
     /* ── Responsive upload modal ── */
     @media (max-width: 480px) {
         #upload-modal { padding: 10px; align-items: flex-end; }
@@ -1871,7 +1884,11 @@ function toggle(id) {
 </style>
 @endpush
 
-@if(!$hasWhitelist)
+{{-- Modal umum .modal-regional — dipakai oleh #sp-confirm-modal (markup-nya dikirim
+     lewat stack "body-end"). WAJIB dimuat TANPA syarat: dulu blok ini berada di dalam
+     kondisional "belum punya whitelist", sehingga advertiser yang SUDAH punya whitelist
+     tidak mendapat CSS-nya → modal konfirmasi simpan tampil polos & tertimbun di
+     belakang modal upload. --}}
 @push('styles')
 <style>
     .modal-regional {
@@ -1902,7 +1919,12 @@ function toggle(id) {
         padding: 12px 20px; border-top: 1px solid #e5e7eb;
     }
     .modal-container-sm { max-width: 420px; }
+</style>
+@endpush
 
+@if(!$hasWhitelist)
+@push('styles')
+<style>
     .modal-wl {
         position: fixed; inset: 0; z-index: 9999;
         display: none; align-items: center; justify-content: center; padding: 16px;
@@ -2666,10 +2688,11 @@ function toggle(id) {
     }
 
     // ─── Apply: cek tanggal ada → konfirmasi → kirim ke server ───
-    var pendingSpendingItems = null;
+    // Item yang menunggu konfirmasi (dipakai juga oleh tombol inline modal konfirmasi).
+    window.spPendingSpendingItems = null;
 
-    function applyResults() {
-        if (!upCombined.length) return;
+    // Kumpulkan item dari kartu hasil parsing yang masih tercentang
+    function collectSelectedItems() {
         var items = [];
         upCombined.forEach(function(dt, di) {
             dt.whitelists.forEach(function(w, wi) {
@@ -2689,6 +2712,12 @@ function toggle(id) {
                 });
             });
         });
+        return items;
+    }
+
+    function applyResults() {
+        if (!upCombined.length) return;
+        var items = collectSelectedItems();
         if (!items.length) { showFlash('⚠️ Tidak ada data yang dipilih. Centang minimal 1 baris.'); return; }
 
         // Kumpulkan tanggal unik
@@ -2727,8 +2756,12 @@ function toggle(id) {
                 return;
             }
 
-            // Ada overlap → tampilkan modal konfirmasi
-            pendingSpendingItems = items;
+            // Ada overlap → tampilkan modal konfirmasi.
+            // Bila modalnya tidak tersedia (markup hilang), jangan blokir penyimpanan.
+            var confirmModal = document.getElementById('sp-confirm-modal');
+            if (!confirmModal) { doSaveSpending(items); return; }
+
+            window.spPendingSpendingItems = items;
             var confirmDates = document.getElementById('sp-confirm-dates');
             var confirmWarning = document.getElementById('sp-confirm-warning');
             var html = '';
@@ -2744,7 +2777,10 @@ function toggle(id) {
             });
             confirmDates.innerHTML = html;
             confirmWarning.style.display = hasExisting ? '' : 'none';
-            document.getElementById('sp-confirm-modal').style.display = '';
+            // Tampilkan: hapus inline display:none lalu pakai class .active
+            // (CSS .modal-regional{display:none} tidak bisa ditimpa inline style kosong).
+            confirmModal.style.display = '';
+            confirmModal.classList.add('active');
         })
         .catch(function(err) {
             if (applyBtn) { applyBtn.disabled = false; applyBtn.innerHTML = '💾 Simpan ke Server'; }
@@ -2757,6 +2793,9 @@ function toggle(id) {
         if (applyBtn) { applyBtn.disabled = true; applyBtn.innerHTML = '<span class="spinner-sm"></span> Menyimpan…'; }
 
         var fd = new FormData();
+        // replace=1 → baris yang SUDAH ada diganti (sesuai konfirmasi "AKAN DIGANTI").
+        // Tanpa ini server hanya melewatinya → data lama tidak pernah berubah.
+        fd.append('replace', '1');
         items.forEach(function(item, idx) {
             fd.append('items[' + idx + '][tanggal]', item.tanggal);
             fd.append('items[' + idx + '][product_id]', item.product_id);
@@ -2782,10 +2821,12 @@ function toggle(id) {
             return r.json().then(function(d) {
                 if (!r.ok) throw new Error(d.message || 'Gagal menyimpan');
                 closeUploadModal();
-                var msg = '✅ ' + d.imported + ' data tersimpan'
-                    + (d.skipped > 0 ? ', ' + d.skipped + ' dilewati (sudah ada)' : '') + '!';
-                showFlash(msg);
-                setTimeout(function() { window.location.reload(); }, 1200);
+                var parts = [];
+                if (d.imported > 0) parts.push('✅ ' + d.imported + ' data tersimpan');
+                if (d.updated > 0)  parts.push('♻️ ' + d.updated + ' data lama diganti');
+                if (d.skipped > 0)  parts.push('⚠️ ' + d.skipped + ' dilewati');
+                showFlash(parts.length ? parts.join(' · ') + '!' : '⚠️ Tidak ada data yang berubah.');
+                setTimeout(function() { window.location.reload(); }, 1400);
             });
         })
         .catch(function(err) {
@@ -2795,23 +2836,31 @@ function toggle(id) {
     }
 
     // ─── Modal konfirmasi simpan spending ───
-    (function() {
+    // PENTING: markup #sp-confirm-modal dikirim lewat stack "body-end", sedangkan skrip ini
+    // ada di stack "scripts" yang dirender LEBIH DULU — binding getElementById di sini
+    // selalu bernilai null, sehingga tombol "💾 Ya, Simpan" mati (data tak pernah terkirim).
+    // Karena itu tombol modal memakai inline onclick ke fungsi global di bawah
+    // (pola sama dengan modal whitelist) → selalu hidup, tak tergantung urutan render.
+    function hideSpendingConfirm() {
         var modal = document.getElementById('sp-confirm-modal');
-        if (!modal) return;
-        var closeBtn = document.getElementById('sp-confirm-close');
-        var cancelBtn = document.getElementById('sp-confirm-cancel');
-        var yesBtn = document.getElementById('sp-confirm-yes');
-        var backdrop = modal.querySelector('.modal-backdrop');
+        if (modal) { modal.classList.remove('active'); modal.style.display = 'none'; }
+        window.spPendingSpendingItems = null;
+    }
 
-        function hideConfirm() { modal.style.display = 'none'; pendingSpendingItems = null; }
-        if (closeBtn) closeBtn.onclick = hideConfirm;
-        if (cancelBtn) cancelBtn.onclick = hideConfirm;
-        if (backdrop) backdrop.onclick = hideConfirm;
-        if (yesBtn) yesBtn.onclick = function() {
-            hideConfirm();
-            if (pendingSpendingItems) doSaveSpending(pendingSpendingItems);
-        };
-    })();
+    window.spConfirmCancel = function() {
+        hideSpendingConfirm();
+    };
+
+    window.spConfirmSave = function() {
+        var items = window.spPendingSpendingItems;
+        hideSpendingConfirm();
+
+        // State hilang (mis. modal dipakai ulang) → bangun ulang dari hasil parsing tercentang
+        if (!items || !items.length) items = collectSelectedItems();
+        if (!items || !items.length) { showFlash('⚠️ Tidak ada data yang dipilih. Centang minimal 1 baris.'); return; }
+
+        doSaveSpending(items);
+    };
 
     // Init on DOM ready
     if (document.readyState === 'loading') {
@@ -2930,11 +2979,11 @@ function toggle(id) {
 
 {{-- ═══════════════ MODAL KONFIRMASI SIMPAN SPENDING ═══════════════ --}}
 <div id="sp-confirm-modal" class="modal-regional" style="display:none;">
-    <div class="modal-backdrop"></div>
+    <div class="modal-backdrop" onclick="spConfirmCancel()"></div>
     <div class="modal-container modal-container-sm" style="max-width:420px;">
         <div class="modal-header">
             <h2>💾 Konfirmasi Simpan Spending</h2>
-            <button class="modal-close" id="sp-confirm-close" type="button">✕</button>
+            <button class="modal-close" id="sp-confirm-close" type="button" onclick="spConfirmCancel()">✕</button>
         </div>
         <div class="modal-body" style="padding:20px 22px;">
             <p style="font-size:.82rem;color:#374151;font-weight:600;margin:0 0 10px;">
@@ -2946,8 +2995,8 @@ function toggle(id) {
             </div>
         </div>
         <div class="modal-footer" style="justify-content:center;gap:12px;">
-            <button class="clay-btn clay-btn-outline" id="sp-confirm-cancel" type="button">Batal</button>
-            <button class="clay-btn clay-btn-primary" id="sp-confirm-yes" type="button">💾 Ya, Simpan</button>
+            <button class="clay-btn clay-btn-outline" id="sp-confirm-cancel" type="button" onclick="spConfirmCancel()">Batal</button>
+            <button class="clay-btn clay-btn-primary" id="sp-confirm-yes" type="button" onclick="spConfirmSave()">💾 Ya, Simpan</button>
         </div>
     </div>
 </div>
