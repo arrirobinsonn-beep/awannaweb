@@ -423,7 +423,7 @@ class RegionalImportTest extends TestCase
                 ->assertOk()
                 ->assertSee('Regional Running')
                 ->assertSee('Regional Testing')
-                ->assertSee('Ketidaksesuaian Data TESTING Ditemukan!');
+                ->assertSee('Ketidaksesuaian Data Ditemukan!');
         } finally {
             RegionalReport::where('user_id', $user->id)->delete();
             $running->delete();
@@ -464,6 +464,68 @@ class RegionalImportTest extends TestCase
         } finally {
             SpendingHarian::where('user_id', $user->id)->delete();
             $product->delete();
+        }
+    }
+
+    /**
+     * Tab Running/Testing di Detail Per Daerah (mekanisme tab halaman spending):
+     * tabel utama menampilkan data fase TERPILIH (satu tabel per fase, testing
+     * tersembunyi default), sedangkan 4 kartu summary & data chart ikut tab
+     * aktif via atribut data-run/data-test yang ditukar JS tanpa reload.
+     */
+    public function test_regional_page_has_running_testing_tabs_with_phase_data(): void
+    {
+        $user = $this->makeUser();
+        $user->assignRole('advertiser');
+
+        try {
+            RegionalReport::create([
+                'user_id' => $user->id,
+                'tanggal' => '2026-08-01',
+                'province' => 'JAWA BARAT',
+                'ad_phase' => 'running',
+                'lead' => 5,
+                'paid' => 2,
+                'paid_ratio' => 40.0,
+            ]);
+            RegionalReport::create([
+                'user_id' => $user->id,
+                'tanggal' => '2026-08-01',
+                'province' => 'JAWA BARAT',
+                'ad_phase' => 'testing',
+                'lead' => 9,
+                'paid' => 3,
+                'paid_ratio' => 33.33,
+            ]);
+
+            // Range 1 tanggal saja — halaman dengan 2 matriks × 1 bulan ber-MB,
+            // cukup membuat diff failure PHPUnit timeout tanpa info yang berguna.
+            $resp = $this->actingAs($user)
+                ->get(route('regional.index', ['dari' => '2026-08-01', 'sampai' => '2026-08-01']))
+                ->assertOk();
+
+            // ── Struktur tab (pola switchAdTab halaman spending) ──
+            $resp->assertSee("switchRegTab('running')", false)
+                ->assertSee("switchRegTab('testing')", false)
+                ->assertSee('id="regtabcontent-running"', false)
+                ->assertSee('id="regtabcontent-testing"', false);
+
+            // ── Kartu summary membawa nilai KEDUA fase (data-run/data-test) ──
+            // Regional lead 5 (running) vs 9 (testing); paid 2 vs 3.
+            $resp->assertSee('data-run="5"', false)
+                ->assertSee('data-test="9"', false)
+                ->assertSee('data-run="2"', false)
+                ->assertSee('data-test="3"', false);
+
+            // ── Data chart per fase dikirim terpisah (JS menukar saat ganti tab) ──
+            $resp->assertSee('leads: [5]', false)
+                ->assertSee('leads: [9]', false);
+
+            // ── Kedua tabel dirender via partial (subtitle per fase) ──
+            $resp->assertSee('Regional Running')
+                ->assertSee('Regional Testing');
+        } finally {
+            RegionalReport::where('user_id', $user->id)->delete();
         }
     }
 }

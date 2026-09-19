@@ -137,6 +137,31 @@ class RegionalController extends Controller
             'paid' => (int) $spendingTotalsTesting->sum('total_paid'),
         ];
 
+        // ─── Chart per fase (tab Running/Testing) ─────────────────────
+        // Top 10 provinsi by total lead dari matriks fase masing-masing —
+        // di-render ke JSON agar JS bisa menukar data chart saat ganti tab
+        // (1 chart, bukan 2 canvas — anti duplikasi visual).
+        $topProvincesByPhase = function (array $matrix) use ($masterProvinces, $allDates): array {
+            $provLeadTotals = [];
+            foreach ($masterProvinces as $prov) {
+                $t = 0;
+                foreach ($allDates as $d) {
+                    $t += $matrix[$prov][$d]['lead'];
+                }
+                if ($t > 0) {
+                    $provLeadTotals[$prov] = $t;
+                }
+            }
+            arsort($provLeadTotals);
+
+            return [
+                'labels' => array_slice(array_keys($provLeadTotals), 0, 10),
+                'leads' => array_slice(array_values($provLeadTotals), 0, 10),
+            ];
+        };
+        $chartRunning = $topProvincesByPhase($matrix);
+        $chartTesting = $topProvincesByPhase($matrixTesting);
+
         // ─── Guard tombol "Upload File Excel": advertiser wajib punya CS yang ditugaskan ──
         $hasAssignedCs = true;
         if ($user->hasRole('advertiser')) {
@@ -166,6 +191,8 @@ class RegionalController extends Controller
             'totalRegionalTesting',
             'totalSpending',
             'totalSpendingTesting',
+            'chartRunning',
+            'chartTesting',
             'hasDiscrepancy',
             'discrepancies',
             'missingSpendingDates', 'missingRegionalDates',

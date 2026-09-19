@@ -204,6 +204,50 @@
         padding: 10px 14px; font-size: .78rem; color: #991b1b; margin-bottom: 12px;
     }
 
+    /* ── Tab Running / Testing (mekanisme tab spending harian) ── */
+    .reg-tabs {
+        display: flex;
+        gap: 0;
+        margin-bottom: -2px;
+        position: relative;
+        z-index: 2;
+    }
+    .reg-tab {
+        padding: 9px 18px 11px;
+        border: 2px solid rgba(0,0,0,.08);
+        border-bottom: 2px solid rgba(0,0,0,.08);
+        border-radius: 14px 14px 0 0;
+        background: #f5f5f5;
+        font-family: inherit;
+        font-size: .82rem;
+        font-weight: 500;
+        color: #6b7280;
+        cursor: pointer;
+        transition: all .2s;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-right: 4px;
+        position: relative;
+        z-index: 1;
+    }
+    .reg-tab-badge {
+        font-size: .7rem;
+        font-weight: 600;
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: rgba(0,0,0,.06);
+        color: #9ca3af;
+    }
+    .reg-tab.active {
+        background: #fff;
+        font-weight: 700;
+        z-index: 3;
+        border-bottom: 2px solid #fff;
+    }
+    .reg-tab.active.reg-tab-running { color: #0d9488; border-color: rgba(13,148,136,.25); }
+    .reg-tab.active.reg-tab-testing { color: #b45309; border-color: rgba(180,83,9,.25); }
+
     /* ── Overview: Chart (kiri) + Summary 2×2 (kanan) ── */
     .reg-overview {
         display: grid;
@@ -367,7 +411,6 @@
     <div class="clay-alert clay-alert-error" data-reveal>
         <span>🚨</span>
         <div style="flex:1;font-size:.83rem;">
-            @if(count($discrepancies) > 0)
             <strong>Ketidaksesuaian Data Ditemukan!</strong> Total Lead/Paid Regional tidak sama dengan Spending Harian.
             @if(count($discrepancies) > 5)
             <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
@@ -380,6 +423,22 @@
                     📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
                     Regional: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
                     Spending: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
+                </div>
+                @endforeach
+            </div>
+            @if(count($discrepanciesTesting) > 0)
+            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">🔬 TESTING</div>
+            @if(count($discrepanciesTesting) > 5)
+            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
+                ⬇ Menampilkan 5 dari {{ count($discrepanciesTesting) }} tanggal — scroll untuk melihat sisanya
+            </div>
+            @endif
+            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
+                @foreach(array_slice($discrepanciesTesting, 0, 5, true) as $tgl => $d)
+                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
+                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
+                    Regional Testing: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
+                    Spending Testing: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
                 </div>
                 @endforeach
             </div>
@@ -419,33 +478,13 @@
             </div>
             @endif
 
-            {{-- ─── FASE TESTING (18 Sep): banner terpisah utk regional testing vs spending testing ─── --}}
-            @if(count($discrepanciesTesting) > 0 || count($missingSpendingDatesTesting) > 0 || count($missingRegionalDatesTesting) > 0)
-            <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
-            <strong>🔬 Ketidaksesuaian Data TESTING Ditemukan!</strong> Lead/Paid Regional Testing tidak sama dengan Spending fase Testing.
-            @if(count($discrepanciesTesting) > 5)
-            <div style="margin-top:6px;font-size:.7rem;color:#b91c1c;font-weight:600;">
-                ⬇ Menampilkan 5 dari {{ count($discrepanciesTesting) }} tanggal — scroll untuk melihat sisanya
-            </div>
-            @endif
-            @if(count($discrepanciesTesting) > 0)
-            <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
-                @foreach(array_slice($discrepanciesTesting, 0, 5, true) as $tgl => $d)
-                <div style="margin-top:4px;font-size:.78rem;line-height:1.45;">
-                    📅 {{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M') }} —
-                    Regional Testing: Lead {{ $d['regional_lead'] }}, Paid {{ $d['regional_paid'] }} |
-                    Spending Testing: Lead {{ $d['spending_lead'] }}, Paid {{ $d['spending_paid'] }}
-                </div>
-                @endforeach
-            </div>
-            @endif
-
             @php
                 $allMissingTesting = collect($missingSpendingDatesTesting)
                     ->merge(collect($missingRegionalDatesTesting))
                     ->sortKeys()->all();
             @endphp
             @if(count($allMissingTesting) > 0)
+            <div style="border-top:1px dashed rgba(255,107,107,.35);margin-top:10px;padding-top:10px;"></div>
             <strong style="display:block;margin-top:6px;">🔬 Data TESTING Belum Ditambahkan</strong>
             <div style="margin-top:4px;max-height:112px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#d1d5db transparent;padding-right:6px;">
                 @foreach(array_slice(array_keys($allMissingTesting), 0, 5) as $tgl)
@@ -462,7 +501,6 @@
                 </div>
                 @endforeach
             </div>
-            @endif
             @endif
         </div>
     </div>
@@ -489,25 +527,26 @@
     </div>
     @endif
 
-    {{-- ─── Ringkasan Total + Chart (2 kolom) ─────────── --}}
+    {{-- ─── Ringkasan Total + Chart (2 kolom, ikut TAB aktif) ─────────── --}}
     @php
-        // Data chart: total lead per provinsi (yang punya lead > 0)
-        $provLeadTotals = [];
-        foreach ($matrix as $prov => $dates) {
-            $t = collect($dates)->sum('lead');
-            if ($t > 0) $provLeadTotals[$prov] = $t;
-        }
-        arsort($provLeadTotals);
-        // Chart hanya menampilkan 10 provinsi dengan total lead tertinggi.
-        // Data tabel/rangkuman tetap menggunakan seluruh provinsi.
-        $provLeadTotals = array_slice($provLeadTotals, 0, 10, true);
-        $chartProvinces = array_keys($provLeadTotals);
-        $chartLeads = array_values($provLeadTotals);
         $periodeLabel = \Carbon\Carbon::parse($dari)->translatedFormat('d M Y') . ' – ' . \Carbon\Carbon::parse($sampai)->translatedFormat('d M Y');
         if ($dari === $sampai) $periodeLabel = \Carbon\Carbon::parse($dari)->translatedFormat('d M Y');
     @endphp
+
+    {{-- ═══════════════ TAB Running / Testing ═══════════════ --}}
+    <div class="reg-tabs" data-reveal>
+        <button type="button" onclick="switchRegTab('running')" id="regtab-running" class="reg-tab reg-tab-running active">
+            🟢 Running
+            <span class="reg-tab-badge" data-run="{{ $totalRegional['lead'] }} lead" data-test="{{ $totalRegionalTesting['lead'] }} lead">{{ $totalRegional['lead'] }} lead</span>
+        </button>
+        <button type="button" onclick="switchRegTab('testing')" id="regtab-testing" class="reg-tab reg-tab-testing">
+            🔬 Testing
+            <span class="reg-tab-badge" data-run="{{ $totalRegional['lead'] }} lead" data-test="{{ $totalRegionalTesting['lead'] }} lead">{{ $totalRegionalTesting['lead'] }} lead</span>
+        </button>
+    </div>
+
     <div class="reg-overview" data-reveal>
-        {{-- KIRI: Chart Bar Lead per Provinsi --}}
+        {{-- KIRI: Chart Bar Lead per Provinsi (data ikut tab aktif) --}}
         <div class="reg-chart-card">
             <div class="reg-chart-header">
                 <span class="reg-chart-title">📊 Top 10 Lead per Daerah</span>
@@ -520,211 +559,70 @@
             </div>
         </div>
 
-        {{-- KANAN: 8 Kartu Summary (4 Running + 4 Testing) --}}
+        {{-- KANAN: 4 Kartu Summary (mengikuti tab aktif, pola data-run/data-test halaman spending) --}}
         <div class="reg-summary-grid">
-            {{-- 1. Total Lead Regional Running --}}
-            <div class="reg-summary-card" title="Total lead produk RUNNING dari data regional">
+            {{-- 1. Lead Regional --}}
+            <div class="reg-summary-card" title="Total lead dari data regional"
+                 data-run-title="Total lead produk RUNNING dari data regional"
+                 data-test-title="Total lead produk TESTING dari data regional">
                 <div class="reg-sc-icon reg-sc-purple">👥</div>
                 <div class="reg-sc-body">
-                    <div class="reg-sc-label">🔵 Lead (Regional Running)</div>
-                    <div class="reg-sc-value" data-counter="{{ $totalRegional['lead'] }}">{{ $totalRegional['lead'] }}</div>
+                    <div class="reg-sc-label">Lead (Regional) <span class="reg-sc-phase">🟢 Running</span></div>
+                    <div class="reg-sc-value" data-run="{{ $totalRegional['lead'] }}" data-test="{{ $totalRegionalTesting['lead'] }}">{{ $totalRegional['lead'] }}</div>
                     <div class="reg-sc-sub">Dari file Excel regional</div>
                 </div>
             </div>
-            {{-- 2. Total Paid Regional Running --}}
-            <div class="reg-summary-card" title="Total paid produk RUNNING dari data regional">
+            {{-- 2. Paid Regional --}}
+            <div class="reg-summary-card" title="Total paid dari data regional"
+                 data-run-title="Total paid produk RUNNING dari data regional"
+                 data-test-title="Total paid produk TESTING dari data regional">
                 <div class="reg-sc-icon reg-sc-teal">✅</div>
                 <div class="reg-sc-body">
-                    <div class="reg-sc-label">🔵 Paid (Regional Running)</div>
-                    <div class="reg-sc-value" style="color:#059669;" data-counter="{{ $totalRegional['paid'] }}">{{ $totalRegional['paid'] }}</div>
+                    <div class="reg-sc-label">Paid (Regional) <span class="reg-sc-phase" style="color:#065f46;">🟢 Running</span></div>
+                    <div class="reg-sc-value" style="color:#059669;" data-run="{{ $totalRegional['paid'] }}" data-test="{{ $totalRegionalTesting['paid'] }}">{{ $totalRegional['paid'] }}</div>
                     <div class="reg-sc-sub">Dari file Excel regional</div>
                 </div>
             </div>
-            {{-- 3. Total Lead Spending Running --}}
-            <div class="reg-summary-card" title="Total lead spending fase running">
+            {{-- 3. Lead Spending --}}
+            <div class="reg-summary-card" title="Total lead spending"
+                 data-run-title="Total lead spending fase running"
+                 data-test-title="Total lead spending fase testing">
                 <div class="reg-sc-icon reg-sc-amber">📊</div>
                 <div class="reg-sc-body">
-                    <div class="reg-sc-label">🔵 Lead (Spending Running)</div>
-                    <div class="reg-sc-value" data-counter="{{ $totalSpending['lead'] }}">{{ $totalSpending['lead'] }}</div>
+                    <div class="reg-sc-label">Lead (Spending) <span class="reg-sc-phase" style="color:#065f46;">🟢 Running</span></div>
+                    <div class="reg-sc-value" data-run="{{ $totalSpending['lead'] }}" data-test="{{ $totalSpendingTesting['lead'] }}">{{ $totalSpending['lead'] }}</div>
                     <div class="reg-sc-sub">Dari data spending harian</div>
                 </div>
             </div>
-            {{-- 4. Total Paid Spending Running --}}
-            <div class="reg-summary-card" title="Total paid spending fase running">
+            {{-- 4. Paid Spending --}}
+            <div class="reg-summary-card" title="Total paid spending"
+                 data-run-title="Total paid spending fase running"
+                 data-test-title="Total paid spending fase testing">
                 <div class="reg-sc-icon reg-sc-red">💰</div>
                 <div class="reg-sc-body">
-                    <div class="reg-sc-label">🔵 Paid (Spending Running)</div>
-                    <div class="reg-sc-value" style="color:#ef4444;" data-counter="{{ $totalSpending['paid'] }}">{{ $totalSpending['paid'] }}</div>
-                    <div class="reg-sc-sub">Dari data spending harian</div>
-                </div>
-            </div>
-            {{-- 5. Total Lead Regional Testing --}}
-            <div class="reg-summary-card" title="Total lead produk TESTING dari data regional">
-                <div class="reg-sc-icon reg-sc-purple">👥</div>
-                <div class="reg-sc-body">
-                    <div class="reg-sc-label">🔬 Lead (Regional Testing)</div>
-                    <div class="reg-sc-value" data-counter="{{ $totalRegionalTesting['lead'] }}">{{ $totalRegionalTesting['lead'] }}</div>
-                    <div class="reg-sc-sub">Dari file Excel regional</div>
-                </div>
-            </div>
-            {{-- 6. Total Paid Regional Testing --}}
-            <div class="reg-summary-card" title="Total paid produk TESTING dari data regional">
-                <div class="reg-sc-icon reg-sc-teal">✅</div>
-                <div class="reg-sc-body">
-                    <div class="reg-sc-label">🔬 Paid (Regional Testing)</div>
-                    <div class="reg-sc-value" style="color:#059669;" data-counter="{{ $totalRegionalTesting['paid'] }}">{{ $totalRegionalTesting['paid'] }}</div>
-                    <div class="reg-sc-sub">Dari file Excel regional</div>
-                </div>
-            </div>
-            {{-- 7. Total Lead Spending Testing --}}
-            <div class="reg-summary-card" title="Total lead spending fase testing">
-                <div class="reg-sc-icon reg-sc-amber">📊</div>
-                <div class="reg-sc-body">
-                    <div class="reg-sc-label">🔬 Lead (Spending Testing)</div>
-                    <div class="reg-sc-value" data-counter="{{ $totalSpendingTesting['lead'] }}">{{ $totalSpendingTesting['lead'] }}</div>
-                    <div class="reg-sc-sub">Dari data spending harian</div>
-                </div>
-            </div>
-            {{-- 8. Total Paid Spending Testing --}}
-            <div class="reg-summary-card" title="Total paid spending fase testing">
-                <div class="reg-sc-icon reg-sc-red">💰</div>
-                <div class="reg-sc-body">
-                    <div class="reg-sc-label">🔬 Paid (Spending Testing)</div>
-                    <div class="reg-sc-value" style="color:#ef4444;" data-counter="{{ $totalSpendingTesting['paid'] }}">{{ $totalSpendingTesting['paid'] }}</div>
+                    <div class="reg-sc-label">Paid (Spending) <span class="reg-sc-phase" style="color:#92400e;">🟢 Running</span></div>
+                    <div class="reg-sc-value" style="color:#ef4444;" data-run="{{ $totalSpending['paid'] }}" data-test="{{ $totalSpendingTesting['paid'] }}">{{ $totalSpending['paid'] }}</div>
                     <div class="reg-sc-sub">Dari data spending harian</div>
                 </div>
             </div>
         </div>
     </div>
 
-    {{-- ─── Tabel Utama: Regional RUNNING ─────────── --}}
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;" data-reveal>
-        <span style="font-weight:800;font-size:.9rem;color:#1e1b2e;">🔵 Produk Running</span>
-        <span class="clay-badge" style="font-size:.65rem;background:#4472C4;color:#fff;">Regional Running</span>
-    </div>
-    <div class="clay-card" style="padding:0;overflow:hidden;" data-reveal>
-        <div class="reg-scroll-wrap">
-            <table style="border-collapse:collapse;width:100%;font-size:.78rem;white-space:nowrap;">
-                <thead>
-                    <tr class="reg-head-row">
-                        <th colspan="1" class="reg-sticky-left" style="background:#4472C4;color:#fff;padding:8px 14px;text-align:left;font-weight:700;font-size:.8rem;min-width:200px;border:1px solid rgba(255,255,255,.15);">
-                            PROVINSI
-                        </th>
-                        @foreach($allDates as $date)
-                        <th colspan="3" style="background:#4472C4;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;border:1px solid rgba(255,255,255,.15);min-width:100px;">
-                            {{ \Carbon\Carbon::parse($date)->format('d') }}
-                            <span style="display:block;font-weight:400;font-size:.65rem;opacity:.8;">
-                                {{ \Carbon\Carbon::parse($date)->translatedFormat('D') }}
-                            </span>
-                        </th>
-                        @endforeach
-                        {{-- TOTAL sticky kanan --}}
-                        <th colspan="3" class="reg-sticky-right reg-total-paid" style="background:#0d9488;color:#fff;padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;border:1px solid rgba(255,255,255,.15);width:240px;min-width:240px;">
-                            📊 TOTAL
-                        </th>
-                    </tr>
-                    <tr class="reg-head-row reg-head-row-2">
-                        <th class="reg-sticky-left" style="background:#5B9BD5;color:#fff;padding:6px 14px;text-align:left;font-weight:600;font-size:.72rem;border:1px solid rgba(255,255,255,.15);">
-                            {{ count($masterProvinces) }} Provinsi
-                        </th>
-                        @foreach($allDates as $dateIndex => $date)
-                            @php $isAlt = $dateIndex % 2 === 0; @endphp
-                            <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">LEAD</th>
-                            <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">RATIO</th>
-                            <th style="background:#5B9BD5;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);">PAID</th>
-                        @endforeach
-                        <th class="reg-sticky-right reg-total-lead" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);width:80px;min-width:80px;">LEAD</th>
-                        <th class="reg-sticky-right reg-total-ratio" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);width:80px;min-width:80px;">RATIO</th>
-                        <th class="reg-sticky-right reg-total-paid" style="background:#0d9488;color:#fff;padding:6px 4px;text-align:center;font-weight:600;font-size:.7rem;border:1px solid rgba(255,255,255,.15);width:80px;min-width:80px;">PAID</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($masterProvinces as $province)
-                    @php
-                        $provTotalLead = 0;
-                        $provTotalPaid = 0;
-                    @endphp
-                    <tr style="transition:background .12s;"
-                        onmouseenter="this.style.background='#f8fafc'"
-                        onmouseleave="this.style.background=''">
-                        <td class="reg-sticky-left" style="padding:6px 14px;font-weight:600;font-size:.78rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);white-space:nowrap;">
-                            {{ $province }}
-                        </td>
-                        @foreach($allDates as $dateIndex => $date)
-                            @php
-                                $isAlt = $dateIndex % 2 === 0;
-                                $stripClass = 'reg-date-striped' . ($isAlt ? '' : ' reg-date-alt');
-                                $cell = $matrix[$province][$date];
-                                $hasData = $cell['lead'] > 0 || $cell['paid'] > 0;
-                                $provTotalLead += $cell['lead'];
-                                $provTotalPaid += $cell['paid'];
-                            @endphp
-                            <td style="padding:8px 6px;text-align:center;font-weight:600;font-size:.82rem;border-bottom:1px solid rgba(0,0,0,.05);{{ $hasData ? 'color:#1e1b2e;cursor:pointer;' : 'color:#d1d5db;' }}"
-                                class="{{ $hasData ? 'cell-edit-trigger ' : '' }}{{ $stripClass }}"
-                                @if($hasData)
-                                data-id="{{ $cell['id'] }}"
-                                data-tanggal="{{ $date }}"
-                                data-province="{{ $province }}"
-                                data-lead="{{ $cell['lead'] }}"
-                                data-paid="{{ $cell['paid'] }}"
-                                data-ratio="{{ $cell['ratio'] }}"
-                                title="Klik untuk edit"
-                                @endif>
-                                {{ $hasData ? number_format($cell['lead']) : '0' }}
-                            </td>
-                            <td style="padding:8px 6px;text-align:center;font-size:.76rem;border-bottom:1px solid rgba(0,0,0,.05);{{ $hasData ? 'color:var(--color-primary);font-weight:700;' : 'color:#d1d5db;' }}"
-                                class="{{ $stripClass }}">
-                                @if($cell['lead'] > 0)
-                                    {{ number_format($cell['ratio'], 1) }}%
-                                @else
-                                    0%
-                                @endif
-                            </td>
-                            <td style="padding:8px 6px;text-align:center;font-weight:600;font-size:.82rem;border-bottom:1px solid rgba(0,0,0,.05);{{ $hasData ? 'color:#059669;' : 'color:#d1d5db;' }}"
-                                class="{{ $stripClass }}">
-                                {{ $hasData ? number_format($cell['paid']) : '0' }}
-                            </td>
-                        @endforeach
-                        {{-- Total per provinsi (sticky kanan) --}}
-                        @php $provRatio = $provTotalLead > 0 ? round($provTotalPaid / $provTotalLead * 100, 1) : 0; @endphp
-                        <td class="reg-sticky-right reg-total-lead" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">{{ number_format($provTotalLead) }}</td>
-                        <td class="reg-sticky-right reg-total-ratio" style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">{{ $provRatio > 0 ? number_format($provRatio, 1) . '%' : '0%' }}</td>
-                        <td class="reg-sticky-right reg-total-paid" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-bottom:1px solid rgba(0,0,0,.05);background:#f0fdfa;width:80px;min-width:80px;">{{ number_format($provTotalPaid) }}</td>
-                    </tr>
-                    @endforeach
-                    {{-- Grand Total Row (sticky bottom + sticky kanan) --}}
-                    <tr style="position:sticky;bottom:0;z-index:4;background:#F0FFFE;">
-                        <td class="reg-sticky-left" style="background:#F0FFFE;padding:8px 14px;font-weight:800;font-size:.82rem;color:#0d9488;border-top:2px solid #0d9488;">
-                            📊 GRAND TOTAL
-                        </td>
-                        @foreach($allDates as $dateIndex => $date)
-                            @php
-                                $tot = $totalPerTanggal[$date];
-                                $isAlt = $dateIndex % 2 === 0;
-                                $stripClass = 'reg-date-striped' . ($isAlt ? '' : ' reg-date-alt');
-                            @endphp
-                            <td style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#1e1b2e;border-top:2px solid #0d9488;" class="{{ $stripClass }}">{{ number_format($tot['lead']) }}</td>
-                            <td style="padding:8px 6px;text-align:center;font-weight:700;font-size:.8rem;color:var(--color-primary);border-top:2px solid #0d9488;" class="{{ $stripClass }}">
-                                {{ $tot['lead'] > 0 ? number_format($tot['paid'] / $tot['lead'] * 100, 1) . '%' : '0%' }}
-                            </td>
-                            <td style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:#059669;border-top:2px solid #0d9488;" class="{{ $stripClass }}">{{ number_format($tot['paid']) }}</td>
-                        @endforeach
-                        @php
-                            $grandLead = collect($totalPerTanggal)->sum('lead');
-                            $grandPaid = collect($totalPerTanggal)->sum('paid');
-                            $grandRatio = $grandLead > 0 ? round($grandPaid / $grandLead * 100, 1) : 0;
-                        @endphp
-                        <td class="reg-sticky-right reg-total-lead" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#0d9488;border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ number_format($grandLead) }}</td>
-                        <td class="reg-sticky-right reg-total-ratio" style="padding:8px 6px;text-align:center;font-weight:800;font-size:.85rem;color:var(--color-primary);border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ $grandRatio > 0 ? number_format($grandRatio, 1) . '%' : '0%' }}</td>
-                        <td class="reg-sticky-right reg-total-paid" style="padding:8px 6px;text-align:center;font-weight:900;font-size:.9rem;color:#059669;border-top:2px solid #0d9488;background:#e6fffa;width:80px;min-width:80px;">{{ number_format($grandPaid) }}</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
+    {{-- ─── Tabel Utama: Regional RUNNING (tab aktif default) ─────────── --}}
+    <div id="regtabcontent-running" data-reveal>
+        @include('regional._matrix_table', [
+            'tableTitle' => '🔵 Produk Running',
+            'tableSubtitle' => 'Regional Running',
+            'matrix' => $matrix,
+            'totalPerTanggal' => $totalPerTanggal,
+            'accentHead' => '#4472C4',
+            'accentHead2' => '#5B9BD5',
+            'accentTotal' => '#0d9488',
+        ])
     </div>
 
-    {{-- ─── Tabel Kedua: Regional TESTING (DUAL FASE, 18 Sep) ─── --}}
-    <div style="margin-top:16px;" data-reveal>
+    {{-- ─── Tabel Kedua: Regional TESTING (tersembunyi sampai tab Testing diklik) ─── --}}
+    <div id="regtabcontent-testing" style="display:none;" data-reveal>
         @include('regional._matrix_table', [
             'tableTitle' => '🔬 Produk Testing',
             'tableSubtitle' => 'Regional Testing',
@@ -983,6 +881,39 @@
     let previewPhoneContacts = [];
     let previewCsStats = []; // CS stats terbaru setelah edit
     let previewSkippedTesting = 0; // lead produk Testing yang dilewati (tidak tampil di tabel)
+
+    // ── Tab Running / Testing (mekanisme tab spending harian) ──
+    window.switchRegTab = function(tab) {
+        var running = document.getElementById('regtabcontent-running');
+        var testing = document.getElementById('regtabcontent-testing');
+        var btnRun  = document.getElementById('regtab-running');
+        var btnTest = document.getElementById('regtab-testing');
+        var isRun = tab !== 'testing';
+        if (running) running.style.display = isRun ? '' : 'none';
+        if (testing) testing.style.display = isRun ? 'none' : '';
+        if (btnRun)  btnRun.classList.toggle('active', isRun);
+        if (btnTest) btnTest.classList.toggle('active', !isRun);
+        applyRegSummary(isRun);
+        updateRegChart(isRun);
+    };
+
+    // Kartu summary mengikuti tab aktif — nilai ditukar via data-run/data-test
+    window.applyRegSummary = function(isRun) {
+        document.querySelectorAll('.reg-sc-value[data-run]').forEach(function(el) {
+            el.textContent = isRun ? el.getAttribute('data-run') : el.getAttribute('data-test');
+        });
+        document.querySelectorAll('.reg-tab-badge').forEach(function(el) {
+            el.textContent = isRun ? el.getAttribute('data-run') : el.getAttribute('data-test');
+        });
+        document.querySelectorAll('.reg-sc-phase').forEach(function(el) {
+            el.textContent = isRun ? '🟢 Running' : '🔬 Testing';
+            el.style.color = isRun ? '#065f46' : '#92400e';
+        });
+        document.querySelectorAll('.reg-summary-card[data-run-title]').forEach(function(c) {
+            var t = isRun ? c.getAttribute('data-run-title') : c.getAttribute('data-test-title');
+            if (t) c.title = t;
+        });
+    };
 
     // ── Helpers ──────────────────────────────────────
     function formatNumber(n) { return n.toLocaleString('id-ID'); }
@@ -1599,12 +1530,13 @@
 //    tetap menempel rapi tanpa celah/susun saat scroll vertikal. ──
 (function fixRegStickyHead() {
     function apply() {
-        var wrap = document.querySelector('.reg-scroll-wrap');
-        if (!wrap) return;
-        var rows = wrap.querySelectorAll('thead tr');
-        if (rows.length < 2) return;
-        var h1 = rows[0].getBoundingClientRect().height;
-        wrap.style.setProperty('--reg-head2', h1 + 'px');
+        // Semua wrapper matriks (Running & Testing) — partial dipakai 2× di DOM
+        document.querySelectorAll('.reg-scroll-wrap').forEach(function(wrap) {
+            var rows = wrap.querySelectorAll('thead tr');
+            if (rows.length < 2) return;
+            var h1 = rows[0].getBoundingClientRect().height;
+            wrap.style.setProperty('--reg-head2', h1 + 'px');
+        });
     }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', apply);
@@ -1626,19 +1558,23 @@
     'use strict';
     var canvas = document.getElementById('regionalChart');
     var scrollWrap = document.getElementById('reg-chart-scroll');
-    if (!canvas) return;
+    if (!canvas || typeof Chart === 'undefined') return;
 
-    var labels = @json($chartProvinces);
-    var leadData = @json($chartLeads);
+    // Data chart PER FASE — ditukar saat ganti tab (1 chart, bukan 2 canvas)
+    var phaseData = {
+        running: { labels: @json($chartRunning['labels']), leads: @json($chartRunning['leads']) },
+        testing: { labels: @json($chartTesting['labels']), leads: @json($chartTesting['leads']) }
+    };
 
-    if (!labels.length) return;
+    var currentPhase = 'running';
+    var mainChart = null;
 
-    // Hitung tinggi canvas dinamis: 32px per bar + padding atas-bawah
-    var barHeight = 32;
-    var topPad = 10;
-    var bottomPad = 5;
-    var neededHeight = labels.length * barHeight + topPad + bottomPad;
-    canvas.parentElement.style.height = neededHeight + 'px';
+    function heightFor(labels) {
+        var barHeight = 32;
+        var topPad = 10;
+        var bottomPad = 5;
+        return Math.max(labels.length, 1) * barHeight + topPad + bottomPad;
+    }
 
     var sharedScaleConfig = {
         x: {
@@ -1653,13 +1589,13 @@
     };
 
     // 1) Main chart — bars only (x-axis hidden)
-    var mainChart = new Chart(canvas.getContext('2d'), {
+    mainChart = new Chart(canvas.getContext('2d'), {
         type: 'bar',
         data: {
-            labels: labels,
+            labels: phaseData.running.labels,
             datasets: [{
                 label: 'Lead',
-                data: leadData,
+                data: phaseData.running.leads,
                 backgroundColor: 'rgba(139,92,246,0.7)',
                 borderColor: '#8b5cf6',
                 borderWidth: 1,
@@ -1690,6 +1626,17 @@
             }
         }
     });
+    canvas.parentElement.style.height = heightFor(phaseData.running.labels) + 'px';
+
+    // Dipanggil switchRegTab — tukar dataset chart sesuai fase aktif
+    window.updateRegChart = function(isRun) {
+        currentPhase = isRun ? 'running' : 'testing';
+        var pd = phaseData[currentPhase];
+        canvas.parentElement.style.height = heightFor(pd.labels) + 'px';
+        mainChart.data.labels = pd.labels;
+        mainChart.data.datasets[0].data = pd.leads;
+        mainChart.update();
+    };
 })();
 </script>
 @endpush
