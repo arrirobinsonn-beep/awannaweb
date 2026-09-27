@@ -362,6 +362,147 @@ class AggregatorTrackingImportTest extends TestCase
         $this->assertSame(100, $stock->stockOf($variant->id));
     }
 
+    /**
+     * Sejak 27 Sep 2026: stok dianggap KELUAR saat kolom resi (awb) terisi dari
+     * upload status agregator — bukan saat export template (export hanya cek).
+     */
+    public function test_awb_fill_records_stock_out(): void
+    {
+        $product = $this->makeProduct(100);
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $local = substr($phone, 2);
+
+        $stock = $this->app->make(StockService::class);
+        $variant = $this->variant($product);
+        $this->assertSame(100, $stock->stockOf($variant->id));
+
+        $path = $this->sicepatCsv([
+            [
+                'Nomor Resi' => 'SR'.uniqid(),
+                'Status' => 'Proses pengiriman',
+                'Nama Penerima' => 'Customer Tracking',
+                'Isi Paket' => 'Produk Tracking 2 pcs',
+                'Jumlah Isi Paket' => 2,
+                'Alamat Penerima' => 'Jl. Merdeka No. 10',
+                'No. HP Penerima' => '0'.$local,
+            ],
+        ]);
+
+        $result = (new AggregatorTrackingImportService)->import($path);
+
+        $this->assertSame(1, $result['stock_out']);
+        $this->assertSame(0, $result['stock_returned']);
+
+        $order->refresh();
+        $this->assertNotNull($order->awb);
+        $this->assertSame('in_transit', $order->aggregator_status);
+        $this->assertSame(98, $stock->stockOf($variant->id));
+        $this->assertSame(1, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
+    }
+
+    /** Re-import file yang sama (awb sudah terisi) tidak menggandakan jurnal. */
+    public function test_awb_fill_stock_out_is_idempotent(): void
+    {
+        $product = $this->makeProduct(100);
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $local = substr($phone, 2);
+
+        $stock = $this->app->make(StockService::class);
+        $variant = $this->variant($product);
+
+        $path = $this->sicepatCsv([
+            [
+                'Nomor Resi' => 'SR'.uniqid(),
+                'Status' => 'Proses pengiriman',
+                'Nama Penerima' => 'Customer Tracking',
+                'Isi Paket' => 'Produk Tracking 2 pcs',
+                'Jumlah Isi Paket' => 2,
+                'Alamat Penerima' => 'Jl. Merdeka No. 10',
+                'No. HP Penerima' => '0'.$local,
+            ],
+        ]);
+
+        $svc = new AggregatorTrackingImportService;
+
+        $first = $svc->import($path);
+        $this->assertSame(1, $first['stock_out']);
+        $this->assertSame(98, $stock->stockOf($variant->id));
+
+        $second = $svc->import($path);
+        $this->assertSame(0, $second['stock_out']);
+
+        $this->assertSame(98, $stock->stockOf($variant->id));
+        $this->assertSame(1, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
+    }
+
+    /** Resi pertama langsung `returned` (barang tidak jadi berangkat) → tanpa jurnal out. */
+    public function test_first_sight_returned_fills_awb_without_stock_out(): void
+    {
+        $product = $this->makeProduct(100);
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $local = substr($phone, 2);
+
+        $stock = $this->app->make(StockService::class);
+        $variant = $this->variant($product);
+
+        $path = $this->sicepatCsv([
+            [
+                'Nomor Resi' => 'SR'.uniqid(),
+                'Status' => 'Retur',
+                'Nama Penerima' => 'Customer Tracking',
+                'Isi Paket' => 'Produk Tracking 2 pcs',
+                'Jumlah Isi Paket' => 2,
+                'Alamat Penerima' => 'Jl. Merdeka No. 10',
+                'No. HP Penerima' => '0'.$local,
+            ],
+        ]);
+
+        $result = (new AggregatorTrackingImportService)->import($path);
+
+        $this->assertSame(0, $result['stock_out']);
+        $order->refresh();
+        $this->assertNotNull($order->awb);
+        $this->assertSame('returned', $order->aggregator_status);
+        $this->assertSame(100, $stock->stockOf($variant->id));
+        $this->assertSame(0, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
+    }
+
+    /** Order `undeliverable` (paket tak terkirim): resi terisi tapi stok tidak keluar. */
+    public function test_undeliverable_order_gets_awb_without_stock_out(): void
+    {
+        $product = $this->makeProduct(100);
+        $phone = '62812'.substr(preg_replace('/\D/', '', uniqid()), -8);
+        $order = $this->makeOrder($phone, $product, 2, 'Jl. Merdeka No. 10');
+        $order->update(['courier' => 'undeliverable']);
+        $local = substr($phone, 2);
+
+        $stock = $this->app->make(StockService::class);
+        $variant = $this->variant($product);
+
+        $path = $this->sicepatCsv([
+            [
+                'Nomor Resi' => 'SR'.uniqid(),
+                'Status' => 'Proses pengiriman',
+                'Nama Penerima' => 'Customer Tracking',
+                'Isi Paket' => 'Produk Tracking 2 pcs',
+                'Jumlah Isi Paket' => 2,
+                'Alamat Penerima' => 'Jl. Merdeka No. 10',
+                'No. HP Penerima' => '0'.$local,
+            ],
+        ]);
+
+        $result = (new AggregatorTrackingImportService)->import($path);
+
+        $this->assertSame(0, $result['stock_out']);
+        $order->refresh();
+        $this->assertNotNull($order->awb);
+        $this->assertSame(100, $stock->stockOf($variant->id));
+        $this->assertSame(0, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
+    }
+
     public function test_import_matches_by_phone_and_name_regardless_of_address(): void
     {
         $product = $this->makeProduct();

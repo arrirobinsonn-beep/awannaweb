@@ -6,6 +6,7 @@ use App\Models\ExportTemplateMapping;
 use App\Models\OrderOnlineImportBatch;
 use App\Models\Product;
 use App\Models\ShippingOrder;
+use App\Models\StockMovement;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -24,9 +25,13 @@ use ZipArchive;
  *
  * Hanya order berstatus `real` / `tembakan` yang diekspor; order lain ditandai
  * `stock_note` dan dilewati. Order yang sudah punya resi (`awb` terisi) TIDAK ikut
- * diekspor (sudah dikirim = tidak boleh di-reserve/ekspor ulang). Saat export, stok
- * produk dikurangi lewat jurnal `stock_movements` (reference `order_online`, idempotent
- * per order).
+ * diekspor (sudah dikirim = tidak boleh di-export ulang).
+ *
+ * Sejak 27 September 2026 export TIDAK mengurangi stok — hanya mengecek
+ * ketersediaan (dry-run via StockService::planOut + assertStockAvailable):
+ * stok kurang / produk tak dikenal → tetap di-skip + `stock_note`. Pengurangan
+ * stok (jurnal `order_online`) terjadi saat admin upload status agregator dan
+ * kolom resi (`awb`) order keisi — lihat AggregatorTrackingImportService.
  *     * Order dikelompokkan per gudang (lihat `warehouseFor()`): KSP→Aurora, SH→GTM,
      * selain itu → sender. Satu gudang = 1 file .xlsx langsung; ≥ 2 gudang =
      * 1 ZIP berisi file per gudang (karena alamat pickup tiap gudang berbeda).
@@ -126,9 +131,10 @@ class OrderTemplateExportService
     /**
      * Generate file Excel (atau ZIP multi-gudang) dan kirim sebagai unduhan.
      *
-     * Sebelum menulis file, stok produk order yang layak diekspor dikurangi
-     * (jurnal `order_online`). Order tanpa product match / stok kurang ditandai
-     * `stock_note` dan TIDAK ikut di file.
+     * Sebelum menulis file, ketersediaan stok order yang layak diekspor dicek
+     * (TANPA mengurangi/stok masih utuh — jurnal dibuat saat resi terisi).
+     * Order tanpa product match / stok kurang ditandai `stock_note` dan TIDAK
+     * ikut di file.
      */
     public function download(OrderOnlineImportBatch $batch, string $template, ?string $courier = null): StreamedResponse
     {
@@ -169,15 +175,23 @@ class OrderTemplateExportService
     }
 
     /**
-     * Validasi & kurangi stok untuk order yang layak, kembalikan order yang masuk file.
+     * Cek ketersediaan stok untuk order yang layak (TANPA menulis jurnal),
+     * kembalikan order yang masuk file.
+     *
+     * Sejak 27 September 2026 pengurangan stok dipindah ke momen resi (awb)
+     * terisi — export hanya mengecek: order stok kurang / produk tak dikenal
+     * tetap di-skip + `stock_note`. Order yang SUDAH punya jurnal `order_online`
+     * (sudah pernah tercatat keluar) lolos tanpa dicek agar tidak double-count
+     * dengan jurnalnya sendiri. `$reserved` melacak rencana keluar dalam 1 batch
+     * export agar pengecekan menyerupai perilaku lama yang berurutan.
      *
      * @param  Collection<int, ShippingOrder>  $orders
-     * @return Collection order yang berhasil dicatat (stok cukup & terhubung produk)
+     * @return Collection order yang lolos cek (stok cukup & terhubung produk)
      */
     protected function reserveStock(Collection $orders): Collection
     {
         $exportable = collect();
-        $userId = auth()->id();
+        $reserved = []; // variantId → qty yang sudah dipesan batch berjalan
 
         foreach ($orders as $order) {
             if (! $order->product_variant_id) {
@@ -186,16 +200,28 @@ class OrderTemplateExportService
                 continue;
             }
 
+            // Sudah tercatat keluar (jurnal ada — legacy alur export lama / sudah
+            // pernah kena trigger resi) → stok sudah terpotong, tidak dicek ulang.
+            $hasJournal = StockMovement::where('reference', 'order_online')
+                ->where('reference_id', $order->id)
+                ->where('type', 'out')
+                ->exists();
+
+            if ($hasJournal) {
+                $order->update(['stock_note' => null]);
+                $exportable->push($order);
+
+                continue;
+            }
+
             try {
-                $this->stock->recordOutWithPackaging(
-                    $order->product_variant_id,
-                    now()->format('Y-m-d'),
-                    max(1, $order->quantity),
-                    'order_online',
-                    $order->id,
-                    'Order online '.$order->order_id,
-                    $userId,
-                );
+                $plan = $this->stock->planOut($order->product_variant_id, max(1, $order->quantity));
+                $this->stock->assertStockAvailable($plan, $reserved);
+
+                foreach ($plan as $item) {
+                    $reserved[$item['variant_id']] = ($reserved[$item['variant_id']] ?? 0) + $item['quantity'];
+                }
+
                 $order->update(['stock_note' => null]);
                 $exportable->push($order);
             } catch (\RuntimeException $e) {

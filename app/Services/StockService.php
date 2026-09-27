@@ -65,8 +65,10 @@ class StockService
     /**
      * Catat barang keluar ke jurnal + kurangi stok varian.
      * `inventoryId` opsional — bila diisi, pergerakan tercatat ke gudang tsb.
+     * `force = true` melewati validasi stok (stok boleh minus) — dipakai alur
+     * resi/aggregator: barang dianggap sudah berangkat walau stok kurang.
      *
-     * @throws \RuntimeException jika stok tidak mencukupi
+     * @throws \RuntimeException jika stok tidak mencukupi (kecuali force)
      */
     public function recordOut(
         int $variantId,
@@ -76,14 +78,15 @@ class StockService
         ?int $referenceId = null,
         ?string $note = null,
         ?int $createdBy = null,
-        ?int $inventoryId = null
+        ?int $inventoryId = null,
+        bool $force = false
     ): StockMovement {
-        return DB::transaction(function () use ($variantId, $date, $quantity, $reference, $referenceId, $note, $createdBy, $inventoryId) {
+        return DB::transaction(function () use ($variantId, $date, $quantity, $reference, $referenceId, $note, $createdBy, $inventoryId, $force) {
             $variant = ProductVariant::findOrFail($variantId);
             $inventoryId ??= $variant->product?->primaryInventoryId();
             $current = $this->stockOf($variantId);
 
-            if ($quantity > $current) {
+            if (! $force && $quantity > $current) {
                 throw new \RuntimeException(
                     "Stok tidak mencukupi: {$variant->name} tersisa {$current}, keluar {$quantity}."
                 );
@@ -134,6 +137,7 @@ class StockService
      *
      * Semua dicatat dalam satu transaksi; bila salah satu varian stoknya kurang,
      * RuntimeException dilempar dan seluruh jurnal dibatalkan (rollback).
+     * `force = true` melewati validasi stok (boleh minus) — dipakai saat resi terisi.
      *
      * @throws \RuntimeException jika stok tidak mencukupi atau produk pendamping belum terdaftar
      */
@@ -144,57 +148,24 @@ class StockService
         string $reference = 'adjustment',
         ?int $referenceId = null,
         ?string $note = null,
-        ?int $createdBy = null
+        ?int $createdBy = null,
+        bool $force = false
     ): StockMovement {
-        return DB::transaction(function () use ($variantId, $date, $quantity, $reference, $referenceId, $note, $createdBy) {
-            $variant = ProductVariant::findOrFail($variantId);
-            $baseCode = strtoupper(explode('+', (string) ($variant->product?->code ?? ''))[0]);
-            $inventoryId = $variant->product?->primaryInventoryId();
+        return DB::transaction(function () use ($variantId, $date, $quantity, $reference, $referenceId, $note, $createdBy, $force) {
+            $plan = $this->planOut($variantId, $quantity);
 
-            if ($baseCode === self::PACK_KDF_CODE) {
-                throw new \RuntimeException('Produk '.self::PACK_KDF_CODE.' tidak dikirim sendiri.');
-            }
-
-            $rules = $this->packagingRulesFor($variant->product_id, $inventoryId);
-            $splitRules = $rules->where('rule_type', PackagingRule::TYPE_SPLIT)->values();
-            $additionalRules = $rules->where('rule_type', PackagingRule::TYPE_ADDITIONAL)->values();
-
-            // Barang inti: bila ada aturan split, produk utama dipecah —
-            // source = ceil(qty/qty_per), tiap target split = floor(qty/qty_per).
-            $mainQty = $quantity;
-            if ($splitRules->isNotEmpty()) {
-                $mainQty = (int) ceil($quantity / max(1, (int) $splitRules->first()->qty_per));
-
-                foreach ($splitRules as $rule) {
-                    $splitQty = intdiv($quantity, max(1, (int) $rule->qty_per));
-                    if ($splitQty <= 0) {
-                        continue;
-                    }
-
-                    $targetVariant = $this->variantForPower((int) $rule->target_product_id, (float) $variant->power);
-                    if ($targetVariant === null) {
-                        throw new \RuntimeException('Produk '.$rule->targetProduct->code.' belum terdaftar.');
-                    }
-                    $this->recordOut($targetVariant->id, $date, $splitQty, $reference, $referenceId, $note, $createdBy, $inventoryId);
-                }
-            }
-
-            if ($mainQty > 0) {
-                $this->recordOut($variantId, $date, $mainQty, $reference, $referenceId, $note, $createdBy, $inventoryId);
-            }
-
-            // Barang additional mengikuti aturan kemasan dinamis dari DB (per gudang)
-            foreach ($additionalRules as $rule) {
-                $packQty = intdiv($quantity, max(1, (int) $rule->qty_per));
-                if ($packQty <= 0) {
-                    continue;
-                }
-
-                $targetVariant = $this->defaultVariantOf((int) $rule->target_product_id);
-                if ($targetVariant === null) {
-                    throw new \RuntimeException('Produk '.$rule->targetProduct->code.' belum terdaftar.');
-                }
-                $this->recordOut($targetVariant->id, $date, $packQty, $reference, $referenceId, $note, $createdBy, $inventoryId);
+            foreach ($plan as $item) {
+                $this->recordOut(
+                    $item['variant_id'],
+                    $date,
+                    $item['quantity'],
+                    $reference,
+                    $referenceId,
+                    $note,
+                    $createdBy,
+                    $item['inventory_id'],
+                    $force,
+                );
             }
 
             return StockMovement::where('reference', $reference)
@@ -203,6 +174,98 @@ class StockService
                 ->where('product_variant_id', $variantId)
                 ->firstOrFail();
         });
+    }
+
+    /**
+     * Rencana pergerakan keluar untuk satu order/shipment TANPA menulis jurnal:
+     * produk inti (qty hasil split) + target split + target additional.
+     * Perhitungan & urutan IDENTIK dengan recordOutWithPackaging() — dipakai
+     * halaman export untuk mengecek ketersediaan stok tanpa menguranginya.
+     *
+     * @return array<int, array{variant_id:int, quantity:int, inventory_id:?int}>
+     *
+     * @throws \RuntimeException jika produk KDF dikirim sendiri / pendamping belum terdaftar
+     */
+    public function planOut(int $variantId, int $quantity): array
+    {
+        $variant = ProductVariant::findOrFail($variantId);
+        $baseCode = strtoupper(explode('+', (string) ($variant->product?->code ?? ''))[0]);
+        $inventoryId = $variant->product?->primaryInventoryId();
+
+        if ($baseCode === self::PACK_KDF_CODE) {
+            throw new \RuntimeException('Produk '.self::PACK_KDF_CODE.' tidak dikirim sendiri.');
+        }
+
+        $rules = $this->packagingRulesFor($variant->product_id, $inventoryId);
+        $splitRules = $rules->where('rule_type', PackagingRule::TYPE_SPLIT)->values();
+        $additionalRules = $rules->where('rule_type', PackagingRule::TYPE_ADDITIONAL)->values();
+
+        $plan = [];
+
+        // Barang inti: bila ada aturan split, produk utama dipecah —
+        // source = ceil(qty/qty_per), tiap target split = floor(qty/qty_per).
+        $mainQty = $quantity;
+        if ($splitRules->isNotEmpty()) {
+            $mainQty = (int) ceil($quantity / max(1, (int) $splitRules->first()->qty_per));
+
+            foreach ($splitRules as $rule) {
+                $splitQty = intdiv($quantity, max(1, (int) $rule->qty_per));
+                if ($splitQty <= 0) {
+                    continue;
+                }
+
+                $targetVariant = $this->variantForPower((int) $rule->target_product_id, (float) $variant->power);
+                if ($targetVariant === null) {
+                    throw new \RuntimeException('Produk '.$rule->targetProduct->code.' belum terdaftar.');
+                }
+                $plan[] = ['variant_id' => $targetVariant->id, 'quantity' => $splitQty, 'inventory_id' => $inventoryId];
+            }
+        }
+
+        if ($mainQty > 0) {
+            $plan[] = ['variant_id' => $variantId, 'quantity' => $mainQty, 'inventory_id' => $inventoryId];
+        }
+
+        // Barang additional mengikuti aturan kemasan dinamis dari DB (per gudang)
+        foreach ($additionalRules as $rule) {
+            $packQty = intdiv($quantity, max(1, (int) $rule->qty_per));
+            if ($packQty <= 0) {
+                continue;
+            }
+
+            $targetVariant = $this->defaultVariantOf((int) $rule->target_product_id);
+            if ($targetVariant === null) {
+                throw new \RuntimeException('Produk '.$rule->targetProduct->code.' belum terdaftar.');
+            }
+            $plan[] = ['variant_id' => $targetVariant->id, 'quantity' => $packQty, 'inventory_id' => $inventoryId];
+        }
+
+        return $plan;
+    }
+
+    /**
+     * Validasi ketersediaan stok untuk rencana keluar TANPA menulis jurnal
+     * (dry-run export). `$reserved` = qty yang sudah dipesan batch berjalan
+     * (varian → qty) agar pengecekan menyerupai perilaku lama yang berurutan.
+     *
+     * @param  array<int, array{variant_id:int, quantity:int, inventory_id:?int}>  $plan
+     * @param  array<int, int>  $reserved
+     *
+     * @throws \RuntimeException jika ada varian dengan stok tidak mencukupi
+     */
+    public function assertStockAvailable(array $plan, array $reserved = []): void
+    {
+        foreach ($plan as $item) {
+            $variantId = $item['variant_id'];
+            $available = $this->stockOf($variantId) - (int) ($reserved[$variantId] ?? 0);
+
+            if ($item['quantity'] > $available) {
+                $name = ProductVariant::find($variantId)?->name ?? ('varian #'.$variantId);
+                throw new \RuntimeException(
+                    "Stok tidak mencukupi: {$name} tersisa {$available}, keluar {$item['quantity']}."
+                );
+            }
+        }
     }
 
     /**

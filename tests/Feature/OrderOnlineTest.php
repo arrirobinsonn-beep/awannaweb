@@ -13,6 +13,7 @@ use App\Models\ProductVariantInventory;
 use App\Models\ShippingOrder;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\AggregatorTrackingImportService;
 use App\Services\CourierRuleService;
 use App\Services\OrderOnlineImportService;
 use App\Services\OrderTemplateExportService;
@@ -743,7 +744,7 @@ class OrderOnlineTest extends TestCase
         $this->assertSame('IDX Customer', $idxRows[1][1]);
     }
 
-    public function test_export_reduces_stock_idempotent(): void
+    public function test_stock_reduces_on_resi_fill_not_export(): void
     {
         $batch = OrderOnlineImportBatch::create([
             'original_filename' => 'test.csv',
@@ -756,17 +757,24 @@ class OrderOnlineTest extends TestCase
 
         $product = $this->makeProduct(100);
         $this->app->make(StockService::class)->recordIn($this->variant($product)->id, now()->format('Y-m-d'), 100, 10000, 'adjustment');
-        $this->createOrder($batch->id, 'TF-1', 'TF Customer', 'flix-tf', 'real', $product->id, $product->code, 3);
+        $order = $this->createOrder($batch->id, 'TF-1', 'TF Customer', 'flix-tf', 'real', $product->id, $product->code, 3);
 
         $svc = new OrderTemplateExportService;
 
         $this->assertSame(100, $this->app->make(StockService::class)->stockOf($this->variant($product)->id));
 
+        // Sejak 27 Sep 2026 export HANYA mengecek stok — tidak mengurangi/tulis jurnal
         $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $this->assertSame(100, $this->app->make(StockService::class)->stockOf($this->variant($product)->id));
+        $this->assertSame(0, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
+
+        // Resi terisi (upload status agregator) → stok keluar, idempoten
+        $this->assertTrue($this->fillResi($order));
+        $this->assertFalse($this->fillResi($order));
         $this->assertSame(97, $this->app->make(StockService::class)->stockOf($this->variant($product)->id));
+        $this->assertSame(1, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
 
-        $order = ShippingOrder::where('order_online_import_batch_id', $batch->id)->first();
-
+        // Re-export setelah tercatat → tidak menambah jurnal
         $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
         $this->assertSame(97, $this->app->make(StockService::class)->stockOf($this->variant($product)->id));
         $this->assertSame(1, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
@@ -814,8 +822,8 @@ class OrderOnlineTest extends TestCase
         $this->app->make(StockService::class)->recordIn($this->variant($product)->id, now()->format('Y-m-d'), 100, 10000, 'adjustment');
         $order = $this->createOrder($batch->id, 'TF-1', 'TF Customer', 'flix-tf', 'real', $product->id, $product->code, 3);
 
-        $svc = new OrderTemplateExportService;
-        $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        // Resi terisi → jurnal out tercatat (pengganti reserve saat export lama)
+        $this->fillResi($order);
 
         $this->assertSame(97, $this->app->make(StockService::class)->stockOf($this->variant($product)->id));
         $this->assertSame(1, StockMovement::where('reference', 'order_online')->where('reference_id', $order->id)->where('type', 'out')->count());
@@ -848,8 +856,8 @@ class OrderOnlineTest extends TestCase
         $this->app->make(StockService::class)->recordIn($this->variant($product)->id, now()->format('Y-m-d'), 100, 10000, 'adjustment');
         $order = $this->createOrder($batch->id, 'TF-1', 'TF Customer', 'flix-tf', 'real', $product->id, $product->code, 3);
 
-        $svc = new OrderTemplateExportService;
-        $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        // Resi terisi → jurnal out tercatat
+        $this->fillResi($order);
         $this->assertSame(97, $this->app->make(StockService::class)->stockOf($this->variant($product)->id));
 
         $admin = $this->adminUser();
@@ -911,8 +919,8 @@ class OrderOnlineTest extends TestCase
             'is_cod' => true,
         ]);
 
-        $svc = new OrderTemplateExportService;
-        $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        // Resi terisi → stok keluar dari varian non-default order
+        $this->fillResi($order);
 
         $this->assertSame(97, $this->app->make(StockService::class)->stockOf($nonDefault->id));
         $this->assertSame(50, $this->app->make(StockService::class)->stockOf($default->id));
@@ -1027,8 +1035,8 @@ class OrderOnlineTest extends TestCase
             'is_cod' => true,
         ]);
 
-        $svc = new OrderTemplateExportService;
-        $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        // Resi terisi → stok keluar dari varian non-default (jurnal ada, order tanpa awb)
+        $this->fillResi($order);
         $this->assertSame(98, $this->app->make(StockService::class)->stockOf($nonDefault->id));
 
         $other = $this->makeProduct(100);
@@ -1463,7 +1471,19 @@ class OrderOnlineTest extends TestCase
         ]);
     }
 
-    public function test_export_kacamata_reduces_box_lap(): void
+    /**
+     * Simulasikan trigger "resi terisi" (admin upload status agregator):
+     * sejak 27 Sep 2026 jurnal `out` order_online dibuat DI SINI, bukan saat
+     * export. Sengaja TIDAK mengisi kolom awb agar order tetap bisa diedit
+     * untuk uji reverse (undeliverable/ganti produk — kasus jurnal legacy).
+     * Uji end-to-end awb+stok lewat CSV ada di AggregatorTrackingImportTest.
+     */
+    private function fillResi(ShippingOrder $order, ?string $status = null): bool
+    {
+        return (new AggregatorTrackingImportService)->recordStockOutForOrder($order, $status);
+    }
+
+    public function test_resi_fill_kacamata_reduces_box_lap(): void
     {
         $this->ensureCatalog();
         $stock = $this->app->make(StockService::class);
@@ -1485,9 +1505,13 @@ class OrderOnlineTest extends TestCase
             'lap' => $stock->stockOf($lap->id),
         ];
 
-        $svc = new OrderTemplateExportService;
-        $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
-        $svc->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        // Export tidak mengurangi stok (27 Sep 2026) — resi terisi yang memicu,
+        // dipanggil 2× untuk membuktikan idempoten
+        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $this->assertSame($before['kmp'], $stock->stockOf($variantId));
+
+        $this->fillResi($order);
+        $this->fillResi($order);
 
         // Promo "Beli 1 Dapat 2": qty 4 KMP → 2 KMP + 2 KDF keluar (+ 2 BOX + 2 LAP)
         $this->assertSame($before['kmp'] - 2, $stock->stockOf($variantId));
@@ -1500,7 +1524,7 @@ class OrderOnlineTest extends TestCase
         $this->assertNull($order->stock_note);
     }
 
-    public function test_export_kmp_promo_splits_to_kdf(): void
+    public function test_resi_fill_kmp_promo_splits_to_kdf(): void
     {
         $this->ensureCatalog();
         $stock = $this->app->make(StockService::class);
@@ -1520,7 +1544,7 @@ class OrderOnlineTest extends TestCase
         $beforeKmp = $stock->stockOf($kmpVariant->id);
         $beforeKdf = $stock->stockOf($kdfVariant->id);
 
-        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $this->fillResi($order);
 
         $this->assertSame($beforeKmp - 1, $stock->stockOf($kmpVariant->id));
         $this->assertSame($beforeKdf - 1, $stock->stockOf($kdfVariant->id));
@@ -1533,13 +1557,13 @@ class OrderOnlineTest extends TestCase
         $beforeKmp1 = $stock->stockOf($kmpVariant->id);
         $beforeKdf1 = $stock->stockOf($kdfVariant->id);
 
-        (new OrderTemplateExportService)->download($batch1, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $this->fillResi($order1);
 
         $this->assertSame($beforeKmp1 - 1, $stock->stockOf($kmpVariant->id));
         $this->assertSame($beforeKdf1, $stock->stockOf($kdfVariant->id));
     }
 
-    public function test_export_kbj_splits_to_kdf_and_packaging(): void
+    public function test_resi_fill_kbj_splits_to_kdf_and_packaging(): void
     {
         $this->ensureCatalog();
         $stock = $this->app->make(StockService::class);
@@ -1560,7 +1584,7 @@ class OrderOnlineTest extends TestCase
             'lap' => $stock->stockOf($lap->id),
         ];
 
-        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $this->fillResi($order);
 
         $this->assertSame($before['kbj'] - 2, $stock->stockOf($kbjVariant->id));
         $this->assertSame($before['kdf'] - 1, $stock->stockOf($kdfVariant->id));
@@ -1571,7 +1595,7 @@ class OrderOnlineTest extends TestCase
         $this->assertNull($order->stock_note);
     }
 
-    public function test_export_kbj_qty_one_skips_packaging(): void
+    public function test_resi_fill_kbj_qty_one_skips_packaging(): void
     {
         $this->ensureCatalog();
         $stock = $this->app->make(StockService::class);
@@ -1592,7 +1616,7 @@ class OrderOnlineTest extends TestCase
             'lap' => $stock->stockOf($lap->id),
         ];
 
-        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $this->fillResi($order);
 
         $this->assertSame($before['kbj'] - 1, $stock->stockOf($kbjVariant->id));
         $this->assertSame($before['kdf'], $stock->stockOf($kdfVariant->id));
@@ -1619,7 +1643,7 @@ class OrderOnlineTest extends TestCase
             'lap' => $stock->stockOf($lap->id),
         ];
 
-        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $this->fillResi($order);
         $this->assertSame($before['box'] - 2, $stock->stockOf($box->id));
 
         $this->actingAs($this->adminUser())
@@ -1675,8 +1699,11 @@ class OrderOnlineTest extends TestCase
         $this->assertCount(2, $rows); // hanya header + 1 order (tanpa AWB)
         $this->assertSame('NoAwb Customer', $rows[1][1]);
 
-        // order ber-AWB tidak di-reserve stoknya (tidak ada jurnal out)
+        // Export tidak menulis jurnal sama sekali — stok baru keluar saat resi terisi
         $this->assertSame(0, StockMovement::where('reference', 'order_online')->where('reference_id', $shipped->id)->where('type', 'out')->count());
+        $this->assertSame(0, StockMovement::where('reference', 'order_online')->where('reference_id', $pending->id)->where('type', 'out')->count());
+
+        $this->fillResi($pending);
         $this->assertSame(1, StockMovement::where('reference', 'order_online')->where('reference_id', $pending->id)->where('type', 'out')->count());
     }
 
@@ -1767,7 +1794,7 @@ class OrderOnlineTest extends TestCase
             'lap' => $stock->stockOf($lap->id),
         ];
 
-        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $this->fillResi($order);
 
         // KMP terpecah (Beli 1 Dapat 2): qty 4 → 2 KMP + 2 KDF; BOX jadi 1:1 → 4
         $this->assertSame($before['kmp'] - 2, $stock->stockOf($variantId));
@@ -1798,7 +1825,7 @@ class OrderOnlineTest extends TestCase
             'lap' => $stock->stockOf($lap->id),
         ];
 
-        (new OrderTemplateExportService)->download($batch, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+        $this->fillResi($order);
 
         // KMP terpecah (Beli 1 Dapat 2): qty 4 → 2 KMP + 2 KDF; rule BOX nonaktif → BOX tetap
         $this->assertSame($before['kmp'] - 2, $stock->stockOf($variantId));
@@ -2002,17 +2029,17 @@ class OrderOnlineTest extends TestCase
             // Produk KMP gudang utama A → rule khusus 1:1 (BOX −4)
             $setPrimary($kmp, $invA->id);
             $batchA = $this->newBatch();
-            $this->createOrder($batchA->id, 'RULE-A-'.uniqid(), 'Rule A Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+            $orderA = $this->createOrder($batchA->id, 'RULE-A-'.uniqid(), 'Rule A Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
             $beforeBox = $stock->stockOf($box->id);
-            (new OrderTemplateExportService)->download($batchA, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+            $this->fillResi($orderA);
             $this->assertSame($beforeBox - 4, $stock->stockOf($box->id));
 
             // Produk KMP gudang utama B (tanpa rule khusus) → global 1:2 (BOX −2)
             $setPrimary($kmp, $invB->id);
             $batchB = $this->newBatch();
-            $this->createOrder($batchB->id, 'RULE-B-'.uniqid(), 'Rule B Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
+            $orderB = $this->createOrder($batchB->id, 'RULE-B-'.uniqid(), 'Rule B Customer', 'flix-tf', 'real', $kmp->id, 'KMP', 4);
             $beforeBox2 = $stock->stockOf($box->id);
-            (new OrderTemplateExportService)->download($batchB, OrderTemplateExportService::TEMPLATE_FLIK, 'flix-tf');
+            $this->fillResi($orderB);
             $this->assertSame($beforeBox2 - 2, $stock->stockOf($box->id));
         } finally {
             ProductInventory::where('product_id', $kmp->id)

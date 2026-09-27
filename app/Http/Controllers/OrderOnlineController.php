@@ -389,6 +389,9 @@ class OrderOnlineController extends Controller
             $message = 'Tracking import ('.($result['source'] ?? '-').') | Total: '.$result['total']
                 .' | Terisi: '.$result['updated'];
 
+            if (($result['stock_out'] ?? 0) > 0) {
+                $message .= ' | Stok keluar (resi terisi): '.$result['stock_out'];
+            }
             if (($result['stock_returned'] ?? 0) > 0) {
                 $message .= ' | Stok dikembalikan: '.$result['stock_returned'];
             }
@@ -403,6 +406,7 @@ class OrderOnlineController extends Controller
                 'success' => true,
                 'message' => $message,
                 'updated' => $result['updated'],
+                'stock_out' => $result['stock_out'] ?? 0,
                 'stock_returned' => $result['stock_returned'],
             ]);
         } catch (\Throwable $e) {

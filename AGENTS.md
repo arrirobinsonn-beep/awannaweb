@@ -80,6 +80,38 @@ $users = User::whereIn('nama', $uniqueValues)->get()->keyBy('nama');
 
 # Fitur Selesai
 
+## Y. ✅ Trigger Stok Order Online Pindah ke Saat Resi (AWB) Terisi (27 September 2026)
+
+### Deskripsi
+Pengurangan stok order online **tidak lagi terjadi saat export ke template ekspedisi** — export kini hanya *mengecek* ketersediaan stok (dry-run). Jurnal `out` (`stock_movements`, reference `order_online`) dibuat saat **admin upload status agregator dan kolom resi (`shipping_orders.awb`) keisi untuk pertama kali**. Pencatatan memakai `force` → **stok boleh minus** (keputusan user: resi = barang sudah berangkat; upload tracking tidak boleh gagal gara-gara stok kurang).
+
+### Aturan baru
+| Momen | Perilaku |
+|---|---|
+| **Export template** | `reserveStock()` → `StockService::planOut()` (dry-run) + `assertStockAvailable($plan, $reserved)` — order stok kurang / produk tak dikenal TETAP di-skip + `stock_note`, **tanpa menulis jurnal/mengurangi stok**. Order yang sudah punya jurnal `order_online` (data legacy alur lama) lolos tanpa dicek (anti double-count). `$reserved` = rencana keluar kumulatif 1 batch export. |
+| **Upload status agregator (awb kosong → terisi)** | `AggregatorTrackingImportService::recordStockOutForOrder($order, $status)` → `recordOutWithPackaging(..., force: true)` (split & kemasan ikut). Dilewati bila: status `returned` (first-sight), courier `undeliverable`, produk belum ter-link (→ `stock_note`, resi tetap terisi), atau jurnal sudah ada (idempoten). Report import punya key `stock_out`; flash: "Stok keluar (resi terisi): N". |
+| **Status `returned`** | Tetap `reverseReference('order_online', id)` → stok kembali (dipertahankan). |
+| **Courier → undeliverable** | `reverseReference` tetap — kini hanya relevan utk jurnal legacy tanpa awb (order ber-AWB tidak bisa diedit). |
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Services/StockService.php` | + `planOut(variantId, qty)` (rencana main/split/additional — perhitungan identik dgn versi lama, jadi sumber kebenaran dry-run) + `assertStockAvailable(plan, reserved)` (pesan error sama dgn recordOut); `recordOut`/`recordOutWithPackaging` + param `force=false` (force = skip validasi stok). |
+| `app/Services/OrderTemplateExportService.php` | `reserveStock()` kini check-only (plan+assert; skip+stock_note tetap); docblock class/download diupdate. |
+| `app/Services/AggregatorTrackingImportService.php` | trigger di `import()`: `elseif ($awbWasEmpty && $this->recordStockOutForOrder($order, $row['status']))` → `$stockOut++`; `recordStockOutForOrder` dipublikasikan (public, status param) agar test bisa memicu jalur yg sama tanpa CSV; return array + `stock_out`. |
+| `app/Http/Controllers/OrderOnlineController.php` | flash + JSON `stock_out` di `trackingImport`. |
+| `tests/Feature/OrderOnlineTest.php` | helper `fillResi($order)` = `recordStockOutForOrder` (TANPA set awb → order tetap editable utk uji reverse); `test_export_reduces_stock_idempotent` → **`test_stock_reduces_on_resi_fill_not_export`** (export tidak mengurangi + resi idempoten + re-export aman); 4 test packaging rename → `test_resi_fill_*`; test rule/undeliverable trigger via `fillResi` (jurnal tanpa awb = simulasi data legacy, disengaja). |
+| `tests/Feature/AggregatorTrackingImportTest.php` | +4 test e2e CSV: awb terisi → `stock_out`+jurnal+stok −; re-import idempoten (`stock_out=0`); first-sight `returned` tanpa jurnal; `undeliverable` dpt awb tanpa jurnal. |
+| `filecoba/verify_pipeline.php` | delta sesudah export wajib 0 (+ cek nihilnya jurnal); cek `stock_out` FLIK=4/SICEPAT=3/SPX=1; BOX/LAP −4 dipindah ke sesudah tracking; re-import `stock_out=0`. |
+
+### Penting
+- **Suite PHP: 261 pass / 1 fail PRE-EXISTING** (`SpendingSummaryTest::discrepancy_ignores_testing...` — gagal juga tanpa perubahan ini, data DB test).
+- **Pipeline `verify_pipeline.php`: 109/111** — 2 fail PRE-EXISTING (bukan regresi; gagal juga saat kode di-stash): drift mapping di DB dev — FLIK "Kode Warehouse" kini `column:warehouse` (bukan `computed:warehouse`) & SPX punya kolom ekstra `warehouse` di index 22 (kemungkinan eksperimen tombol Tambah Kolom). Kalau tak disengaja → ubah sumber kembali di /export-mapping; kalau disengaja → referensi statis `filecoba/02_export_*.csv` perlu diregenerasi.
+- Kolom cache `product_variants.stock` & `product_variant_inventory.stock` tetap di-clip `max(0, ...)` — nilai minus terlihat lewat `stockOf()`/jurnal, bukan kolom cache.
+- Alur `ShipmentImportService` (upload file resi `/pengiriman`, reference `shipment`) **TIDAK berubah** — tetap validasi stok ketat.
+- Kandidat tracking tetap `EXPORTABLE_STATUSES` (real/tembakan).
+- **Pernyataan lama di section D/F/I yang menyebut "stok dikurangi saat export / reserveStock memanggil recordOut" sudah TIDAK BERLAKU sejak 27 Sep 2026** — lihat tabel Aturan baru di atas.
+
 ## X. ✅ Hard Delete Produk — Kode Bisa Dipakai Ulang + Arsip Label Spending (17 September 2026)
 
 ### Deskripsi
@@ -269,7 +301,7 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 
 ### Stok via product_code
 - Import: `product_code` (CSV) di-resolve exact-match ke `products.code` → `product_id` (1 batch query `whereIn`); tak cocok → `product_id=null`.
-- **Saat export**, `OrderTemplateExportService::reserveStock()` memanggil `StockService::recordOut(... 'order_online', order->id ...)` → jurnal `out` + kurangi stok.
+- **Saat export**, `OrderTemplateExportService::reserveStock()` kini hanya MENGECEK stok (dry-run `planOut`/`assertStockAvailable`) → order stok kurang tetap di-skip + `stock_note`; **pengurangan stok pindah ke saat resi (awb) terisi** saat upload status agregator (lihat **section Y**, 27 Sep 2026).
 - Stok kurang / produk belum di-link → order **dilewati** dari file + `stock_note` diisi (admin bisa edit `product_code` lalu re-export).
 - Idempotent: UNIQUE `(reference, reference_id, type)` → re-export tidak menggandakan jurnal/stok.
 - **Saat courier order diubah menjadi `undeliverable`** (paket tidak terkirim/tidak ter-cover aggregator), `OrderOnlineController::update()` memanggil `StockService::reverseReference('order_online', $order->id)` → jurnal `out` dihapus + stok dikembalikan. Ubah dari `undeliverable` ke courier normal TIDAK menambah stok (export-lah yang meng-reserve ulang).
@@ -396,7 +428,7 @@ Contoh: KMP qty 2 → 1 KMP + 1 KDF + 1 BOX + 1 LAP; KMP qty 1 → 1 KMP (0 KDF/
 | `database/migrations/2026_08_09_100000_extend_stock_movements_unique_for_packaging.php` | unique `stock_movements_ref_unique` → `(reference, reference_id, type, product_variant_id)` — 1 order/shipment boleh punya banyak baris `out` (kacamata + KDF + BOX + LAP) |
 | `database/migrations/2026_08_13_100004_add_rule_type_to_packaging_rules_table.php` | + `packaging_rules.rule_type` string default `additional` + index; nilai `additional` (1 pendamping per qty_per) & `split` (pecah inti+bonus, power sama) |
 | `app/Services/StockService.php` | konstanta `KACAMATA_CODES` (label export) & `PACK_KDF_CODE`; **`recordOutWithPackaging()`** (1 transaksi: main + target split (ceil/floor, power sama via `variantForPower()`) + target additional (varian default); produk pendamping belum ada/stok kurang → `RuntimeException` → rollback atomik); `packagingRulesFor()` (DB-driven, cache per instance, anti N+1) + `defaultVariantOf()` + `variantForPower()`; key `updateOrCreate` `recordIn`/`recordOut` kini SERTA `product_variant_id`; anti silent-reassign di-scope per produk (`whereHas variant.product_id`) |
-| `app/Services/OrderTemplateExportService.php` | `reserveStock` → `recordOutWithPackaging` (alur order-online) |
+| `app/Services/OrderTemplateExportService.php` | `reserveStock` → **cek stok saja via `planOut`/`assertStockAvailable` sejak 27 Sep 2026** (jurnal out pindah ke trigger resi — section Y) |
 | `app/Services/ShipmentImportService.php` | 2 call site `import()` → `recordOutWithPackaging` (alur resi aggregator) |
 | `database/seeders/ProductSeeder.php` | `SIZED_PRODUCTS` + `KDF`; tambah produk BOX/LAP/KDF + opening stock; `seedPackagingRules()` (6 rule additional KMP/KSP/KBJ→BOX/LAP qty_per=2 **+ 2 rule split KMP/KBJ→KDF qty_per=2**, idempotent) — dipanggil SETELAH produk dibuat (fix DB fresh) |
 | `tests/Feature/OrderOnlineTest.php` | +6 test packaging/split (total 38) |

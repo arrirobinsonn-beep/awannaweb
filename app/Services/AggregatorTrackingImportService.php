@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\ShippingOrder;
+use App\Models\StockMovement;
 use App\Models\TrackingHeaderMapping;
 use App\Models\TrackingSourceConfig;
 use Illuminate\Support\Collection;
@@ -17,8 +18,14 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
  * Pencocokan hanya pakai 2 kolom: phone_normalized + customer_name
  *
  * `aggregator_status` dinormalisasi ke 6 nilai Inggris (ShippingOrder::TRACKING_STATUSES).
- * Ketika status berubah menjadi `returned`, stok yang di-reserve saat export
- * (jurnal `order_online`) dikembalikan lewat StockService::reverseReference.
+ *
+ * **Trigger stok keluar (sejak 27 September 2026):** jurnal `out` (reference
+ * `order_online`) dibuat DI SINI saat kolom resi (`awb`) order keisi untuk pertama
+ * kali (dulu dilakukan saat export template — kini export hanya mengecek stok).
+ * Pencatatan pakai `force` (stok boleh minus) dan dilewati bila: jurnal sudah ada
+ * (idempoten), status baris `returned`, atau courier `undeliverable`.
+ * Ketika status berubah menjadi `returned`, jurnal itu dikembalikan lewat
+ * StockService::reverseReference (seperti sebelumnya).
  *
  * File CSV/xlsx dibaca dengan PhpSpreadsheet sehingga kolom tanggal mengikuti
  * format sel aslinya. Deteksi sumber dari header (pola ShipmentImportService).
@@ -185,7 +192,7 @@ class AggregatorTrackingImportService
      * shipping_orders dan isi awb / aggregator_status / delivered_at.
      *
      * @param  ?string  $courier  filter courier eksplisit (opsional — fallback: courier dari file)
-     * @return array{source:?string,total:int,matched:int,updated:int,stock_returned:int,unmatched:array,ambiguous:array}
+     * @return array{source:?string,total:int,matched:int,updated:int,stock_out:int,stock_returned:int,unmatched:array,ambiguous:array}
      */
     public function import(string $filePath, ?string $source = null, ?string $courier = null): array
     {
@@ -198,6 +205,7 @@ class AggregatorTrackingImportService
                 'total' => 0,
                 'matched' => 0,
                 'updated' => 0,
+                'stock_out' => 0,
                 'stock_returned' => 0,
                 'unmatched' => [],
                 'ambiguous' => [],
@@ -217,6 +225,7 @@ class AggregatorTrackingImportService
 
             $matched = 0;
             $updated = 0;
+            $stockOut = 0;
             $stockReturned = 0;
             $unmatched = [];
             $ambiguous = [];
@@ -250,13 +259,18 @@ class AggregatorTrackingImportService
                 }
 
                 $wasReturned = $order->aggregator_status === 'returned';
+                $awbWasEmpty = $order->awb === null || $order->awb === '';
                 $order->update($data);
                 $matched++;
                 $updated++;
 
                 if ($row['status'] === 'returned' && ! $wasReturned) {
+                    // Barang kembali → jurnal keluar dibalik (stok kembali).
                     $this->stock->reverseReference('order_online', $order->id);
                     $stockReturned++;
+                } elseif ($awbWasEmpty && $this->recordStockOutForOrder($order, $row['status'])) {
+                    // Trigger baru: stok dianggap keluar saat resi (awb) pertama terisi.
+                    $stockOut++;
                 }
             }
 
@@ -265,11 +279,70 @@ class AggregatorTrackingImportService
                 'total' => $rows->count(),
                 'matched' => $matched,
                 'updated' => $updated,
+                'stock_out' => $stockOut,
                 'stock_returned' => $stockReturned,
                 'unmatched' => $unmatched,
                 'ambiguous' => $ambiguous,
             ];
         });
+    }
+
+    /**
+     * Catat stok keluar (jurnal `order_online` + kemasan/split) karena resi terisi.
+     * Dilewati bila: status `returned` (barang tidak jadi berangkat / sudah balik),
+     * courier `undeliverable` (paket tak terkirim), produk belum ter-link, atau
+     * jurnal sudah ada (idempoten — re-import file yang sama tidak menggandakan).
+     * `force = true` — stok boleh minus (resi = barang sudah berangkat, keputusan
+     * 27 Sep 2026). Produk belum ter-link / pendamping belum terdaftar → jurnal
+     * dilewati + `stock_note`, resi tetap terisi.
+     *
+     * Dipanggil AggregatorTrackingImportService::import saat awb kosong→terisi;
+     * dipublikasikan agar test bisa memicu jalur yang sama tanpa membangun CSV.
+     */
+    public function recordStockOutForOrder(ShippingOrder $order, ?string $status = null): bool
+    {
+        if ($status === 'returned') {
+            return false;
+        }
+
+        if ($order->courier === 'undeliverable') {
+            return false;
+        }
+
+        if (! $order->product_variant_id) {
+            $order->update(['stock_note' => 'Produk tidak dikenal (kode tidak terdaftar)']);
+
+            return false;
+        }
+
+        $hasJournal = StockMovement::where('reference', 'order_online')
+            ->where('reference_id', $order->id)
+            ->where('type', 'out')
+            ->exists();
+
+        if ($hasJournal) {
+            return false;
+        }
+
+        try {
+            $this->stock->recordOutWithPackaging(
+                $order->product_variant_id,
+                now()->format('Y-m-d'),
+                max(1, $order->quantity),
+                'order_online',
+                $order->id,
+                'Order online '.$order->order_id,
+                auth()->id(),
+                true,
+            );
+            $order->update(['stock_note' => null]);
+
+            return true;
+        } catch (\RuntimeException $e) {
+            $order->update(['stock_note' => $e->getMessage()]);
+
+            return false;
+        }
     }
 
     /**

@@ -6,8 +6,10 @@
  *   1. Import data mentah (01_*) → cek courier/status/varian/qty per order
  *   2. Export (02_* referensi) → jalankan OrderTemplateExportService, diff dgn referensi
  *   3. Tracking (03_*) → jalankan AggregatorTrackingImportService, cek awb/status/
- *      delivered_at + stok kembali saat `returned` + idempotent re-import
- *   4. Stok: capture sebelum export → sesudah export → sesudah tracking
+ *      delivered_at + stok KELUAR saat awb terisi (27 Sep 2026) + stok kembali
+ *      saat `returned` + idempotent re-import
+ *   4. Stok: capture sebelum export → sesudah export (TIDAK berubah — export hanya
+ *      ngecek) → sesudah tracking (resi terisi → keluar; returned → balik)
  *
  * Syarat: produk (ProductSeeder), courier_rules (CourierRuleSeeder), dan
  * export_template_mappings (ExportTemplateMappingSeeder) sudah di-seed di DB
@@ -229,31 +231,40 @@ foreach ($trackVariants as $label => $v) {
 }
 $delta = fn ($label) => ($before[$label] ?? 0) - ($after[$label] ?? 0);
 echo '  Delta stok sesudah export: KMP+1.5='.$delta('KMP+1.5').' KMP+1='.$delta('KMP+1').' KSP+2='.$delta('KSP+2').' KBJ+1.25='.$delta('KBJ+1.25').' KDF+1.25='.$delta('KDF+1.25').' KMP+1.25='.$delta('KMP+1.25').' BOX='.$delta('BOX').' LAP='.$delta('LAP')."\n";
-check('packaging/split: KSP+2 −1 (CBC-103)', $delta('KSP+2') === 1);
-check('packaging/split: KMP+1.25 −1 (CBC-302)', $delta('KMP+1.25') === 1);
-check('packaging/split: KMP+1.5 −1 (CBC-101)', $delta('KMP+1.5') === 1);
-check('packaging/split: KDF+1.25 −1 (KBJ qty2 CBC-104 → 1 KDF)', $delta('KDF+1.25') === 1);
-check('packaging/split: BOX −4 (2+1+1+1+1)', $delta('BOX') === 4, 'BOX delta='.$delta('BOX'));
-check('packaging/split: LAP −4', $delta('LAP') === 4, 'LAP delta='.$delta('LAP'));
+// Sejak 27 Sep 2026: export HANYA mengecek stok (dry-run) — pengurangan pindah
+// ke momen resi (awb) terisi di langkah tracking.
+check('export tidak mengurangi stok: KMP+1.5', $delta('KMP+1.5') === 0);
+check('export tidak mengurangi stok: KSP+2', $delta('KSP+2') === 0);
+check('export tidak mengurangi stok: KBJ+1.25', $delta('KBJ+1.25') === 0);
+check('export tidak mengurangi stok: KDF+1.25', $delta('KDF+1.25') === 0);
+check('export tidak mengurangi stok: BOX', $delta('BOX') === 0, 'BOX delta='.$delta('BOX'));
+check('export tidak mengurangi stok: LAP', $delta('LAP') === 0, 'LAP delta='.$delta('LAP'));
+$cbcIds = ShippingOrder::whereIn('order_id', $orderIds)->pluck('id');
+check('export tidak menulis jurnal order_online',
+    \App\Models\StockMovement::where('reference', 'order_online')
+        ->whereIn('reference_id', $cbcIds)->where('type', 'out')->count() === 0);
 
 // ─── 3. TRACKING ────────────────────────────────────────────────────────────
 echo "\n── 3. Import tracking aggregator ─────────────────────────\n";
 $tracking = new AggregatorTrackingImportService;
 
 $flik = $tracking->import("$dir/03_tracking_flik.csv");
-echo '  FLIK:   '.json_encode(array_intersect_key($flik, array_flip(['source', 'total', 'matched', 'updated', 'stock_returned', 'unmatched', 'ambiguous'])))."\n";
+echo '  FLIK:   '.json_encode(array_intersect_key($flik, array_flip(['source', 'total', 'matched', 'updated', 'stock_out', 'stock_returned', 'unmatched', 'ambiguous'])))."\n";
 check('FLIK matched 5/5', $flik['matched'] === 5 && $flik['total'] === 5, 'matched='.$flik['matched']);
+check('FLIK stock_out=4 (CBC-103 returned dilewati)', ($flik['stock_out'] ?? -1) === 4, 'stock_out='.($flik['stock_out'] ?? '?'));
 check('FLIK returned 1 (CBC-103)', $flik['stock_returned'] === 1, 'stock_returned='.$flik['stock_returned']);
 check('FLIK tidak ada unmatched/ambiguous', empty($flik['unmatched']) && empty($flik['ambiguous']));
 
 $sicepat = $tracking->import("$dir/03_tracking_sicepat.csv");
-echo '  SICEPAT: '.json_encode(array_intersect_key($sicepat, array_flip(['source', 'total', 'matched', 'updated', 'stock_returned', 'unmatched', 'ambiguous'])))."\n";
+echo '  SICEPAT: '.json_encode(array_intersect_key($sicepat, array_flip(['source', 'total', 'matched', 'updated', 'stock_out', 'stock_returned', 'unmatched', 'ambiguous'])))."\n";
 check('SICEPAT matched 3/3', $sicepat['matched'] === 3 && $sicepat['total'] === 3);
+check('SICEPAT stock_out=3', ($sicepat['stock_out'] ?? -1) === 3, 'stock_out='.($sicepat['stock_out'] ?? '?'));
 check('SICEPAT tidak ada returned', $sicepat['stock_returned'] === 0);
 
 $spx = $tracking->import("$dir/03_tracking_spx.csv");
-echo '  SPX:    '.json_encode(array_intersect_key($spx, array_flip(['source', 'total', 'matched', 'updated', 'stock_returned', 'unmatched', 'ambiguous'])))."\n";
+echo '  SPX:    '.json_encode(array_intersect_key($spx, array_flip(['source', 'total', 'matched', 'updated', 'stock_out', 'stock_returned', 'unmatched', 'ambiguous'])))."\n";
 check('SPX matched 2/2', $spx['matched'] === 2 && $spx['total'] === 2);
+check('SPX stock_out=1 (CBC-302 first-sight returned dilewati)', ($spx['stock_out'] ?? -1) === 1, 'stock_out='.($spx['stock_out'] ?? '?'));
 check('SPX returned 1 (CBC-302)', $spx['stock_returned'] === 1);
 
 $trackingOrders = ShippingOrder::whereIn('order_id', $orderIds)->get()->keyBy('order_id');
@@ -281,12 +292,14 @@ foreach ($expectedTracking as $id => [$awb, $st, $dAt]) {
     check("$id delivered_at=".($dAt ?? 'null'), (string) ($o->delivered_at ?? '') === (string) ($dAt ?? ''), 'delivered_at='.($o->delivered_at ?? 'null'));
 }
 
-// ─── 4. STOK SETELAH TRACKING (returned → kembali) ─────────────────────────
-echo "\n── 4. Stok setelah tracking (returned → balik) ────────────\n";
+// ─── 4. STOK SETELAH TRACKING (resi terisi → keluar; returned → kembali) ───
+echo "\n── 4. Stok setelah tracking (resi terisi → keluar) ────────\n";
 foreach ($trackVariants as $label => $v) {
     $now = stockOf($v);
     echo "  {$label}: {$now} (awal {$before[$label]})\n";
 }
+check('resi terisi: BOX −4 (CBC-102/104/202/301)', stockOf($trackVariants['BOX']) === $before['BOX'] - 4, 'BOX='.stockOf($trackVariants['BOX']).' awal '.$before['BOX']);
+check('resi terisi: LAP −4 (CBC-102/104/202/301)', stockOf($trackVariants['LAP']) === $before['LAP'] - 4, 'LAP='.stockOf($trackVariants['LAP']).' awal '.$before['LAP']);
 check('returned CBC-103: KSP+2 kembali ke stok awal', stockOf($trackVariants['KSP+2']) === $before['KSP+2']);
 check('returned CBC-302: KMP+1.25 kembali ke stok awal', stockOf($trackVariants['KMP+1.25']) === $before['KMP+1.25']);
 check('delivered CBC-101: KMP+1.5 tetap ter-reserve (−1)', stockOf($trackVariants['KMP+1.5']) === $before['KMP+1.5'] - 1);
@@ -296,8 +309,9 @@ check('KBJ split KDF tetap ter-reserve (−1)', stockOf($trackVariants['KDF+1.25
 // ─── 5. IDEMPOTEN RE-IMPORT ────────────────────────────────────────────────
 echo "\n── 5. Re-import FLIK (idempotent) ─────────────────────────\n";
 $reflik = $tracking->import("$dir/03_tracking_flik.csv");
-echo '  FLIK (ulang): stock_returned='.$reflik['stock_returned']."\n";
+echo '  FLIK (ulang): stock_returned='.$reflik['stock_returned'].' stock_out='.($reflik['stock_out'] ?? '?')."\n";
 check('re-import returned tidak menggandakan (stock_returned=0)', $reflik['stock_returned'] === 0);
+check('re-import tidak menggandakan stok keluar (stock_out=0)', ($reflik['stock_out'] ?? -1) === 0, 'stock_out='.($reflik['stock_out'] ?? '?'));
 
 // ─── 6. RE-EXPORT SETELAH SEMUA ORDER BER-AWB → HANYA HEADER ───────────────
 echo "\n── 6. Re-export setelah seluruh order ber-AWB → hanya header ─\n";

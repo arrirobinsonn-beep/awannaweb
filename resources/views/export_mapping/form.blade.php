@@ -15,6 +15,14 @@
     .em-draft-tag { display:none; font-size:.66rem; font-weight:700; color:#b45309; background:#fef3c7; padding:2px 8px; border-radius:999px; }
     .em-draft-tag.show { display:inline-block; }
     .em-hint { font-size:.66rem; color:#9ca3af; margin-top:3px; line-height:1.45; }
+    /* Modal Tambah Kolom */
+    .em-modal-field { position:relative; }
+    .em-modal-select { width:100%; padding:7px 10px; font-size:.84rem; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:#1e1b2e; }
+    .em-modal-field .em-static { display:none; margin-top:8px; }
+    .em-modal-field .em-static.show { display:block; }
+    .em-modal-field .em-static input { width:100%; padding:7px 10px; font-size:.84rem; border:1px solid #d1d5db; border-radius:8px; }
+    .em-add-error { display:none; margin-top:12px; padding:8px 10px; border-radius:8px; background:#fef2f2; color:#b91c1c; font-size:.74rem; font-weight:700; line-height:1.5; }
+    #em-body tr.em-row-new { background:#ecfdf5 !important; transition:background .5s; }
 </style>
 @endpush
 
@@ -53,8 +61,12 @@
                     <span class="em-draft-tag" id="em-draft">draft — belum disimpan</span>
                 </div>
             </div>
-            <button type="button" class="clay-btn" style="padding:6px 14px;font-size:.78rem;"
-                    onclick="document.getElementById('em-file').click()">⬆ Upload Template CSV</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="clay-btn" style="padding:6px 14px;font-size:.78rem;"
+                        onclick="document.getElementById('em-file').click()">⬆ Upload Template CSV</button>
+                <button type="button" class="clay-btn" style="padding:6px 14px;font-size:.78rem;"
+                        id="em-add-btn" onclick="openEmAddModal()">➕ Tambah Kolom</button>
+            </div>
             <input type="file" id="em-file" accept=".csv,text/csv,text/plain" style="display:none;">
         </div>
 
@@ -118,6 +130,55 @@
         <button type="submit" class="clay-btn clay-btn-primary">💾 {{ $template ? 'Simpan Perubahan' : 'Buat Template' }}</button>
     </div>
 </form>
+
+{{-- Modal Tambah Kolom — baris baru langsung masuk tabel draft TANPA reload halaman --}}
+<div class="clay-modal" id="em-add-modal" role="dialog" aria-modal="true" aria-labelledby="em-add-title">
+    <div class="clay-modal-backdrop" onclick="closeEmAddModal()"></div>
+    <div class="clay-modal-container" style="max-width:480px;">
+        <div class="clay-modal-header">
+            <h2 id="em-add-title">➕ Tambah Kolom</h2>
+            <button class="clay-modal-close" type="button" onclick="closeEmAddModal()" aria-label="Tutup">✕</button>
+        </div>
+        <form id="em-add-form" novalidate>
+            <div class="clay-modal-body">
+                <div style="margin-bottom:14px;">
+                    <label for="em-add-header">Header Template *</label>
+                    <input type="text" id="em-add-header" class="clay-input" maxlength="255"
+                           placeholder="contoh: No. Resi" autocomplete="off" style="width:100%;">
+                    <div class="em-hint">Teks persis seperti baris header pada file template export.</div>
+                </div>
+                <div>
+                    <label for="em-add-source">Sumber Isi *</label>
+                    <div class="em-modal-field">
+                        <select id="em-add-source" class="em-modal-select" onchange="toggleEmStatic(this)">
+                            <option value="empty">— Kosongkan —</option>
+                            <optgroup label="Kolom shipping_orders">
+                                @foreach($columns as $key => $label)
+                                    <option value="column:{{ $key }}">{{ $label }}</option>
+                                @endforeach
+                            </optgroup>
+                            <optgroup label="Nilai khusus (computed)">
+                                @foreach($computed as $key => $label)
+                                    <option value="computed:{{ $key }}">{{ $label }}</option>
+                                @endforeach
+                            </optgroup>
+                            <option value="static">✍️ Teks tetap</option>
+                        </select>
+                        <span class="em-static" id="em-add-static">
+                            <input type="text" id="em-add-static-input" placeholder="nilai teks…" autocomplete="off">
+                        </span>
+                    </div>
+                    <div class="em-hint">Sama seperti dropdown di tabel mapping — nilai khusus dihitung saat export.</div>
+                </div>
+                <div class="em-add-error" id="em-add-error" role="alert"></div>
+            </div>
+            <div class="clay-modal-footer">
+                <button type="button" class="clay-btn clay-btn-outline" onclick="closeEmAddModal()">Batal</button>
+                <button type="submit" class="clay-btn clay-btn-primary" id="em-add-save">➕ Tambahkan</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 @endsection
 
@@ -252,6 +313,91 @@
             e.preventDefault();
             alert('Sumber "teks tetap" tidak boleh kosong.');
             return;
+        }
+    });
+
+    // ── Modal Tambah Kolom (draft, tanpa reload) ────────
+    function showEmAddError(msg) {
+        var el = document.getElementById('em-add-error');
+        el.textContent = msg;
+        el.style.display = 'block';
+    }
+    function normalizeHeader(s) {
+        return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+
+    window.openEmAddModal = function () {
+        var form = document.getElementById('em-add-form');
+        form.reset();
+        document.getElementById('em-add-error').style.display = 'none';
+        document.getElementById('em-add-static').classList.remove('show');
+        document.getElementById('em-add-modal').classList.add('active');
+        setTimeout(function () { document.getElementById('em-add-header').focus(); }, 60);
+    };
+    window.closeEmAddModal = function () {
+        document.getElementById('em-add-modal').classList.remove('active');
+    };
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') window.closeEmAddModal();
+    });
+
+    document.getElementById('em-add-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        var header = document.getElementById('em-add-header').value.replace(/\s+/g, ' ').trim();
+        var raw = document.getElementById('em-add-source').value;
+
+        if (!header) { showEmAddError('Header template wajib diisi.'); return; }
+
+        var body = document.getElementById('em-body');
+        var rows = body.querySelectorAll('tr.em-row');
+        var norm = normalizeHeader(header);
+        for (var i = 0; i < rows.length; i++) {
+            if (normalizeHeader(rows[i].getAttribute('data-header')) === norm) {
+                showEmAddError('Header "' + header + '" sudah dipakai kolom lain. Gunakan nama lain.');
+                return;
+            }
+        }
+
+        var sourceType, sourceValue = '';
+        if (raw === 'static') {
+            sourceType = 'static';
+            sourceValue = document.getElementById('em-add-static-input').value.trim();
+            if (!sourceValue) { showEmAddError('Sumber "teks tetap" tidak boleh kosong.'); return; }
+        } else if (raw.indexOf('column:') === 0) {
+            sourceType = 'column'; sourceValue = raw.slice(7);
+        } else if (raw.indexOf('computed:') === 0) {
+            sourceType = 'computed'; sourceValue = raw.slice(9);
+        } else {
+            sourceType = 'empty';
+        }
+
+        // Nomor kolom = max index + 1 (tahan data index tidak berurutan)
+        var maxIndex = -1;
+        rows.forEach(function (tr) {
+            var n = parseInt(tr.getAttribute('data-index'), 10);
+            if (!isNaN(n) && n > maxIndex) maxIndex = n;
+        });
+        var index = maxIndex + 1;
+
+        // Buang placeholder "Belum ada kolom" bila tabel masih kosong
+        if (!rows.length) body.innerHTML = '';
+        body.insertAdjacentHTML('beforeend', rowHtml(index, header, sourceType, sourceValue));
+
+        document.getElementById('em-count').textContent = body.querySelectorAll('tr.em-row').length;
+        document.getElementById('em-draft').classList.add('show');
+
+        window.closeEmAddModal();
+
+        // Sorot baris baru — tanpa reload halaman
+        var newRow = body.querySelector('tr.em-row[data-index="' + index + '"]');
+        if (newRow) {
+            newRow.classList.add('em-row-new');
+            newRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            setTimeout(function () {
+                newRow.classList.remove('em-row-new');
+            }, 1400);
         }
     });
 })();
