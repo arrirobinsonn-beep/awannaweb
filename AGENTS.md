@@ -80,6 +80,32 @@ $users = User::whereIn('nama', $uniqueValues)->get()->keyBy('nama');
 
 # Fitur Selesai
 
+## Z. ✅ Override Courier dari Suffix Nama Pembeli (27 September 2026)
+
+### Deskripsi
+Pembeli bisa meminta ekspedisi tertulis di **kolom `name` CSV data mentah**: kata terakhir nama = kode courier (`muhammad rizky padil JNE`, `arhan JNT`). Saat import (status `real`), suffix itu di-case-insensitive-kan ke **daftar courier template export aktif** (`export_templates.couriers` — sumber = field "Courier yang memakai template ini" di halaman `export-mapping/{id}/edit`) → **NAMA MENANG atas `courier_rules`**. Tidak ada hardcode: courier baru di template langsung dikenali; template nonaktif otomatis berhenti dikenali (konsisten dgn tombol export yang hilang).
+
+### Aturan
+| Aspek | Perilaku |
+|---|---|
+| Posisi token | **Suffix-only** — hanya kata TERAKHIR, wajib terpisah spasi (nama ≥ 2 kata); "JNE Abdul" TIDAK match. Nama berapa pun panjangnya aman (hanya kata terakhir yg dibaca). |
+| Matching | Case-insensitive; tanda baca belakang `.,;:` di-strip (`…JNE.` tetap match); nilai yang disimpan = **persis seperti terdaftar** di template (case asli) agar cocok dgn filter export `whereIn` & dropdown /orders. |
+| Status | Hanya **`real`**. `tembakan` tetap `spx`; `belum_diproses`/`cancel`/`duplikat` tetap `null`. |
+| Precedence | Token cocok → menang atas rule provinsi DAN rule khusus produk (mis. SH→flix-tf); tanpa token → `CourierRuleService::resolve()` seperti biasa. |
+| Nama | Suffix TIDAK di-strip dari `customer_name` (konsisten: DB → export → dashboard → tracking match phone+nama). |
+| Kecualian | `undeliverable` tidak pernah bisa datang dari nama (dikeluarkan dari daftar token — verdict admin saja). |
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `app/Services/OrderOnlineImportService.php` | properti cache `knownCouriersCache`; `knownCouriers()` = 1 query `ExportTemplate::where('is_active')` → map `lowercase → nilai asli` (di-cache per instance, anti N+1); `courierFromName(?string)` (split `\s+`, ambil kata terakhir, rtrim `.,;:`); di blok resolve: `courierFromName($row['customer_name']) ?? resolve(...)` (hanya cabang `else` = status real). |
+| `tests/Feature/OrderOnlineTest.php` | +8 test (`test_courier_from_name_*`): suffix menang atas rules, posisi suffix wajib, token tak dikenal fallback, nama panjang 5-12 kata + spasi ganda + huruf besar + titik belakang, diabaikan utk tembakan & non-exportable, menang atas rule produk SH (dgn baris kontrol flix-tf), re-import idempoten. Helper `makeTemplateWithCourier()` (template unik + `finally` delete — DB test tanpa refresh). |
+
+### Penting
+- **Cocok exact token**: nama akhir "JNE" tidak cocok bila template mendaftarkan `jne-cod` (varian) — belum ada pencocokan prefix (sengaja; tambah bila perlu).
+- Re-import order sama → courier dihitung ulang saat baris diproses / tak disentuh saat kena `double_real` — keduanya hasilnya sama (idempoten, dibuktikan test).
+- Tanpa migrasi, tanpa ubah view/export/tracking. Import nambah 1 query per run + O(karakter nama) per baris — tanpa dampak performa terukur.
+
 ## Y. ✅ Trigger Stok Order Online Pindah ke Saat Resi (AWB) Terisi (27 September 2026)
 
 ### Deskripsi
@@ -251,6 +277,7 @@ Upload file CSV data mentah order online ("Data dari Order Online") ke tabel `sh
 - `cod` provinsi lainnya (Kalimantan, Sulawesi, Maluku, Papua, NTB, NTT, Aceh, Bangka, Kep. Riau, Gorontalo) → **flix-spx**
 - Tidak ada rule cocok (provinsi tak dikenal / payment method lain) → **spx** (fallback)
 - Admin bisa override manual per order; `courier = 'undeliverable'` + `courier_note` = label "paket tidak dapat terkirim" (tidak ikut export)
+- **Baru 27 Sep 2026 (section Z)**: pada status `real`, kata TERAKHIR `customer_name` (suffix "... JNE") didahulukan — bila cocok dgn courier template export aktif, **nama menang** atas rule di bawah ini; selain itu tidak berubah.
 
 ### Mapping courier → template export
 - `flix-tf`, `flix-idx`, `flix-sicepat`, `flix-spx` → template **FLIK** (export terpisah per courier via dropdown)

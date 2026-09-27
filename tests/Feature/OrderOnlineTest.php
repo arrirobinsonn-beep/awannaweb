@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ExportTemplate;
 use App\Models\Inventory;
 use App\Models\OrderOnlineImportBatch;
 use App\Models\PackagingRule;
@@ -171,6 +172,208 @@ class OrderOnlineTest extends TestCase
         $this->assertNull($pending->courier);
         $this->assertNull($cancel->courier);
         $this->assertNotNull($real->courier);
+    }
+
+    // ── Courier dari suffix nama pembeli (fitur 27 Sep 2026) ────────────────
+    // Kata TERAKHIR nama ("... <token>") dicocokkan case-insensitive ke courier
+    // template export aktif (export_templates.couriers) — NAMA MENANG atas
+    // courier_rules. Hanya status real; tembakan tetap spx; lainnya null.
+
+    /** Template export aktif dgn courier unik — sumber token suffix nama. */
+    private function makeTemplateWithCourier(string $courier): ExportTemplate
+    {
+        return ExportTemplate::create([
+            'key' => 'toktpl'.uniqid(),
+            'name' => 'Token Tpl '.uniqid(),
+            'couriers' => [$courier],
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_courier_from_name_suffix_overrides_rules(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+        $courier = 'jne'.substr($uid, -6);
+        $tpl = $this->makeTemplateWithCourier($courier);
+
+        try {
+            $r = $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code);
+            $r['name'] = 'muhammad rizky padil '.strtoupper($courier);
+            $path = $this->writeTempCsv([$r]);
+
+            (new OrderOnlineImportService)->import($path, 'eresgestore');
+
+            $order = ShippingOrder::where('order_id', $uid.'-1')->firstOrFail();
+            // cod JAWA BARAT seharusnya sicepat via courier_rules — nama menang
+            $this->assertSame($courier, $order->courier);
+        } finally {
+            $tpl->delete();
+        }
+    }
+
+    public function test_courier_from_name_requires_suffix_position(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        // 'spx' terdaftar di template aktif, tapi DI AWAL nama → tidak dipakai (suffix-only)
+        $r = $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code);
+        $r['name'] = 'spx muhammad rizky padil';
+        $path = $this->writeTempCsv([$r]);
+
+        (new OrderOnlineImportService)->import($path, 'eresgestore');
+
+        $order = ShippingOrder::where('order_id', $uid.'-1')->firstOrFail();
+        $this->assertSame('sicepat', $order->courier);
+    }
+
+    public function test_courier_from_name_unknown_token_falls_back_to_rules(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+
+        $r = $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code);
+        $r['name'] = 'muhammad rizky padil QQQXYZUNIK';
+        $path = $this->writeTempCsv([$r]);
+
+        (new OrderOnlineImportService)->import($path, 'eresgestore');
+
+        $order = ShippingOrder::where('order_id', $uid.'-1')->firstOrFail();
+        $this->assertSame('sicepat', $order->courier);
+    }
+
+    public function test_courier_from_name_long_uppercase_and_trailing_dot(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+        $courier = 'jnt'.substr($uid, -6);
+        $tpl = $this->makeTemplateWithCourier($courier);
+
+        try {
+            // 5 kata + spasi ganda + HURUF BESAR
+            $a = $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code);
+            $a['name'] = 'muhammad  rizky  padil  ramadhan  hauli '.strtoupper($courier);
+
+            // 12 kata + tanda baca titik di belakang token
+            $b = $this->row($uid.'-2', '0812', 'processing', 'paid', $product->code);
+            $b['name'] = 'a b c d e f g h i j k l padil '.strtoupper($courier).'.';
+
+            // seluruh nama kapital
+            $c = $this->row($uid.'-3', '0813', 'processing', 'paid', $product->code);
+            $c['name'] = strtoupper('muhammad rizky padil').' '.strtoupper($courier);
+
+            $path = $this->writeTempCsv([$a, $b, $c]);
+            (new OrderOnlineImportService)->import($path, 'eresgestore');
+
+            foreach (['-1', '-2', '-3'] as $sfx) {
+                $order = ShippingOrder::where('order_id', $uid.$sfx)->firstOrFail();
+                $this->assertSame($courier, $order->courier, "order {$sfx}");
+            }
+        } finally {
+            $tpl->delete();
+        }
+    }
+
+    public function test_courier_from_name_ignored_for_tembakan(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+        $courier = 'jne'.substr($uid, -6);
+        $tpl = $this->makeTemplateWithCourier($courier);
+
+        try {
+            $r = $this->row($uid.'-1', '0811', 'pending', 'paid', $product->code);
+            $r['name'] = 'muhammad rizky padil '.strtoupper($courier);
+            $path = $this->writeTempCsv([$r]);
+
+            (new OrderOnlineImportService)->import($path, 'eresgestore');
+
+            $order = ShippingOrder::where('order_id', $uid.'-1')->firstOrFail();
+            $this->assertSame('tembakan', $order->status);
+            $this->assertSame('spx', $order->courier); // aturan "tembakan SELALU spx" tetap
+        } finally {
+            $tpl->delete();
+        }
+    }
+
+    public function test_courier_from_name_ignored_for_non_exportable(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+        $courier = 'jne'.substr($uid, -6);
+        $tpl = $this->makeTemplateWithCourier($courier);
+
+        try {
+            $r = $this->row($uid.'-1', '0811', 'pending', 'unpaid', $product->code);
+            $r['name'] = 'muhammad rizky padil '.strtoupper($courier);
+            $path = $this->writeTempCsv([$r]);
+
+            (new OrderOnlineImportService)->import($path, 'eresgestore');
+
+            $order = ShippingOrder::where('order_id', $uid.'-1')->firstOrFail();
+            $this->assertSame('belum_diproses', $order->status);
+            $this->assertNull($order->courier);
+        } finally {
+            $tpl->delete();
+        }
+    }
+
+    public function test_courier_from_name_wins_over_product_rule(): void
+    {
+        $this->seed(CourierRuleSeeder::class); // memuat rule produk SH → flix-tf
+        $product = $this->makeProduct();
+        $uid = uniqid();
+        $courier = 'jnt'.substr($uid, -6);
+        $tpl = $this->makeTemplateWithCourier($courier);
+
+        try {
+            // Kontrol: nama tanpa token → rule produk SH menang (flix-tf)
+            $control = $this->row($uid.'-2', '0812', 'processing', 'paid', 'SH');
+
+            // Nama akhir token → NAMA MENANG atas rule produk SH
+            $named = $this->row($uid.'-1', '0811', 'processing', 'paid', 'SH');
+            $named['name'] = 'muhammad rizky padil '.strtoupper($courier);
+
+            $path = $this->writeTempCsv([$control, $named]);
+            (new OrderOnlineImportService)->import($path, 'eresgestore');
+
+            $this->assertSame('flix-tf', ShippingOrder::where('order_id', $uid.'-2')->firstOrFail()->courier);
+            $this->assertSame($courier, ShippingOrder::where('order_id', $uid.'-1')->firstOrFail()->courier);
+        } finally {
+            $tpl->delete();
+        }
+    }
+
+    public function test_courier_from_name_reimport_keeps_override(): void
+    {
+        $this->seed(CourierRuleSeeder::class);
+        $product = $this->makeProduct();
+        $uid = uniqid();
+        $courier = 'jne'.substr($uid, -6);
+        $tpl = $this->makeTemplateWithCourier($courier);
+
+        try {
+            $r = $this->row($uid.'-1', '0811', 'processing', 'paid', $product->code);
+            $r['name'] = 'muhammad rizky padil '.$courier; // token lowercase
+            $path = $this->writeTempCsv([$r]);
+
+            (new OrderOnlineImportService)->import($path, 'eresgestore');
+            $this->assertSame($courier, ShippingOrder::where('order_id', $uid.'-1')->firstOrFail()->courier);
+
+            // Re-import file sama → tidak dobel, courier tetap
+            (new OrderOnlineImportService)->import($path, 'eresgestore');
+            $this->assertSame(1, ShippingOrder::where('order_id', $uid.'-1')->count());
+            $this->assertSame($courier, ShippingOrder::where('order_id', $uid.'-1')->firstOrFail()->courier);
+        } finally {
+            $tpl->delete();
+        }
     }
 
     private function makeBatch(): OrderOnlineImportBatch

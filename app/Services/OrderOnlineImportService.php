@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\ExportTemplate;
 use App\Models\OrderOnlineContact;
 use App\Models\OrderOnlineImportBatch;
 use App\Models\Product;
@@ -20,7 +21,11 @@ use Illuminate\Support\Facades\DB;
  * - Kunci unik per batch: (order_online_import_batch_id, order_id).
  * - Provinsi dikalibrasi ke daftar master (config/regional.php).
  * - `handled_by` disimpan apa adanya; `handled_by_user_id` di-resolve batch.
- * - Couriers diisi otomatis dari tabel `courier_rules`.
+ * - Couriers diisi otomatis dari tabel `courier_rules`, KECUALI kata terakhir
+ *   `customer_name` (suffix, minimal 2 kata) cocok dengan courier milik template
+ *   export aktif (tabel `export_templates`) → courier dari NAMA MENANG
+ *   (case-insensitive; request pembeli di kolom "name" CSV, fitur 27 Sep 2026).
+ *   Hanya berlaku utk status `real`; `tembakan` tetap `spx`.
  * - Sekaligus memperbarui `order_online_contacts` (mapping phone → CS).
  *
  * Status (CSV → DB):
@@ -58,6 +63,9 @@ class OrderOnlineImportService
     public function __construct(
         private readonly CourierRuleService $couriers = new CourierRuleService,
     ) {}
+
+    /** @var array<string, string>|null cache per instance: courier lowercase → nilai asli terdaftar */
+    private ?array $knownCouriersCache = null;
 
     /**
      * Baca & parse CSV menjadi baris ternormalisasi (belum disimpan).
@@ -321,7 +329,11 @@ class OrderOnlineImportService
                 } elseif ($row['status'] === 'tembakan') {
                     $row['courier'] = 'spx';
                 } else {
-                    $row['courier'] = $this->couriers->resolve($row['payment_method'], $row['province'], $row['product_code'] ?? null);
+                    // Request pembeli bisa tertulis di kolom "name" ("Abdul JNE") —
+                    // suffix nama menang atas courier_rules bila tokennya terdaftar
+                    // di courier template export aktif (sumber: halaman Aturan Export).
+                    $row['courier'] = $this->courierFromName($row['customer_name'] ?? null)
+                        ?? $this->couriers->resolve($row['payment_method'], $row['province'], $row['product_code'] ?? null);
                 }
 
                 $row['product_id'] = $productMap[$row['product_code'] ?? ''] ?? null;
@@ -681,6 +693,53 @@ class OrderOnlineImportService
     protected function normalizeName(string $name): string
     {
         return mb_strtolower(preg_replace('/\s+/', ' ', trim($name)) ?? '');
+    }
+
+    /**
+     * Daftar courier yang dipakai template export AKTIF (sumber: field "Courier
+     * yang memakai template ini" di halaman export-mapping/{id}/edit → kolom
+     * `export_templates.couriers`). Di-cache per instance (1 query per import),
+     * bukan per baris — anti N+1. `undeliverable` dikecualikan (verdict admin,
+     * tidak pernah boleh datang dari nama).
+     *
+     * @return array<string, string>  lowercase courier → nilai asli terdaftar
+     */
+    protected function knownCouriers(): array
+    {
+        if ($this->knownCouriersCache === null) {
+            $this->knownCouriersCache = ExportTemplate::where('is_active', true)
+                ->get()
+                ->flatMap(fn ($t) => $t->couriers ?? [])
+                ->map(fn ($c) => trim((string) $c))
+                ->filter(fn ($c) => $c !== '' && mb_strtolower($c) !== 'undeliverable')
+                ->unique()
+                ->mapWithKeys(fn ($c) => [mb_strtolower($c) => $c])
+                ->all();
+        }
+
+        return $this->knownCouriersCache;
+    }
+
+    /**
+     * Courier dari suffix nama pembeli: "muhammad rizky padil JNE" → "jne".
+     * Hanya kata TERAKHIR (suffix-only, bisa nama berapa pun panjangnya), wajib
+     * terpisah spasi (≥2 kata), cocok case-insensitive terhadap knownCouriers().
+     * Tanda baca belakang (.,;:) di-strip; nama tanpa spasi / token tak
+     * terdaftar → null (jatuh ke courier_rules). Nilai yang dikembalikan =
+     * persis seperti terdaftar di template (case asli) agar cocok dgn
+     * filter export (`whereIn`) & dropdown di /orders.
+     */
+    protected function courierFromName(?string $name): ?string
+    {
+        $name = trim((string) $name);
+        if ($name === '' || ! str_contains($name, ' ')) {
+            return null;
+        }
+
+        $tokens = preg_split('/\s+/', $name);
+        $last = rtrim(mb_strtolower((string) end($tokens)), '.,;:');
+
+        return $last !== '' ? ($this->knownCouriers()[$last] ?? null) : null;
     }
 
     public static function normalizePhone(string $phone): string
