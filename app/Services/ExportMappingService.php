@@ -121,6 +121,27 @@ class ExportMappingService
     }
 
     /**
+     * Aturan file export sebuah template: `single` / `split_csv` / `split_rules`
+     * (kolom `export_templates.split_mode`).
+     *
+     * Fallback legacy bila row template terhapus — sama dengan perilaku lama
+     * hardcoded (`in_array($template, ['sicepat','spx'])`): sicepat/spx split,
+     * selainnya 1 file.
+     */
+    public function splitModeFor(string $templateKey): string
+    {
+        $mode = $this->template($templateKey)?->split_mode;
+
+        if (in_array($mode, array_keys(ExportTemplate::SPLIT_MODES), true)) {
+            return $mode;
+        }
+
+        return in_array($templateKey, ['sicepat', 'spx'], true)
+            ? ExportTemplate::SPLIT_CSV
+            : ExportTemplate::SPLIT_SINGLE;
+    }
+
+    /**
      * Ambil template by key (cache per request).
      */
     public function template(string $templateKey): ?ExportTemplate
@@ -245,16 +266,20 @@ class ExportMappingService
      *
      * @param  array<int, string>  $couriers
      * @param  array<int, array{column_index:int, header:string, source_type:string, source_value:string|null}>  $items
+     * @param  string|null  $splitMode  single/split_csv/split_rules (null → single)
      */
-    public function createTemplate(string $name, array $couriers, array $items): ExportTemplate
+    public function createTemplate(string $name, array $couriers, array $items, ?string $splitMode = null): ExportTemplate
     {
         $key = $this->uniqueKey($name);
 
-        $template = DB::transaction(function () use ($key, $name, $couriers, $items) {
+        $template = DB::transaction(function () use ($key, $name, $couriers, $items, $splitMode) {
             $template = ExportTemplate::create([
                 'key' => $key,
                 'name' => $name,
                 'couriers' => $couriers !== [] ? array_values($couriers) : [$key],
+                'split_mode' => in_array($splitMode, array_keys(ExportTemplate::SPLIT_MODES), true)
+                    ? $splitMode
+                    : ExportTemplate::SPLIT_SINGLE,
                 'is_active' => true,
             ]);
             $this->saveMapping($template->key, $items);
@@ -270,14 +295,18 @@ class ExportMappingService
      *
      * @param  array<int, string>  $couriers
      * @param  array<int, array{column_index:int, header:string, source_type:string, source_value:string|null}>  $items
+     * @param  string|null  $splitMode  single/split_csv/split_rules (null → pertahankan nilai lama)
      */
-    public function updateTemplate(ExportTemplate $template, string $name, array $couriers, array $items): void
+    public function updateTemplate(ExportTemplate $template, string $name, array $couriers, array $items, ?string $splitMode = null): void
     {
-        DB::transaction(function () use ($template, $name, $couriers, $items) {
-            $template->update([
+        DB::transaction(function () use ($template, $name, $couriers, $items, $splitMode) {
+            $template->update(array_filter([
                 'name' => $name,
                 'couriers' => $couriers !== [] ? array_values($couriers) : [$template->key],
-            ]);
+                'split_mode' => in_array($splitMode, array_keys(ExportTemplate::SPLIT_MODES), true)
+                    ? $splitMode
+                    : null,
+            ], fn ($v) => $v !== null));
             $this->saveMapping($template->key, $items);
         });
     }

@@ -80,6 +80,76 @@ $users = User::whereIn('nama', $uniqueValues)->get()->keyBy('nama');
 
 # Fitur Selesai
 
+## BB. ✅ Dropdown Export FLIK Ikut Array `export_templates.couriers` (28 September 2026)
+
+### Deskripsi
+Dropdown **Export FLIK** di halaman Data Mentah (`/orders`) sebelumnya memakai konstanta hardcoded `OrderTemplateExportService::FLIK_COURIERS` **DAN** hanya menampilkan courier yang punya order (`courierCounts > 0`) → admin melihat hanya `flix-tf`/`flix-spx` saja walau kolom `couriers` template FLIK berisi lebih (di DB dev kini 6: `flix-tf, flix-idx, flix-sicepat, flix-spx, jne, jnt`). Kini:
+- **Isi dropdown = array `export_templates.couriers`** (field "Courier yang memakai template ini" di `/export-mapping/{id}/edit`) — tanpa hardcode, tanpa filter data.
+- **Courier tanpa order tetap tampil** dengan label `(0)` + `opacity:.55`; yang punya data menampilkan jumlahnya.
+- **Template dengan >1 courier → dropdown** (semua template, bukan hanya `key === 'flik'`); **1 courier → tombol biasa** seperti sebelumnya.
+- Setiap `<details>` membawa atribut **`data-couriers`** (JSON array) → dipakai spec Playwright untuk assert isi dropdown == array template.
+
+### Validasi export (`OrderOnlineController::export()`)
+- Courier valid = **isi `export_templates.couriers` template tsb** (bukan `FLIK_COURIERS`); courier di luar array → **404**.
+- FLIK tetap per-courier: tanpa param courier → dipakai **courier pertama template** (sebelumnya 404 — aman bila admin menurunkan FLIK ke 1 courier).
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `resources/views/order/_export_header.blade.php` | loop `$etCouriers` (unique, buang kosong) dari `$et->couriers`; dropdown bila count>1 (`data-couriers` JSON), tombol biasa bila 1; label `{name} — {courier} ({count})` — count 0 ditampilkan redup; URL per item `orders.export [batch, key, courier]` |
+| `app/Http/Controllers/OrderOnlineController.php` | `export()`: resolve template by key (404 bila tak ada), validasi `$courier` against `couriers` (fallback `couriersForTemplate()` bila array kosong), FLIK default courier pertama |
+| `tests/Feature/OrderOnlineTest.php` | +3 test: semua courier template tampil walau 0 order (+export in-array 200 / luar-array 404, restore `couriers` di finally), template custom multi-courier → dropdown, template 1 courier → tombol polos |
+| `tests/e2e/order-export-dropdown.spec.ts` | Playwright: login → pilih batch → buka dropdown → assert jumlah opsi == `data-couriers`, label & href per courier, tidak ada opsi di luar array, screenshot `orders-export-dropdown.png`, request link pertama → 200 |
+
+### Penting
+- Export header hanya dirender **saat batch dipilih** (`?batch=ID`) — spec Playwright harus navigate ke URL itu (atau pakai `#ord-filter-batch`).
+- `test_order_page_renders` (`assertSee('FLIK — flix-tf')`) tetap lolos — kini semua courier selalu tampil.
+- **Playwright penuh: 49 pass / 7 fail SEMUA pre-existing** — 6 di `product-filter.spec.ts` (locator basi `#product-table-wrap`, sudah tercatat di section Q) + 1 di `supplier-filter.spec.ts` (empty state `Tidak ada supplier ditemukan` — halaman supplier tidak tersentuh perubahan ini).
+- **Suite PHP: 278 pass / 1 fail pre-existing** (`SpendingSummaryTest::discrepancy ignores testing…`).
+
+---
+
+## AA. ✅ Aturan File Export per Template — 1 File / Split Gudang (28 September 2026)
+
+### Deskripsi
+Keputusan split gudang saat export **tidak lagi hardcoded** (`in_array($template, ['sicepat','spx'])` di `OrderTemplateExportService::download()`) melainkan **aturan per template** di halaman **`/export-mapping/{id}/edit`** (fieldset "📦 Aturan File Export"):
+
+1. **Bentuk File**: `1 File` (semua gudang digabung) ATAU `Dipisah per gudang`.
+2. Bila dipisah, **pemisah** (select kedua hanya tampil saat "Dipisah"):
+   - **`split_csv`** — berdasarkan **nama warehouse dari data mentah CSV** (kolom `shipping_orders.warehouse`, perilaku lama); order tanpa warehouse → grup `LAINNYA`.
+   - **`split_rules`** — berdasarkan **aturan gudang** (`warehouse_rules`, halaman `/warehouse-rules`): grup = hasil `WarehouseRuleService::resolve(product_code)`; **produk tanpa rule → grup `LAINNYA`** (TIDAK fallback ke gudang utama/sender — sesuai keputusan user).
+
+Threshold file **tetap**: 1 grup → `.xlsx` tunggal, ≥2 grup → 1 ZIP berisi file per gudang (nama file per gudang). FLIK juga mengikuti aturan ini (split per courier via dropdown dulu, lalu per courier mengikuti `split_mode` template FLIK). **Isi kolom "Kode Warehouse" TIDAK berubah** — tetap `warehouseFor()` (rule → gudang utama → mapping lama → sender); `split_mode` hanya menentukan pemisahan file.
+
+### Skema & default (perilaku lama dipertahankan)
+- Kolom baru **`export_templates.split_mode`** `string(12)` default `'single'` + index — nilai: `single` / `split_csv` / `split_rules` (konstanta `ExportTemplate::SPLIT_*` + `SPLIT_MODES` label Indonesia).
+- **Backfill idempoten**: `sicepat` & `spx` → `split_csv`, lainnya → `single` (persis perilaku hardcoded lama) → TANPA perubahan perilaku untuk user yang tidak menyentuh setting.
+- Migrasi `2026_09_28_000000` (tambah kolom; versi awal `string(10)` — `split_rules` = 11 char → error 22001) + `2026_09_28_000001` (lebarkan ke 12, idempotent).
+- **`ExportTemplateMappingSeeder` ikut mengisi `split_mode`** (flik=single, sicepat/spx=split_csv) — seeder ini `truncate()` + insert ulang `export_templates` setiap test run; tanpa isinya semua template jadi `single` (default) → test ZIP split gagal.
+
+### Implementasi
+| File | Keterangan |
+|---|---|
+| `database/migrations/2026_09_28_000000_add_split_mode_to_export_templates.php` | kolom `split_mode` string(12) default `single` + index + backfill sicepat/spx→split_csv |
+| `database/migrations/2026_09_28_000001_widen_split_mode_column.php` | perbaikan lebar 10→12 (idempotent, jalan bila kolom sudah ada) |
+| `app/Models/ExportTemplate.php` | + fillable `split_mode`, konstanta `SPLIT_SINGLE/SPLIT_CSV/SPLIT_RULES` + `SPLIT_MODES` (label UI) |
+| `app/Services/ExportMappingService.php` | + `splitModeFor(key)` (cache per request, fallback legacy sicepat/spx→split_csv bila row hilang); `createTemplate(..., ?splitMode)` default single; `updateTemplate(..., ?splitMode)` null → pertahankan nilai lama (`array_filter` buang null) |
+| `app/Http/Controllers/ExportMappingController.php` | validasi `split_mode nullable in:SPLIT_MODES`; store/update meneruskan; `create()/edit()` pass `$splitModes` ke view |
+| `app/Services/OrderTemplateExportService.php` | `download()`: `splitModeFor()` ganti hardcoded; `single` → 1 xlsx; `split_csv` → groupBy `$o->warehouse ?: 'LAINNYA'`; `split_rules` → groupBy `warehouseRules->resolve($o->product_code) ?: 'LAINNYA'` |
+| `resources/views/export_mapping/form.blade.php` | fieldset `#em-split-rule`: `#em-split-shape` (single/split) + `#em-split-basis-wrap`/`#em-split-basis` (split_csv/split_rules, hidden saat single) + hidden `name=split_mode` `#em-split-mode` → JS `window.emSyncSplit()` sinkronkan saat ganti select & saat load (`@php $splitModeVal` dari old()/DB, guard terhadap nilai tak dikenal) |
+| `database/seeders/ExportTemplateMappingSeeder.php` | insert 3 template bawaan menyertakan `split_mode` |
+| `tests/Feature/ExportMappingTest.php` | +6 test: kontrol tampil di edit, store/update persist (+tolak nilai invalid 302 `split_mode` errors), single→1 xlsx, split_csv→ZIP per kolom warehouse, split_rules→ZIP per rule + `LAINNYA` (kolom CSV diabaikan), split_rules 1 grup→xlsx tunggal. Helper `isZipResponse()` — **cek Content-Type `application/zip`, BUKAN byte `PK`** (xlsx juga format zip!) |
+| `tests/e2e/export-mapping-split-mode.spec.ts` | Playwright: buat template via UI (pilih Dipisah→split_rules) → submit → edit persist → ubah 1 File persist → ubah split_csv persist → **cleanup hapus template** (dialog di-accept) + screenshot `export-mapping-split-rule/single.png` |
+
+### Penting
+- **Validasi `split_mode` = `nullable`, bukan `required`** — request lama/test tanpa field tidak pecah; `null` di `updateTemplate` = pertahankan nilai lama, di `createTemplate` = `single`.
+- **`emSyncSplit()` wajib jalan saat load juga** (bukan hanya onchange) agar hidden input sinkron saat halaman edit dibuka dengan mode split.
+- **Deteksi ZIP di test = header `Content-Type: application/zip`** — file `.xlsx` sendiri berformat ZIP (byte `PK`) jadi cek byte selalu positif palsu.
+- Test mode memakai `try/finally` restore `split_mode` asli template bawaan + `WarehouseRule` unik per test (DB test tanpa refresh).
+- Suite: **275 pass / 1 fail pre-existing** (`SpendingSummaryTest::discrepancy ignores testing…`); Playwright export-mapping **3/3 pass**; pipeline `verify_pipeline.php` **109/111** (2 fail pre-existing drift mapping DB dev).
+
+---
+
 ## Z. ✅ Override Courier dari Suffix Nama Pembeli (27 September 2026)
 
 ### Deskripsi

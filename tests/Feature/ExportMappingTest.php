@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\ShippingOrder;
 use App\Models\User;
+use App\Models\WarehouseRule;
 use App\Services\OrderTemplateExportService;
 use App\Services\StockService;
 use Database\Seeders\ExportTemplateMappingSeeder;
@@ -371,5 +372,218 @@ class ExportMappingTest extends TestCase
         $this->assertSame('BANDUNG', $rows[1][5]);
         $this->assertSame('Y', $rows[1][10]);
         $this->assertSame('N', $rows[1][12]);
+    }
+
+    // ── Aturan file export (split_mode per template) ───────────
+
+    private function responseBytes($response): string
+    {
+        ob_start();
+        $response->sendContent();
+
+        return (string) ob_get_clean();
+    }
+
+    /** ZIP response memakai Content-Type application/zip (xlsx juga berformat zip!). */
+    private function isZipResponse($response): bool
+    {
+        return str_contains((string) $response->headers->get('content-type'), 'application/zip');
+    }
+
+    /** @return array<int, string> nama file di dalam ZIP */
+    private function zipEntryNames(string $bytes): array
+    {
+        $path = tempnam(sys_get_temp_dir(), 'emzip').'.zip';
+        file_put_contents($path, $bytes);
+        $zip = new \ZipArchive;
+        $zip->open($path);
+        $names = [];
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $names[] = $zip->getNameIndex($i);
+        }
+        $zip->close();
+        @unlink($path);
+
+        return $names;
+    }
+
+    public function test_edit_page_shows_split_rule_controls(): void
+    {
+        $tpl = ExportTemplate::where('key', 'spx')->firstOrFail();
+
+        $this->actingAs($this->adminUser())
+            ->get(route('export-mapping.edit', $tpl))
+            ->assertOk()
+            ->assertSee('Aturan File Export')
+            ->assertSee('id="em-split-shape"', false)
+            ->assertSee('id="em-split-basis"', false)
+            ->assertSee('id="em-split-mode"', false)
+            ->assertSee('name="split_mode"', false)
+            ->assertSee('split_rules', false);
+    }
+
+    public function test_store_and_update_persist_split_mode(): void
+    {
+        $user = $this->adminUser();
+        $created = [];
+
+        try {
+            // Simpan dengan mode split_rules
+            $this->actingAs($user)->post(route('export-mapping.store'), [
+                'name' => 'SM Rules '.uniqid(),
+                'couriers' => 'sm-rules',
+                'split_mode' => 'split_rules',
+                'items' => $this->sampleItems(),
+            ])->assertRedirect()->assertSessionHas('success');
+
+            $tplRules = ExportTemplate::where('couriers', 'like', '%sm-rules%')->orderByDesc('id')->first();
+            $this->assertNotNull($tplRules);
+            $created[] = $tplRules->id;
+            $this->assertSame('split_rules', $tplRules->split_mode);
+
+            // Simpan tanpa split_mode → default single
+            $this->actingAs($user)->post(route('export-mapping.store'), [
+                'name' => 'SM Default '.uniqid(),
+                'items' => $this->sampleItems(),
+            ])->assertRedirect();
+
+            $tplDefault = ExportTemplate::orderByDesc('id')->first();
+            $created[] = $tplDefault->id;
+            $this->assertSame('single', $tplDefault->split_mode);
+
+            // Update mengubah mode
+            $this->actingAs($user)->put(route('export-mapping.update', $tplRules), [
+                'name' => $tplRules->name,
+                'couriers' => 'sm-rules',
+                'split_mode' => 'split_csv',
+                'items' => $this->sampleItems(),
+            ])->assertRedirect();
+            $this->assertSame('split_csv', $tplRules->refresh()->split_mode);
+
+            // Update tanpa split_mode → mode lama dipertahankan
+            $this->actingAs($user)->put(route('export-mapping.update', $tplRules), [
+                'name' => $tplRules->name,
+                'couriers' => 'sm-rules',
+                'items' => $this->sampleItems(),
+            ])->assertRedirect();
+            $this->assertSame('split_csv', $tplRules->refresh()->split_mode);
+
+            // Nilai split_mode tidak valid → ditolak (validation error)
+            $this->actingAs($user)->post(route('export-mapping.store'), [
+                'name' => 'SM Bad '.uniqid(),
+                'split_mode' => 'zip',
+                'items' => $this->sampleItems(),
+            ])->assertStatus(302)->assertSessionHasErrors('split_mode');
+            $this->assertStringNotContainsString('SM Bad', implode(',', ExportTemplate::pluck('name')->all()));
+        } finally {
+            ExportTemplate::whereIn('id', $created)->delete();
+        }
+    }
+
+    public function test_split_mode_single_merges_all_warehouses_into_one_file(): void
+    {
+        $tpl = ExportTemplate::where('key', 'sicepat')->firstOrFail();
+        $original = $tpl->split_mode;
+        $tpl->update(['split_mode' => 'single']);
+
+        try {
+            $batch = $this->newBatch();
+            $product = $this->makeProduct();
+            $this->createOrder($batch, 'SMONE-A', 'sicepat', $product);
+            $this->createOrder($batch, 'SMONE-B', 'sicepat', $product);
+            ShippingOrder::where('order_online_import_batch_id', $batch->id)->where('order_id', 'SMONE-A')->update(['warehouse' => 'Aurora']);
+            ShippingOrder::where('order_online_import_batch_id', $batch->id)->where('order_id', 'SMONE-B')->update(['warehouse' => 'GTM']);
+
+            $response = (new OrderTemplateExportService)->download($batch, 'sicepat');
+            $this->assertFalse($this->isZipResponse($response), 'Mode single seharusnya menghasilkan .xlsx tunggal, bukan ZIP');
+            $rows = $this->readXlsxRows((new OrderTemplateExportService)->download($batch, 'sicepat'));
+            $this->assertCount(3, $rows); // header + 2 order (semua gudang digabung)
+        } finally {
+            $tpl->update(['split_mode' => $original]);
+        }
+    }
+
+    public function test_split_csv_groups_orders_by_raw_warehouse_column(): void
+    {
+        $tpl = ExportTemplate::where('key', 'sicepat')->firstOrFail();
+        $original = $tpl->split_mode;
+        $tpl->update(['split_mode' => 'split_csv']);
+
+        try {
+            $batch = $this->newBatch();
+            $product = $this->makeProduct();
+            $this->createOrder($batch, 'SMCSV-A', 'sicepat', $product);
+            $this->createOrder($batch, 'SMCSV-B', 'sicepat', $product);
+            ShippingOrder::where('order_online_import_batch_id', $batch->id)->where('order_id', 'SMCSV-A')->update(['warehouse' => 'Aurora']);
+            ShippingOrder::where('order_online_import_batch_id', $batch->id)->where('order_id', 'SMCSV-B')->update(['warehouse' => 'GTM']);
+
+            $response = (new OrderTemplateExportService)->download($batch, 'sicepat');
+            $this->assertTrue($this->isZipResponse($response), '2 gudang berbeda seharusnya menghasilkan ZIP');
+            $bytes = $this->responseBytes($response);
+            $names = $this->zipEntryNames($bytes);
+            $this->assertCount(2, $names);
+            $this->assertStringContainsString('Aurora', implode(' | ', $names));
+            $this->assertStringContainsString('GTM', implode(' | ', $names));
+        } finally {
+            $tpl->update(['split_mode' => $original]);
+        }
+    }
+
+    public function test_split_rules_groups_by_warehouse_rules_and_lainnya(): void
+    {
+        $tpl = ExportTemplate::where('key', 'sicepat')->firstOrFail();
+        $original = $tpl->split_mode;
+        $tpl->update(['split_mode' => 'split_rules']);
+
+        $productWithRule = $this->makeProduct();
+        $productNoRule = $this->makeProduct();
+        $rule = WarehouseRule::create([
+            'product_code' => $productWithRule->code,
+            'warehouse' => 'GUDANG-RULE-'.strtoupper(substr(uniqid(), -5)),
+            'is_active' => true,
+        ]);
+
+        try {
+            $batch = $this->newBatch();
+            $this->createOrder($batch, 'SMRULE-A', 'sicepat', $productWithRule);
+            $this->createOrder($batch, 'SMRULE-B', 'sicepat', $productNoRule);
+            // Kolom warehouse CSV sengaja diisi beda — split_rules TIDAK memakainya
+            ShippingOrder::where('order_online_import_batch_id', $batch->id)->where('order_id', 'SMRULE-A')->update(['warehouse' => 'Aurora']);
+            ShippingOrder::where('order_online_import_batch_id', $batch->id)->where('order_id', 'SMRULE-B')->update(['warehouse' => 'GTM']);
+
+            $response = (new OrderTemplateExportService)->download($batch, 'sicepat');
+            $this->assertTrue($this->isZipResponse($response));
+            $bytes = $this->responseBytes($response);
+            $names = $this->zipEntryNames($bytes);
+            $joined = implode(' | ', $names);
+            $this->assertCount(2, $names, 'Grup = rule warehouse + LAINNYA (bukan kolom CSV)');
+            $this->assertStringContainsString($rule->warehouse, $joined);
+            $this->assertStringContainsString('LAINNYA', $joined);
+            $this->assertStringNotContainsString('Aurora', $joined, 'Kolom warehouse CSV tidak dipakai pada mode split_rules');
+        } finally {
+            $tpl->update(['split_mode' => $original]);
+            $rule->delete();
+        }
+    }
+
+    public function test_split_rules_single_group_falls_back_to_plain_xlsx(): void
+    {
+        $tpl = ExportTemplate::where('key', 'sicepat')->firstOrFail();
+        $original = $tpl->split_mode;
+        $tpl->update(['split_mode' => 'split_rules']);
+
+        try {
+            // Semua order produk tanpa rule → 1 grup 'LAINNYA' → .xlsx tunggal
+            $batch = $this->newBatch();
+            $product = $this->makeProduct();
+            $this->createOrder($batch, 'SM1GRP-A', 'sicepat', $product);
+
+            $response = (new OrderTemplateExportService)->download($batch, 'sicepat');
+            $this->assertFalse($this->isZipResponse($response), '1 grup → .xlsx tunggal, bukan ZIP');
+            $rows = $this->readXlsxRows((new OrderTemplateExportService)->download($batch, 'sicepat'));
+            $this->assertCount(2, $rows);
+        } finally {
+            $tpl->update(['split_mode' => $original]);
+        }
     }
 }

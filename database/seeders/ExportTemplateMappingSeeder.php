@@ -19,10 +19,12 @@ class ExportTemplateMappingSeeder extends Seeder
         ExportTemplateMapping::query()->truncate();
         ExportTemplate::query()->truncate();
 
+        // split_mode = perilaku lama hardcoded: SiCepat & SPX split per gudang
+        // (kolom warehouse CSV), FLIK 1 file (split per courier via dropdown).
         ExportTemplate::insert([
-            ['key' => 'flik', 'name' => 'FLIK', 'couriers' => json_encode(['flix-tf', 'flix-idx', 'flix-sicepat', 'flix-spx']), 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
-            ['key' => 'sicepat', 'name' => 'SiCepat', 'couriers' => json_encode(['sicepat']), 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
-            ['key' => 'spx', 'name' => 'SPX', 'couriers' => json_encode(['spx']), 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
+            ['key' => 'flik', 'name' => 'FLIK', 'couriers' => json_encode(['flix-tf', 'flix-idx', 'flix-sicepat', 'flix-spx']), 'split_mode' => 'single', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
+            ['key' => 'sicepat', 'name' => 'SiCepat', 'couriers' => json_encode(['sicepat']), 'split_mode' => 'split_csv', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
+            ['key' => 'spx', 'name' => 'SPX', 'couriers' => json_encode(['spx']), 'split_mode' => 'split_csv', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
         ]);
 
         $this->seedTemplate('flik', [

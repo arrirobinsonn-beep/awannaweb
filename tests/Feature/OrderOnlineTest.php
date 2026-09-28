@@ -824,6 +824,101 @@ class OrderOnlineTest extends TestCase
             ->assertSee('FLIK — flix-tf');
     }
 
+    public function test_export_dropdown_lists_all_template_couriers_even_without_data(): void
+    {
+        // Dropdown export = kolom `export_templates.couriers` (array) — BUKAN
+        // konstanta FLIK_COURIERS dan bukan hanya courier yang punya order.
+        $tpl = ExportTemplate::where('key', 'flik')->firstOrFail();
+        $original = $tpl->couriers;
+        $customCourier = 'zzz'.substr(uniqid(), -6);
+        $tpl->update(['couriers' => array_values(array_unique(array_merge($original ?? [], [$customCourier])))]);
+
+        $batch = OrderOnlineImportBatch::create([
+            'original_filename' => 'test.csv',
+            'stored_path' => 'order-online/test.csv',
+            'sender' => 'eresgestore',
+            'status' => 'completed',
+            'total_rows' => 0,
+            'success_rows' => 0,
+        ]);
+
+        try {
+            $res = $this->actingAs($this->adminUser())
+                ->get(route('orders.index', ['batch' => $batch->id]))
+                ->assertOk();
+
+            foreach ($tpl->refresh()->couriers as $c) {
+                $res->assertSee('FLIK — '.$c, false); // termasuk courier baru tanpa order
+            }
+
+            // Courier dari array template → export jalan (200)
+            $this->get(route('orders.export', [$batch->id, 'flik', $customCourier]))->assertOk();
+
+            // Courier di LUAR array template → 404
+            $this->get(route('orders.export', [$batch->id, 'flik', 'bukan-courier-template']))->assertNotFound();
+        } finally {
+            $tpl->update(['couriers' => $original]);
+            $batch->delete();
+        }
+    }
+
+    public function test_custom_multi_courier_template_renders_courier_dropdown(): void
+    {
+        $uid = substr(uniqid(), -6);
+        $courA = 'cour-a-'.$uid;
+        $courB = 'cour-b-'.$uid;
+        $tpl = ExportTemplate::create([
+            'key' => 'mrtpl'.$uid,
+            'name' => 'Multi Tpl '.$uid,
+            'couriers' => [$courA, $courB],
+            'is_active' => true,
+        ]);
+        $batch = OrderOnlineImportBatch::create([
+            'original_filename' => 'test.csv',
+            'stored_path' => 'order-online/test.csv',
+            'sender' => 'eresgestore',
+            'status' => 'completed',
+            'total_rows' => 0,
+            'success_rows' => 0,
+        ]);
+
+        try {
+            $this->actingAs($this->adminUser())
+                ->get(route('orders.index', ['batch' => $batch->id]))
+                ->assertOk()
+                ->assertSee('Export '.$tpl->name.' ▾', false)
+                ->assertSee($tpl->name.' — '.$courA, false)
+                ->assertSee($tpl->name.' — '.$courB, false);
+        } finally {
+            $tpl->delete();
+            $batch->delete();
+        }
+    }
+
+    public function test_custom_single_courier_template_keeps_plain_export_button(): void
+    {
+        $tpl = $this->makeTemplateWithCourier('solo-'.substr(uniqid(), -6));
+        $batch = OrderOnlineImportBatch::create([
+            'original_filename' => 'test.csv',
+            'stored_path' => 'order-online/test.csv',
+            'sender' => 'eresgestore',
+            'status' => 'completed',
+            'total_rows' => 0,
+            'success_rows' => 0,
+        ]);
+
+        try {
+            $this->actingAs($this->adminUser())
+                ->get(route('orders.index', ['batch' => $batch->id]))
+                ->assertOk()
+                ->assertSee('Export '.$tpl->name)
+                ->assertDontSee('Export '.$tpl->name.' ▾');
+        } finally {
+            $tpl->delete();
+            $batch->delete();
+        }
+    }
+
     public function test_order_show_page_renders(): void
     {
         $batch = OrderOnlineImportBatch::create([

@@ -51,6 +51,7 @@ class ExportMappingController extends Controller
             'mapping' => collect(),
             'columns' => ExportMappingService::COLUMNS,
             'computed' => ExportMappingService::COMPUTED,
+            'splitModes' => ExportTemplate::SPLIT_MODES,
         ]);
     }
 
@@ -62,6 +63,7 @@ class ExportMappingController extends Controller
             $data['name'],
             $this->parseCouriers($data['couriers'] ?? ''),
             $this->parseItems($data['items']),
+            $data['split_mode'] ?? null,
         );
 
         return redirect()->route('export-mapping.index')->with('success', 'Template baru berhasil dibuat.');
@@ -74,6 +76,7 @@ class ExportMappingController extends Controller
             'mapping' => $this->mappings->mappingFor($exportTemplate->key),
             'columns' => ExportMappingService::COLUMNS,
             'computed' => ExportMappingService::COMPUTED,
+            'splitModes' => ExportTemplate::SPLIT_MODES,
         ]);
     }
 
@@ -86,6 +89,7 @@ class ExportMappingController extends Controller
             $data['name'],
             $this->parseCouriers($data['couriers'] ?? ''),
             $this->parseItems($data['items']),
+            $data['split_mode'] ?? null,
         );
 
         return redirect()->route('export-mapping.index')->with('success', 'Template '.$exportTemplate->name.' berhasil diperbarui.');
@@ -132,6 +136,7 @@ class ExportMappingController extends Controller
         return $request->validate([
             'name' => ['required', 'string', 'max:100'],
             'couriers' => ['nullable', 'string', 'max:255'],
+            'split_mode' => ['nullable', 'in:'.implode(',', array_keys(ExportTemplate::SPLIT_MODES))],
             'items' => ['required', 'array', 'min:1'],
             'items.*.column_index' => ['required', 'integer', 'min:0'],
             'items.*.header' => ['required', 'string', 'max:255'],

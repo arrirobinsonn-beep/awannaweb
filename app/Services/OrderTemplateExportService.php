@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\ExportTemplate;
 use App\Models\ExportTemplateMapping;
 use App\Models\OrderOnlineImportBatch;
 use App\Models\Product;
@@ -148,11 +149,15 @@ class OrderTemplateExportService
 
         $exportable = $this->reserveStock($orders);
 
-        // FLIK & custom templates: 1 file langsung (tanpa split warehouse)
-        // SiCepat & SPX: split per warehouse dari kolom CSV
-        $needsWarehouseSplit = in_array($template, ['sicepat', 'spx'], true);
+        // Aturan file per template (kolom `export_templates.split_mode`, diedit di
+        // halaman /export-mapping/{id}/edit):
+        //   single      → 1 file langsung (FLIK & template custom secara default)
+        //   split_csv   → split per gudang dari kolom `warehouse` data mentah (CSV)
+        //   split_rules → split per gudang dari aturan `warehouse_rules`
+        //                 (/warehouse-rules); produk tanpa rule → grup 'LAINNYA'
+        $splitMode = $this->mappings->splitModeFor($template);
 
-        if (! $needsWarehouseSplit) {
+        if ($splitMode === ExportTemplate::SPLIT_SINGLE) {
             $sender = $batch->sender;
             return $this->streamXlsx(
                 $this->buildSpreadsheet($batch, $template, $exportable, $sender),
@@ -160,8 +165,10 @@ class OrderTemplateExportService
             );
         }
 
-        // Split per warehouse (kolom warehouse dari CSV)
-        $groups = $exportable->groupBy(fn ($o) => $o->warehouse ?: 'LAINNYA');
+        // Split per warehouse — basis grouping mengikuti mode template
+        $groups = $splitMode === ExportTemplate::SPLIT_RULES
+            ? $exportable->groupBy(fn ($o) => $this->warehouseRules->resolve($o->product_code) ?: 'LAINNYA')
+            : $exportable->groupBy(fn ($o) => $o->warehouse ?: 'LAINNYA');
 
         if ($groups->count() <= 1) {
             $sender = $batch->sender;

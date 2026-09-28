@@ -426,16 +426,24 @@ class OrderOnlineController extends Controller
     {
         abort_if(auth()->user()->hasRole('cs'), 403, 'CS tidak bisa export data.');
 
-        // Template export bisa custom (tabel export_templates) — bukan hanya 3 bawaan.
-        if (! \App\Models\ExportTemplate::where('key', $template)->exists()) {
-            abort(404);
+        // Template export bisa custom (tabel `export_templates`) — bukan hanya 3 bawaan.
+        $exportTemplate = \App\Models\ExportTemplate::where('key', $template)->first();
+        abort_unless($exportTemplate !== null, 404);
+
+        // Courier valid = isi kolom `export_templates.couriers` template tsb (array dinamis).
+        $validCouriers = array_values(array_filter($exportTemplate->couriers ?? [], fn ($c) => trim((string) $c) !== ''));
+        if ($validCouriers === []) {
+            $validCouriers = $this->export->couriersForTemplate($template);
         }
 
+        if ($courier !== null) {
+            abort_unless(in_array($courier, $validCouriers, true), 404);
+        }
+
+        // FLIK diekspor per courier — tanpa courier, pakai courier pertama template.
         if ($template === OrderTemplateExportService::TEMPLATE_FLIK) {
-            $courier = $courier ?: null;
-            if (! in_array($courier, OrderTemplateExportService::FLIK_COURIERS)) {
-                abort(404);
-            }
+            $courier = $courier ?: ($validCouriers[0] ?? null);
+            abort_unless($courier !== null, 404);
         }
 
         return $this->export->download($batch, $template, $courier);

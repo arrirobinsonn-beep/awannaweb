@@ -28,6 +28,13 @@
 
 @section('content')
 
+@php
+    $splitModeVal = old('split_mode', $template?->split_mode ?? \App\Models\ExportTemplate::SPLIT_SINGLE);
+    if (! array_key_exists($splitModeVal, $splitModes)) {
+        $splitModeVal = \App\Models\ExportTemplate::SPLIT_SINGLE;
+    }
+@endphp
+
 <form method="POST" id="em-main-form"
       action="{{ $template ? route('export-mapping.update', $template) : route('export-mapping.store') }}">
     @csrf
@@ -48,6 +55,35 @@
                        value="{{ old('couriers', $template ? implode(', ', $template->couriers ?? []) : '') }}"
                        placeholder="pisahkan dengan koma, mis. jne, jne-cod" style="font-size:.82rem;">
                 <div class="em-hint">Kosongkan → nama template dipakai sebagai courier. Export di halaman Data Mentah hanya menampilkan order dengan courier ini.</div>
+            </div>
+        </div>
+
+        {{-- Aturan file export: 1 file ATAU dipisah per gudang (basis: CSV / aturan gudang) --}}
+        <div style="margin-top:16px;padding-top:14px;border-top:1px dashed rgba(0,0,0,.1);"
+             id="em-split-rule">
+            <label style="display:block;font-size:.72rem;font-weight:700;color:#374151;margin-bottom:4px;">📦 Aturan File Export *</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div>
+                    <select id="em-split-shape" class="clay-input" style="font-size:.82rem;"
+                            onchange="window.emSyncSplit()">
+                        <option value="single" @selected($splitModeVal === 'single')>1 File (semua gudang digabung)</option>
+                        <option value="split" @selected($splitModeVal !== 'single')>Dipisah per gudang</option>
+                    </select>
+                </div>
+                <div id="em-split-basis-wrap" style="display:{{ $splitModeVal !== 'single' ? 'block' : 'none' }};">
+                    <select id="em-split-basis" class="clay-input" style="font-size:.82rem;"
+                            onchange="window.emSyncSplit()">
+                        <option value="split_csv" @selected($splitModeVal === 'split_csv')>Berdasarkan nama warehouse dari data mentah (CSV)</option>
+                        <option value="split_rules" @selected($splitModeVal === 'split_rules')>Berdasarkan aturan gudang (halaman Aturan Gudang)</option>
+                    </select>
+                </div>
+            </div>
+            <input type="hidden" name="split_mode" id="em-split-mode" value="{{ $splitModeVal }}">
+            <div class="em-hint">
+                Menentukan bentuk file hasil export. <b>1 File</b> = semua gudang jadi 1 file.
+                <b>Dipisah</b> = 1 gudang → 1 file .xlsx; ≥ 2 gudang → 1 ZIP berisi file per gudang.
+                Pemisah <b>CSV</b> memakai kolom warehouse dari file data mentah; pemisah
+                <b>Aturan Gudang</b> memakai tabel <code>warehouse_rules</code> — produk tanpa rule masuk grup "LAINNYA".
             </div>
         </div>
     </div>
@@ -194,6 +230,19 @@
         var wrap = sel.parentElement.querySelector('.em-static');
         if (wrap) wrap.classList.toggle('show', sel.value === 'static');
     };
+
+    // Aturan file export: shape (1 file / dipisah) + basis pemisah → hidden split_mode
+    window.emSyncSplit = function () {
+        var shape = document.getElementById('em-split-shape');
+        var basis = document.getElementById('em-split-basis');
+        var hidden = document.getElementById('em-split-mode');
+        var wrap = document.getElementById('em-split-basis-wrap');
+        if (!shape || !basis || !hidden) return;
+        var isSplit = shape.value !== 'single';
+        if (wrap) wrap.style.display = isSplit ? 'block' : 'none';
+        hidden.value = isSplit ? basis.value : 'single';
+    };
+    window.emSyncSplit();
 
     function escHtml(s) {
         var d = document.createElement('div');
